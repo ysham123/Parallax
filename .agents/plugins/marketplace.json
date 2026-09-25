@@ -1,7 +1,7 @@
 {
   "name": "codex-claude-team",
   "interface": {
-    "displayName": "Codex Claude Team"
+    "displayName": "Parallax"
   },
   "plugins": [
     {

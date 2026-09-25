@@ -2,7 +2,7 @@
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "codex-claude-team",
   "version": "0.1.0",
-  "description": "Bring Claude Code into a local Codex task for independent review and explicitly delegated edits.",
+  "description": "Parallax brings a second perspective from Claude Code into a local Codex task.",
   "author": {
     "name": "Yosef Shammout",
     "url": "https://github.com/ysham123"
@@ -14,9 +14,9 @@
   "extensions": {
     "com.openai": {
       "interface": {
-        "displayName": "Codex Claude Team",
-        "shortDescription": "Get a second view from Claude Code inside a Codex task.",
-        "longDescription": "Ask the signed-in Claude Code CLI for an independent review, continue the exchange, or explicitly delegate a file edit. Codex inspects and synthesizes the result.",
+        "displayName": "Parallax",
+        "shortDescription": "Two minds. One codebase. Sharper judgment.",
+        "longDescription": "Bring Claude Code into a local Codex task for independent reviews, focused follow-ups, and explicitly delegated edits. Codex inspects and synthesizes the result.",
         "developerName": "Yosef Shammout",
         "category": "Productivity",
         "capabilities": ["Read", "Write"],

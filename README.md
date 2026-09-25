@@ -1,105 +1,142 @@
-# Codex Claude Team
+<p align="center">
+  <img src="assets/parallax-hero.svg" alt="Parallax — Two minds. One codebase. Sharper judgment." width="100%">
+</p>
 
-[![Tests](https://github.com/ysham123/codex-claude-team/actions/workflows/tests.yml/badge.svg)](https://github.com/ysham123/codex-claude-team/actions/workflows/tests.yml)
-[![Release](https://img.shields.io/github/v/release/ysham123/codex-claude-team)](https://github.com/ysham123/codex-claude-team/releases/latest)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+<p align="center">
+  <a href="https://github.com/ysham123/codex-claude-team/actions/workflows/tests.yml"><img alt="Tests" src="https://github.com/ysham123/codex-claude-team/actions/workflows/tests.yml/badge.svg"></a>
+  <a href="https://github.com/ysham123/codex-claude-team/releases/tag/v0.1.0"><img alt="First Contact release" src="https://img.shields.io/badge/release-First_Contact-A989FF?style=flat-square"></a>
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-62D8D1?style=flat-square"></a>
+</p>
 
-**An independent second opinion, right inside a local Codex task.**
+<p align="center">
+  <a href="#launch-in-30-seconds">Install</a> ·
+  <a href="#the-experience">See how it works</a> ·
+  <a href="https://github.com/ysham123/codex-claude-team/releases/tag/v0.1.0">Download First Contact</a>
+</p>
 
-Codex Claude Team lets Codex ask the Claude Code CLI to inspect the same project. Codex forms its own view first, then brings Claude's findings back into the task and explains where the two agree or differ. When you explicitly delegate an edit to Claude, Codex checks the resulting diff and runs the relevant verification.
+---
 
-The plugin is a small Codex skill and a Python bridge. It uses your existing Claude Code login. There is no hosted relay, API key to paste into the plugin, or background agent to manage.
+## A second perspective, built into the flow
 
-## What you can do
+**Parallax** brings Claude Code into a local Codex task. Codex considers your problem, asks Claude for an independent read of the same project, then brings the two views together. When you explicitly hand Claude an edit, Codex reviews the changed files and runs the relevant checks.
 
-| Ask Codex to… | What happens |
-| --- | --- |
-| “Consult Claude on this bug and compare your findings.” | Claude reads relevant project files and returns an independent assessment. Codex synthesizes both views. |
-| “Ask Claude to review this design; follow up on any disagreement.” | Codex can continue the same Claude CLI session for a focused follow-up. |
-| “Have Claude implement the parser change, then review and test its diff.” | Claude gets file read and edit tools for that delegated task. Codex inspects the changed files and verifies the result. |
+No extra dashboard. No copy-pasting context between chats. Just a deliberate handoff between two coding agents in your workspace.
 
-Consultations have read-only file tools. Edits require an explicit delegation in your request. The bridge reports changed files in either mode.
+> **First Contact** is the inaugural release. The plugin's install ID remains `codex-claude-team`, so the commands below are stable and easy to share.
 
-## Install
+## Launch in 30 seconds
 
-### Requirements
-
-- A local Codex task in the Codex desktop app or Codex CLI, with plugin marketplaces available.
-- [Claude Code CLI](https://code.claude.com/docs/en/overview) installed and signed in. Check with `claude auth status`; if needed, run `claude auth login`.
-- Python 3.10 or newer and Git on your `PATH`.
-
-Add this GitHub repository as a Codex marketplace, then install the plugin:
+You need a local Codex task, [Claude Code CLI](https://code.claude.com/docs/en/overview) signed in on the same machine, Python 3.10+, and Git. Verify your Claude login with `claude auth status`; run `claude auth login` if needed.
 
 ```sh
 codex plugin marketplace add ysham123/codex-claude-team
 codex plugin add codex-claude-team@codex-claude-team
 ```
 
-This follows [OpenAI's repository marketplace installation flow](https://developers.openai.com/plugins/build/plugins).
+Start a new Codex task for your project and say:
 
-Start a new Codex task after installing. In the desktop app, you can also open the Plugins Directory, select **Codex Claude Team** as the marketplace source, and install the plugin there.
+> Consult Claude on this bug. Form your own diagnosis first, ask Claude for an independent view, and show me where your conclusions differ.
 
-To download the source instead, use the [v0.1.0 release](https://github.com/ysham123/codex-claude-team/releases/tag/v0.1.0) or clone the repository:
+You can also install from the **Parallax** marketplace source in the Codex desktop Plugins Directory. The CLI steps follow [OpenAI's repository marketplace flow](https://developers.openai.com/plugins/build/plugins).
+
+## The experience
+
+| 01 / Ask for perspective | 02 / Continue the conversation | 03 / Hand off an edit |
+| :--- | :--- | :--- |
+| Codex gets Claude's independent, read-only assessment of your current workspace. | Codex can ask a focused follow-up in the same Claude session when the first answer raises a question. | You explicitly delegate a specific change. Claude edits files; Codex inspects the diff and verifies the result. |
+
+### Try a review
+
+> Review the retry logic with Claude. I want two independent diagnoses of any failure modes, then a single recommendation that explains the tradeoffs.
+
+### Try an implementation handoff
+
+> Delegate the empty-field fix in the CSV parser to Claude. When it finishes, inspect every changed file and run the parser tests before summarizing the result.
+
+### What Codex receives
+
+```json
+{
+  "ok": true,
+  "answer": "Claude's response…",
+  "session_id": "…",
+  "changed_files": [],
+  "error": null
+}
+```
+
+That structured result lets Codex continue the conversation and check what actually changed. The example shows the shape of a response, not a real session.
+
+## A clear line between review and edits
+
+```text
+YOUR TASK
+   │
+   ▼
+CODEX forms an independent view
+   │
+   ├──── consultation ────► CLAUDE CODE reads the workspace
+   │                            │
+   │◄──── answer + file report ─┘
+   │
+   └──── explicit delegation ► CLAUDE CODE edits the project
+                                │
+        CODEX reviews + tests ◄─┘
+```
+
+The bridge gives consultations `Read`, `Glob`, and `Grep`. An explicitly delegated edit also gets `Edit` and `Write`. It snapshots the workspace before and after the Claude run and reports detected file changes. If a consultation changes files, the bridge returns an error for Codex to inspect.
+
+The plugin is a Codex skill plus a small Python bridge. It uses your existing Claude Code CLI login and does not require a separate API key or hosted relay. The workflow runs in **local Codex tasks**; it does not sync cloud sessions or Claude Desktop chats.
+
+## Download the launch edition
+
+Get the source from the [First Contact release](https://github.com/ysham123/codex-claude-team/releases/tag/v0.1.0), [download the ZIP](https://github.com/ysham123/codex-claude-team/archive/refs/tags/v0.1.0.zip), or clone it:
 
 ```sh
 git clone https://github.com/ysham123/codex-claude-team.git
 ```
 
-The marketplace method handles the Codex installation. A clone or ZIP gives you the source code.
+The marketplace commands above install the plugin into Codex. A ZIP or clone gives you the source for inspection and development.
 
-## Use it
+## For builders
 
-Open a **local** Codex task for the project you want reviewed, then ask:
-
-> Consult Claude on the race condition in the job queue. Give me your own diagnosis first, ask Claude for an independent view, and explain any disagreement.
-
-For an implementation handoff, be specific about the edit:
-
-> Work with Claude on the CSV parser. Delegate the empty-field fix to Claude, then inspect its diff and run the parser tests.
-
-Codex invokes the bridge from the installed skill. You can also call the bridge directly from a terminal:
+Call the bridge directly when you want its JSON result in a local script:
 
 ```sh
 printf '%s\n' 'Review the retry logic for correctness.' | \
   python3 scripts/claude_bridge.py --workspace /path/to/project --mode consult
 ```
 
-The command prints one JSON object with `ok`, `answer`, `session_id`, `changed_files`, and `error`. Pass `--resume SESSION_ID` for a follow-up. Direct `--mode edit` calls give Claude file edit tools; use them only for a task you intend to delegate.
+Use `--resume SESSION_ID` for a follow-up. Use `--mode edit` only when you intend to give Claude a defined file-editing task. Direct calls also accept `--prompt-file` and `--timeout SECONDS`. The default timeout is 180 seconds for consultation and 600 seconds for edits.
 
-## How it works
+Run the test suite without third-party Python packages:
 
-```text
-Your request → Codex forms its view → Claude Code CLI examines the local workspace
-             → bridge returns an answer and changed-file report
-             → Codex compares, verifies, and explains the result
+```sh
+python3 -m unittest discover -s tests -v
 ```
 
-The bridge checks Claude Code authentication, sends the request through standard input, and invokes Claude with a restricted tool list. Consultation allows `Read`, `Glob`, and `Grep`; delegated edits also allow `Edit` and `Write`. It records the workspace state before and after Claude runs and returns any detected file changes. A consultation that changes files is reported as a failure for Codex to inspect.
+Explore the [skill](skills/codex-claude-team/SKILL.md), [bridge](scripts/claude_bridge.py), [plugin manifest](plugin.json), and [marketplace catalog](.agents/plugins/marketplace.json). Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-The plugin runs locally, but Claude Code may transmit your prompt and project content to Anthropic under your Claude account's settings. Use it only with work you are permitted to share with Claude. Claude Code CLI conversations do not need to appear in Claude Desktop.
-
-## Troubleshooting
+<details>
+<summary><strong>Troubleshooting</strong></summary>
 
 | Symptom | Check |
 | --- | --- |
 | `Claude Code CLI was not found` | Install Claude Code and make sure `claude` is on the `PATH` used by Codex. |
 | `Claude Code is not signed in` | Run `claude auth login`, then `claude auth status`. |
 | Plugin is missing in an existing task | Start a new Codex task after installation. |
-| Claude times out | Retry with a narrower question or use `--timeout SECONDS` for a direct bridge call. The defaults are 180 seconds for consultation and 600 seconds for edits. |
-| A consultation reports changed files | Inspect the named files before continuing; the bridge treats this as an error. |
+| Claude times out | Narrow the question or use `--timeout SECONDS` for a direct bridge call. |
+| A consultation reports changed files | Inspect the named files before continuing. The bridge treats this as an error. |
 
-This workflow requires a local task because it calls the Claude Code executable on the same machine as Codex. It does not connect two cloud sessions or sync Claude Desktop chats.
+</details>
 
-## Development
+<details>
+<summary><strong>Data and permissions</strong></summary>
 
-Run the bridge tests without third-party Python packages:
+Claude Code may transmit your prompt and project content to Anthropic under your Claude account settings. Use Parallax with projects you are permitted to share with Claude. Consultations use read-only file tools; file edits require an explicit delegation in your request.
 
-```sh
-python3 -m unittest discover -s tests -v
-```
+</details>
 
-The [plugin manifest](plugin.json), [marketplace catalog](.agents/plugins/marketplace.json), [skill instructions](skills/codex-claude-team/SKILL.md), and [bridge](scripts/claude_bridge.py) are all included in this repository. Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
+---
 
-## License
-
-[MIT](LICENSE) © 2026 Yosef Shammout.
+<p align="center"><strong>FIRST CONTACT</strong><br>Made by <a href="https://github.com/ysham123">Yosef Shammout</a> · <a href="LICENSE">MIT licensed</a></p>

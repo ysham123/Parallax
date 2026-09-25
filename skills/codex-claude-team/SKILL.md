@@ -3,7 +3,7 @@ name: codex-claude-team
 description: Consult the signed-in Claude Code CLI from a local Codex task when the user explicitly asks Codex to consult or work with Claude. Supports independent review, follow-up exchanges, and expressly delegated file edits.
 ---
 
-# Codex–Claude team
+# Parallax — Codex–Claude team
 
 Use this skill only when the user asks to involve Claude in the current task. A request to “consult Claude” or “work with Claude” starts with an independent, read-only review. Claude may edit files only when the user explicitly delegates an implementation task to Claude.
 

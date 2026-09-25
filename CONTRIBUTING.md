@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for improving Codex Claude Team. Issues and focused pull requests are welcome.
+Thanks for improving Parallax. Issues and focused pull requests are welcome.
 
 1. Describe the behavior you want to change and why it matters to a Codex or Claude Code user.
 2. Keep the skill instructions, README, and bridge behavior in sync when changing the workflow.
