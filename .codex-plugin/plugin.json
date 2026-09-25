@@ -1,0 +1,22 @@
+{
+  "name": "codex-claude-team",
+  "version": "0.1.0",
+  "description": "Bring Claude Code into a local Codex task for independent review and explicitly delegated edits.",
+  "author": {
+    "name": "Yosef Shammout"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Codex Claude Team",
+    "shortDescription": "Get a second view from Claude Code inside a Codex task.",
+    "longDescription": "Ask the signed-in Claude Code CLI for an independent review, continue the exchange, or explicitly delegate a file edit. Codex inspects and synthesizes the result.",
+    "developerName": "Yosef Shammout",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"],
+    "websiteURL": "https://github.com/ysham123/codex-claude-team",
+    "defaultPrompt": [
+      "Consult Claude on this task and show both perspectives.",
+      "Work with Claude on this project and compare your findings."
+    ]
+  }
+}

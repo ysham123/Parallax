@@ -1,0 +1,20 @@
+{
+  "name": "codex-claude-team",
+  "interface": {
+    "displayName": "Codex Claude Team"
+  },
+  "plugins": [
+    {
+      "name": "codex-claude-team",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/ysham123/codex-claude-team.git"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
