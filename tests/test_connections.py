@@ -245,14 +245,16 @@ class ConnectionsTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("OPENAI_API_KEY",env)
         self.assertIn(str(self.workspace/".git"),rule)
 
-    @unittest.skipUnless(sys.platform=="darwin","requires macOS sandbox")
+    @unittest.skipUnless(sys.platform=="darwin" or sys.platform.startswith("linux"),"requires macOS or Linux sandbox")
     async def test_actual_command_sandbox_restricts_secret_and_external_access(self):
+        from parallax.assessment import execution_capability
+        if not execution_capability()["enforced"]: self.skipTest("Command sandbox is unavailable on this host")
         secret=self.home/"outside-secret";secret.write_text("private")
         (self.workspace/".env").write_text("private")
         (self.workspace/"nested").mkdir();(self.workspace/"nested"/".ENV.local").write_text("private")
         (self.workspace/"nested"/".ssh").mkdir();(self.workspace/"nested"/".ssh"/"key").write_text("private")
         script=self.workspace/"test_scope.py"
-        script.write_text('import pathlib,os,sys\nassert sys.prefix == '+repr(sys.prefix)+'\nfor p in '+repr([str(secret),str(self.workspace/".env"),str(self.workspace/"nested"/".ENV.local"),str(self.workspace/"nested"/".ssh"/"key")])+':\n try:\n  pathlib.Path(p).read_text();raise AssertionError("secret readable")\n except PermissionError: pass\nassert os.environ.get("API_SECRET") is None\npathlib.Path(os.environ["TMPDIR"],"ok").write_text("ok")\nprint("protected")\n')
+        script.write_text('import pathlib,os,sys\nassert sys.prefix == '+repr(sys.prefix)+'\nfor p in '+repr([str(secret),str(self.workspace/".env"),str(self.workspace/"nested"/".ENV.local"),str(self.workspace/"nested"/".ssh"/"key")])+':\n try:\n  value=pathlib.Path(p).read_text()\n except (PermissionError,FileNotFoundError): pass\n else: assert value != "private", "secret readable"\nassert os.environ.get("API_SECRET") is None\npathlib.Path(os.environ["TMPDIR"],"ok").write_text("ok")\nprint("protected")\n')
         events=[]
         result=await ApiAgent(self.store.home)._tool(self.workspace,"run_command",{"argv":[sys.executable,"-B",str(script)]},"edit",["math.py"],None,events.append)
         self.assertTrue(result["ok"],result);self.assertIn("protected",result["output"])

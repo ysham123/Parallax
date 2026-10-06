@@ -143,6 +143,21 @@ class ProvidersTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(info['status'],'missing')
         self.assertIsNone(info['authenticated'])
 
+    async def test_grok_public_catalog_does_not_imply_login(self):
+        binary = Path(self.binaries['grok'])
+        binary.write_text(binary.read_text().replace('You are logged in with grok.com.', 'You are not authenticated.'))
+        info = await self.registry.catalog('grok', refresh=True)
+        self.assertFalse(info['authenticated'])
+        self.assertEqual(info['status'], 'sign_in_required')
+        self.assertEqual(info['default_model'], 'fake-grok')
+        self.assertTrue(info['models'])
+
+    def test_plain_authentication_failure_has_structured_error(self):
+        captured = Captured(stdout='You are not authenticated.\nAvailable models:\n * grok-test', stderr='', exit_code=1, events=[])
+        result = ProviderRegistry._parse('grok', captured, None)
+        self.assertFalse(result['ok'])
+        self.assertEqual(result['error']['code'], 'authentication_required')
+
     async def test_codex_native_flags_and_session(self):
         events=[]
         result=await self.run_provider('codex',on_event=lambda event:events.append(event))

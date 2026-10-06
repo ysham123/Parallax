@@ -518,7 +518,10 @@ export function RunWorkspace(props: Props) {
           )}
         </div>
         <div className="work-history-footer">
-          Local history<span>Inference through your connections</span>
+          {import.meta.env.MODE === "cloud"
+            ? "Workspace history"
+            : "Local history"}
+          <span>Inference through your connections</span>
         </div>
       </aside>
       {historyOpen && (

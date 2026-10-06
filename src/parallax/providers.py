@@ -465,7 +465,11 @@ class ProviderRegistry:
                 elif provider == "grok":
                     catalog = await self._metadata(executable, ["models"])
                     combined = catalog.stdout + catalog.stderr
-                    info["authenticated"] = catalog.exit_code == 0 and ("logged in" in combined.lower() or "available models" in combined.lower())
+                    # Grok lists public models even when the account is signed
+                    # out. A catalog is not evidence of authentication.
+                    info["authenticated"] = (catalog.exit_code == 0
+                        and "logged in" in combined.lower()
+                        and not re.search(r"(?i)(not authenticated|not logged in|authentication required)", combined))
                     cache = self._cache_file(provider)
                     available = re.findall(r"^\s*[-*]\s+([a-zA-Z0-9_.:/-]+)", catalog.stdout, re.M)
                     rows = _model_rows(cache)
@@ -859,6 +863,8 @@ class ProviderRegistry:
             structured = None
         if not terminal and not captured.failure:
             error = "Provider returned no valid terminal event"
+            if re.search(r"(?i)(not authenticated|not logged in|authentication required|silent auth failed)", captured.stdout + captured.stderr):
+                error = "Authentication required; sign in to the provider on this runtime"
         if captured.exit_code != 0 and not captured.failure:
             error = error or captured.stderr.strip() or f"Provider exited {captured.exit_code}"
         return {"ok": error is None and terminal is not None and captured.exit_code == 0,

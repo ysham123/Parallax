@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 from fastapi.testclient import TestClient
 from parallax.assessment import assess_project, package_directory
-from parallax.engine import Engine, _sandbox_check
+from parallax.engine import Engine, _sandbox_check, _node_toolchain_reads
 from parallax.models import RunSpec, Participant, ProjectProfile, CheckSpec
 from parallax.store import Store
 from parallax.receipt import get_receipt
@@ -19,6 +19,24 @@ from parallax.server import create_app
 from test_engine import FakeRegistry, git
 
 FIXTURES=Path(__file__).parent/'fixtures'
+
+class NodeToolchainTests(unittest.TestCase):
+    def test_native_npm_wrapper_exposes_only_verified_package(self):
+        with tempfile.TemporaryDirectory() as directory:
+            prefix = Path(directory).resolve() / 'node'
+            launch = prefix / 'bin' / 'npm'
+            launch.parent.mkdir(parents=True)
+            launch.write_text('#!/bin/sh\nexec node "$0/../../lib/node_modules/npm/bin/npm-cli.js" "$@"\n')
+            package = prefix / 'lib' / 'node_modules' / 'npm'
+            (package / 'bin').mkdir(parents=True)
+            (package / 'bin' / 'npm-cli.js').write_text('// npm entry point')
+            (package / 'package.json').write_text(json.dumps({'name': 'npm'}))
+            reads = _node_toolchain_reads([str(launch), 'run', 'test'])
+            self.assertIn(package, reads)
+            self.assertNotIn(prefix, reads)
+            self.assertNotIn(prefix / 'lib', reads)
+            (package / 'package.json').write_text(json.dumps({'name': 'unrelated'}))
+            self.assertNotIn(package, _node_toolchain_reads([str(launch), 'run', 'test']))
 
 class DeliveryAgent(FakeRegistry):
     def __init__(self, files, reject_once=False, concurrent=None):

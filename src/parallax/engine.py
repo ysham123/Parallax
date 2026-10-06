@@ -1127,13 +1127,21 @@ def _node_toolchain_reads(argv):
     if Path(argv[0]).name != "node":
         # Native npm installations have a fixed bin/npm-cli.js entry point.
         # Only its verified package contains npm's required bundled modules.
-        package = resolved.parent.parent
-        manifest = package / "package.json"
-        if resolved == package / "bin" / "npm-cli.js":
+        packages = []
+        if resolved.name == "npm-cli.js":
+            packages.append(resolved.parent.parent)
+        elif resolved.name == "npm" and resolved.parent.name == "bin":
+            # mise's native npm launcher is a shell wrapper rather than a
+            # symlink. Bind the fixed npm package it launches, not the whole
+            # installation (which can contain other tools or user data).
+            packages.append(resolved.parent.parent / "lib" / "node_modules" / "npm")
+        for package in packages:
+            manifest = package / "package.json"
             try:
                 if (not manifest.is_symlink() and manifest.is_file()
                         and manifest.stat().st_size <= 1024 * 1024
-                        and json.loads(manifest.read_text()).get("name") == "npm"):
+                        and json.loads(manifest.read_text()).get("name") == "npm"
+                        and (package / "bin" / "npm-cli.js").is_file()):
                     paths.add(package)
             except (OSError, ValueError, AttributeError):
                 pass

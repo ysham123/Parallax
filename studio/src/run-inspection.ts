@@ -359,7 +359,13 @@ export function getRunAgents(
           ? graphText(agent.tasks[0].title, graphText(agent.tasks[0].id))
           : `${agent.tasks.length} recorded tasks`;
     } else if (agent.reviews.length) {
-      agent.state = "review complete";
+      const latest = agent.reviews.at(-1)!.review;
+      agent.state =
+        latest.ok === false || latest.error
+          ? "review failed"
+          : latest.ok === true
+            ? "review complete"
+            : "review recorded";
       agent.assignment = `${agent.reviews.length} independent ${agent.reviews.length === 1 ? "review" : "reviews"}`;
     } else if (agent.events.length || agent.sessions.length) {
       agent.state =
