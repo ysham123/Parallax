@@ -2,7 +2,7 @@
 
 The recommended default for Parallax users is local execution: existing CLI sign-ins, project files, development environments, snapshots, and integration stay on their computer. Vercel hosts the public entry page. It opens Studio through the installed plugin. The website does not connect to localhost in the background or upload its launch token.
 
-An optional dedicated-team deployment serves Studio on Vercel and the runtime on Railway. This is a shared operator workspace, not a public multi-user SaaS: everyone with its access key can see the team's runs, manage connections, and operate projects. Use a separate service and volume for each trusted team. User accounts, tenant isolation, local executor pairing, and remote per-run workers need a separate implementation before opening this mode to unrelated customers.
+An optional dedicated-team deployment serves Studio on Vercel and the runtime on Railway. This is a shared operator workspace, not a public multi-user SaaS: everyone with its access key can see the team's runs, manage connections, and operate projects. Use a separate service and volume for each trusted team. Local executor pairing is available for approved project roots. User accounts, tenant isolation, and remote per-run workers need a separate implementation before opening this mode to unrelated customers.
 
 ## Vercel
 
@@ -80,3 +80,9 @@ python3 scripts/smoke_container.py
 The Docker smoke test uses a disposable container, a temporary access key, health checks, and authenticated API requests. It does not start inference or access a real project. CI builds both Vercel modes and the Railway image, runs authentication/origin/workspace boundary tests, and ensures hosted builds do not overwrite the packaged local Studio.
 
 After deployment, verify `/api/health`, sign-in, refresh/reconnect, sign-out, model discovery, provider auth failures, downloaded receipts, and a replaying SSE connection through Vercel. Check Railway logs and the persistent volume after a restart. Run real CLI/provider smoke tests separately in disposable project clones. No deployment is created by these preparation commands.
+
+## Paired local execution
+
+Hosted Studio can control an explicitly paired local worker through an outbound HTTPS relay. Select **Machines** to pair, then choose its name in the **Execution machine** menu. Native sign-ins, project worktrees, checks, and verified integration stay on the chosen machine; the hosted workspace receives run evidence for graph inspection and replay. This bypasses the Railway native Codex compatibility problem by moving execution to a compatible machine, without disabling any sandbox gate. See [local worker setup, scope, and recovery](LOCAL-WORKERS.md).
+
+This remains a private operator workspace. Pairing is approval for anyone with Studio access to operate the exact project roots declared on that worker; it is not customer tenant isolation. A sleeping Mac cannot execute work, and connection revocation reaches an offline worker only after it reconnects.

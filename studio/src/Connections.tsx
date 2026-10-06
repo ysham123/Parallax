@@ -3,8 +3,6 @@ import { api, messageOf } from "./api";
 import { ProviderMark } from "./Brand";
 import { LABELS, type Connection, type Model } from "./types";
 
-const hosted = import.meta.env.MODE === "cloud";
-
 const API_NAMES: Record<string, string> = {
   codex: "OpenAI API",
   claude: "Claude API",
@@ -41,11 +39,15 @@ export function Connections({
   connections,
   onChanged,
   onClose,
+  execution,
 }: {
   connections: Connection[];
   onChanged: () => Promise<void>;
   onClose: () => void;
+  execution?: { name: string; platform?: string; paired?: boolean };
 }) {
+  const paired = !!execution?.paired;
+  const hosted = import.meta.env.MODE === "cloud" && !paired;
   const [tests, setTests] = useState<
     Record<string, { ok: boolean; message: string }>
   >({});
@@ -298,11 +300,19 @@ export function Connections({
           <section className="native-connections">
             <div className="section-heading">
               <div>
-                <h3>{hosted ? "Hosted agents" : "Local agents"}</h3>
+                <h3>
+                  {paired
+                    ? `Agents on ${execution?.name}`
+                    : hosted
+                      ? "Hosted agents"
+                      : "Local agents"}
+                </h3>
                 <p>
-                  {hosted
-                    ? "Run on your Railway machine with its CLI authentication."
-                    : "Run on this machine with the CLI’s existing authentication."}
+                  {paired
+                    ? "Existing CLI sign-ins stay on this execution machine."
+                    : hosted
+                      ? "Run on your Railway machine with its CLI authentication."
+                      : "Run on this machine with the CLI’s existing authentication."}
                 </p>
               </div>
               <span className="connection-section-tag">
@@ -359,6 +369,7 @@ export function Connections({
               </div>
               <button
                 className="secondary-button small"
+                disabled={paired}
                 onClick={() => {
                   setDraft({
                     ...fresh(),
@@ -383,6 +394,7 @@ export function Connections({
                   >
                     <button
                       onClick={() => edit(c)}
+                      disabled={paired}
                       className="connection-select"
                     >
                       <ProviderMark
@@ -416,6 +428,7 @@ export function Connections({
                     </button>
                     <button
                       className="text-button connection-remove"
+                      disabled={paired}
                       onClick={() => setRemove(c.id)}
                       aria-label={`Remove ${c.name}`}
                     >
@@ -456,222 +469,246 @@ export function Connections({
               </p>
             )}
           </section>
-          <section className="connection-form">
-            <div className="connection-form-title">
-              <span className="eyebrow">
-                {editing ? "EDIT CONNECTION" : "ADD AN API"}
-              </span>
-              <h3>{draft.name || "New connection"}</h3>
-            </div>
-            <div className="connection-form-grid">
-              <label>
-                Provider
-                <select
-                  value={draft.provider}
-                  onChange={(e) => {
-                    const provider = e.target.value;
-                    setDraft({
-                      ...fresh(),
-                      id: connections.some((c) => c.id === `${provider}-api`)
-                        ? `${provider}-api-${Date.now().toString(36)}`
-                        : `${provider}-api`,
-                      provider,
-                      name: API_NAMES[provider],
-                      protocol:
-                        provider === "claude"
-                          ? "anthropic"
-                          : provider === "antigravity" || provider === "custom"
-                            ? "openai"
-                            : "responses",
-                      advanced: provider === "custom",
-                    });
-                  }}
-                >
-                  {Object.entries(API_NAMES).map(([id, name]) => (
-                    <option key={id} value={id}>
-                      {name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Connection name
-                <input
-                  value={draft.name}
-                  onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-                />
-              </label>
-            </div>
-            <div className="credential-choice" aria-label="Credential source">
-              <button
-                aria-pressed={credential === "key"}
-                className={credential === "key" ? "selected" : ""}
-                onClick={() => setCredential("key")}
-                disabled={hosted}
-              >
-                API key
-              </button>
-              <button
-                aria-pressed={credential === "env"}
-                className={credential === "env" ? "selected" : ""}
-                onClick={() => setCredential("env")}
-              >
-                Environment variable
-              </button>
-            </div>
-            {credential === "key" ? (
-              <label>
-                API key
-                {editing && <small>Leave blank to keep the current key.</small>}
-                <input
-                  type="password"
-                  autoComplete="off"
-                  spellCheck={false}
-                  value={draft.key}
-                  onChange={(e) => setDraft({ ...draft, key: e.target.value })}
-                  placeholder={
-                    editing
-                      ? "Current key is stored securely"
-                      : "Paste your API key"
-                  }
-                />
-              </label>
-            ) : (
-              <label>
-                Environment variable name
-                <input
-                  className="mono"
-                  spellCheck={false}
-                  value={draft.env}
-                  onChange={(e) => setDraft({ ...draft, env: e.target.value })}
-                  placeholder="OPENAI_API_KEY"
-                />
-              </label>
-            )}
-            <p className="credential-help">
-              {hosted
-                ? "Set your API key privately in the Railway runtime’s environment, restart the runtime, then enter the variable name here. Keys are never included in run records."
-                : "Keys are stored in macOS Keychain on Mac. Other platforms use an environment reference. Keys are never included in profiles or run records."}
-            </p>
-            {draft.provider === "antigravity" && (
-              <p className="connection-note">
-                This connects to the Gemini API. Antigravity CLI uses its own
-                signed-in account.
+          {paired ? (
+            <section className="connection-form">
+              <h3>Credentials stay on your machine</h3>
+              <p>
+                Manage API connections locally through the Parallax plugin.
+                Hosted Studio can discover and use existing connections, but
+                cannot add, replace, or remove their credentials.
               </p>
-            )}
-            <details
-              className="connection-advanced"
-              open={draft.advanced}
-              onToggle={(e) => {
-                const open = e.currentTarget.open;
-                setDraft((d) =>
-                  d.advanced === open ? d : { ...d, advanced: open },
-                );
-              }}
-            >
-              <summary>
-                Endpoint & model catalog <span>Advanced</span>
-              </summary>
+            </section>
+          ) : (
+            <section className="connection-form">
+              <div className="connection-form-title">
+                <span className="eyebrow">
+                  {editing ? "EDIT CONNECTION" : "ADD AN API"}
+                </span>
+                <h3>{draft.name || "New connection"}</h3>
+              </div>
               <div className="connection-form-grid">
                 <label>
-                  Connection ID
+                  Provider
+                  <select
+                    value={draft.provider}
+                    onChange={(e) => {
+                      const provider = e.target.value;
+                      setDraft({
+                        ...fresh(),
+                        id: connections.some((c) => c.id === `${provider}-api`)
+                          ? `${provider}-api-${Date.now().toString(36)}`
+                          : `${provider}-api`,
+                        provider,
+                        name: API_NAMES[provider],
+                        protocol:
+                          provider === "claude"
+                            ? "anthropic"
+                            : provider === "antigravity" ||
+                                provider === "custom"
+                              ? "openai"
+                              : "responses",
+                        advanced: provider === "custom",
+                      });
+                    }}
+                  >
+                    {Object.entries(API_NAMES).map(([id, name]) => (
+                      <option key={id} value={id}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Connection name
+                  <input
+                    value={draft.name}
+                    onChange={(e) =>
+                      setDraft({ ...draft, name: e.target.value })
+                    }
+                  />
+                </label>
+              </div>
+              <div className="credential-choice" aria-label="Credential source">
+                <button
+                  aria-pressed={credential === "key"}
+                  className={credential === "key" ? "selected" : ""}
+                  onClick={() => setCredential("key")}
+                  disabled={hosted}
+                >
+                  API key
+                </button>
+                <button
+                  aria-pressed={credential === "env"}
+                  className={credential === "env" ? "selected" : ""}
+                  onClick={() => setCredential("env")}
+                >
+                  Environment variable
+                </button>
+              </div>
+              {credential === "key" ? (
+                <label>
+                  API key
+                  {editing && (
+                    <small>Leave blank to keep the current key.</small>
+                  )}
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    spellCheck={false}
+                    value={draft.key}
+                    onChange={(e) =>
+                      setDraft({ ...draft, key: e.target.value })
+                    }
+                    placeholder={
+                      editing
+                        ? "Current key is stored securely"
+                        : "Paste your API key"
+                    }
+                  />
+                </label>
+              ) : (
+                <label>
+                  Environment variable name
                   <input
                     className="mono"
-                    value={draft.id}
-                    disabled={!!editing}
-                    onChange={(e) => setDraft({ ...draft, id: e.target.value })}
+                    spellCheck={false}
+                    value={draft.env}
+                    onChange={(e) =>
+                      setDraft({ ...draft, env: e.target.value })
+                    }
+                    placeholder="OPENAI_API_KEY"
+                  />
+                </label>
+              )}
+              <p className="credential-help">
+                {hosted
+                  ? "Set your API key privately in the Railway runtime’s environment, restart the runtime, then enter the variable name here. Keys are never included in run records."
+                  : "Keys are stored in macOS Keychain on Mac. Other platforms use an environment reference. Keys are never included in profiles or run records."}
+              </p>
+              {draft.provider === "antigravity" && (
+                <p className="connection-note">
+                  This connects to the Gemini API. Antigravity CLI uses its own
+                  signed-in account.
+                </p>
+              )}
+              <details
+                className="connection-advanced"
+                open={draft.advanced}
+                onToggle={(e) => {
+                  const open = e.currentTarget.open;
+                  setDraft((d) =>
+                    d.advanced === open ? d : { ...d, advanced: open },
+                  );
+                }}
+              >
+                <summary>
+                  Endpoint & model catalog <span>Advanced</span>
+                </summary>
+                <div className="connection-form-grid">
+                  <label>
+                    Connection ID
+                    <input
+                      className="mono"
+                      value={draft.id}
+                      disabled={!!editing}
+                      onChange={(e) =>
+                        setDraft({ ...draft, id: e.target.value })
+                      }
+                    />
+                  </label>
+                  <label>
+                    API protocol
+                    <select
+                      value={draft.protocol}
+                      onChange={(e) =>
+                        setDraft({ ...draft, protocol: e.target.value })
+                      }
+                    >
+                      <option value="responses">Responses API</option>
+                      <option value="anthropic">Anthropic Messages</option>
+                      <option value="openai">OpenAI-compatible Chat</option>
+                    </select>
+                  </label>
+                </div>
+                <label>
+                  Inference endpoint
+                  <input
+                    className="mono"
+                    value={draft.endpoint}
+                    onChange={(e) =>
+                      setDraft({ ...draft, endpoint: e.target.value })
+                    }
+                    placeholder={
+                      draft.provider === "custom"
+                        ? "https://your-provider.example/v1"
+                        : "Official provider endpoint (default)"
+                    }
                   />
                 </label>
                 <label>
-                  API protocol
-                  <select
-                    value={draft.protocol}
+                  Model catalog{" "}
+                  <small>
+                    JSON array; declare supported efforts explicitly.
+                  </small>
+                  <textarea
+                    className="mono"
+                    rows={5}
+                    value={draft.models}
                     onChange={(e) =>
-                      setDraft({ ...draft, protocol: e.target.value })
+                      setDraft({ ...draft, models: e.target.value })
                     }
-                  >
-                    <option value="responses">Responses API</option>
-                    <option value="anthropic">Anthropic Messages</option>
-                    <option value="openai">OpenAI-compatible Chat</option>
-                  </select>
+                    placeholder={
+                      '[{"id":"your-model","label":"Your model","efforts":[]}]'
+                    }
+                  />
                 </label>
+                <label>
+                  Default model ID
+                  <input
+                    className="mono"
+                    value={draft.default_model}
+                    onChange={(e) =>
+                      setDraft({ ...draft, default_model: e.target.value })
+                    }
+                    placeholder="Use the provider catalog default"
+                  />
+                </label>
+                <p className="muted">
+                  An empty catalog uses the maintained provider catalog. Custom
+                  endpoints require explicit models and capabilities.
+                </p>
+              </details>
+              {error && (
+                <p className="connection-feedback error" role="alert">
+                  {error}
+                </p>
+              )}
+              {notice && (
+                <p className="connection-feedback success" role="status">
+                  {notice}
+                </p>
+              )}
+              <div className="connection-form-footer">
+                <span>
+                  {hosted
+                    ? "Projects and execution stay on Railway."
+                    : "SSH and remote execution are not supported."}
+                </span>
+                <button
+                  className="primary-button"
+                  onClick={() => void save()}
+                  disabled={!!busy}
+                >
+                  {busy === "save"
+                    ? "Saving…"
+                    : editing
+                      ? "Update connection"
+                      : "Save connection"}{" "}
+                  <span>↗</span>
+                </button>
               </div>
-              <label>
-                Inference endpoint
-                <input
-                  className="mono"
-                  value={draft.endpoint}
-                  onChange={(e) =>
-                    setDraft({ ...draft, endpoint: e.target.value })
-                  }
-                  placeholder={
-                    draft.provider === "custom"
-                      ? "https://your-provider.example/v1"
-                      : "Official provider endpoint (default)"
-                  }
-                />
-              </label>
-              <label>
-                Model catalog{" "}
-                <small>JSON array; declare supported efforts explicitly.</small>
-                <textarea
-                  className="mono"
-                  rows={5}
-                  value={draft.models}
-                  onChange={(e) =>
-                    setDraft({ ...draft, models: e.target.value })
-                  }
-                  placeholder={
-                    '[{"id":"your-model","label":"Your model","efforts":[]}]'
-                  }
-                />
-              </label>
-              <label>
-                Default model ID
-                <input
-                  className="mono"
-                  value={draft.default_model}
-                  onChange={(e) =>
-                    setDraft({ ...draft, default_model: e.target.value })
-                  }
-                  placeholder="Use the provider catalog default"
-                />
-              </label>
-              <p className="muted">
-                An empty catalog uses the maintained provider catalog. Custom
-                endpoints require explicit models and capabilities.
-              </p>
-            </details>
-            {error && (
-              <p className="connection-feedback error" role="alert">
-                {error}
-              </p>
-            )}
-            {notice && (
-              <p className="connection-feedback success" role="status">
-                {notice}
-              </p>
-            )}
-            <div className="connection-form-footer">
-              <span>
-                {hosted
-                  ? "Projects and execution stay on Railway."
-                  : "SSH and remote execution are not supported."}
-              </span>
-              <button
-                className="primary-button"
-                onClick={() => void save()}
-                disabled={!!busy}
-              >
-                {busy === "save"
-                  ? "Saving…"
-                  : editing
-                    ? "Update connection"
-                    : "Save connection"}{" "}
-                <span>↗</span>
-              </button>
-            </div>
-          </section>
+            </section>
+          )}
         </div>
       </div>
     </div>

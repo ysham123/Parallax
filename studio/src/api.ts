@@ -1,5 +1,20 @@
-export async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`/api${path}`, {
+let executor: string | null = null;
+export function setApiExecutor(value: string | null) {
+  executor = value;
+}
+export function apiUrl(path: string): string {
+  return executor
+    ? `/api/executors/${encodeURIComponent(executor)}/proxy${path}`
+    : `/api${path}`;
+}
+export function api<T>(path: string, init?: RequestInit): Promise<T> {
+  return request<T>(apiUrl(path), init);
+}
+export function relayApi<T>(path: string, init?: RequestInit): Promise<T> {
+  return request<T>(`/api${path}`, init);
+}
+async function request<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, {
     credentials: "same-origin",
     ...init,
     headers: { "Content-Type": "application/json", ...(init?.headers || {}) },

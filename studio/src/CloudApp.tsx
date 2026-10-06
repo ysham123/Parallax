@@ -1,5 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import App from "./App";
+import { relayApi, setApiExecutor, messageOf } from "./api";
+import { ExecutionMachines, type ExecutionMachine } from "./ExecutionMachines";
 import "./hosted.css";
 
 export default function CloudApp() {
@@ -9,6 +11,30 @@ export default function CloudApp() {
   const [key, setKey] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [machines, setMachines] = useState<ExecutionMachine[]>([]);
+  const [selected, setSelected] = useState(
+    () => localStorage.getItem("parallax-executor") || "railway",
+  );
+  async function refreshMachines() {
+    try {
+      setMachines(await relayApi<ExecutionMachine[]>("/executors"));
+    } catch (failure) {
+      setError(messageOf(failure));
+    }
+  }
+  useEffect(() => {
+    if (state !== "ready") return;
+    void refreshMachines();
+    const timer = window.setInterval(() => void refreshMachines(), 5000);
+    return () => window.clearInterval(timer);
+  }, [state]);
+  function selectMachine(id: string) {
+    localStorage.setItem("parallax-executor", id);
+    setApiExecutor(id === "railway" ? null : id);
+    setSelected(id);
+  }
+  setApiExecutor(selected === "railway" ? null : selected);
+  const machine = machines.find((m) => m.id === selected);
   async function check() {
     setError("");
     setState("checking");
@@ -78,7 +104,28 @@ export default function CloudApp() {
   if (state === "ready")
     return (
       <>
-        <App />
+        <App
+          key={selected}
+          execution={
+            selected === "railway"
+              ? undefined
+              : {
+                  name: machine?.name || "paired machine",
+                  workspace: machine?.workspaces[0],
+                  platform: machine?.platform,
+                  online: machine?.online,
+                  paired: true,
+                }
+          }
+          executionControls={
+            <ExecutionMachines
+              machines={machines}
+              selected={selected}
+              onSelect={selectMachine}
+              refresh={refreshMachines}
+            />
+          }
+        />
         <div className="cloud-session">
           <button onClick={signOut} disabled={busy}>
             Sign out of hosted workspace
@@ -95,8 +142,8 @@ export default function CloudApp() {
         </span>
         <h1 id="cloud-title">Open your Studio</h1>
         <p>
-          This workspace runs on your team’s Railway service. Projects and
-          provider connections belong to that service.
+          Open your private workspace, then choose Railway or an approved local
+          execution machine.
         </p>
         {state === "checking" ? (
           <p role="status">Checking your session…</p>

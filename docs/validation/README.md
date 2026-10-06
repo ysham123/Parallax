@@ -1,5 +1,9 @@
 # Release validation evidence
 
+## Hosted local execution
+
+[Paired worker validation](paired-local-worker-2026-10-06.md) records a real hosted Codex/Claude build, independent reviews, all five integration gates, and staged/untracked preservation. It also records the current runtime and relay regression coverage. Earlier evidence below retains its historical validation status.
+
 ## 1.1 developer alpha
 
 [Real mixed-project delivery](delivery-native-1.1.json) records a completed four-native-provider build with two failed baseline test suites, four passing final checks, independent per-task and combined review, two scoped source edits and all five integration gates. The real Git index matched byte for byte after application. This is a disposable build demonstration, not a human alpha outcome.

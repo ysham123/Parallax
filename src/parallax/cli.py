@@ -198,6 +198,8 @@ def main():
         connection=sub.add_parser(name);connection.add_argument("id")
     studio=sub.add_parser("studio");studio.add_argument("--workspace",default=os.getcwd())
     server=sub.add_parser("serve");server.add_argument("--workspace",default=os.getcwd())
+    from .worker import add_arguments
+    add_arguments(sub.add_parser("worker",help="Connect an approved local project to hosted Studio"))
     sub.add_parser("mcp");sub.add_parser("history")
     profile=sub.add_parser("profiles");profile.add_argument("--save");profile.add_argument("--spec",type=Path)
     assessment=sub.add_parser("assess");assessment.add_argument("--workspace",default=os.getcwd());assessment.add_argument("--package-root",action="append",dest="package_roots",default=[]);assessment.add_argument("--spec",type=Path)
@@ -211,6 +213,9 @@ def main():
     args=parser.parse_args()
     try:
         if args.command=="serve": serve(args.workspace);return
+        if args.command=="worker":
+            from .worker import launch
+            launch(args);return
         if args.command=="mcp": mcp();return
         if args.command=="run":
             if args.spec: spec=RunSpec.model_validate_json(args.spec.read_text())

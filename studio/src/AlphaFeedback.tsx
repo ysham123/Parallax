@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, messageOf } from "./api";
+import { api, apiUrl, messageOf } from "./api";
 import type { RunResult } from "./types";
 export function AlphaFeedback({ run }: { run: RunResult }) {
   const [accepted, setAccepted] = useState(false),
@@ -131,7 +131,7 @@ export function AlphaFeedback({ run }: { run: RunResult }) {
       </button>
       <a
         className="secondary-button small"
-        href="/api/feedback/export"
+        href={apiUrl("/feedback/export")}
         download="parallax-alpha-metrics.json"
       >
         Export aggregate metrics
