@@ -7,7 +7,8 @@ import tempfile
 import time
 import unittest
 import uuid
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
+import httpx
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from parallax.deployment import Deployment
@@ -15,7 +16,7 @@ from parallax.executors import ExecutorHub, digest, encode, permitted
 from parallax.models import RunSpec, RunResult
 from parallax.server import create_app
 from parallax.store import Store
-from parallax.worker import WorkerRuntime
+from parallax.worker import WorkerRuntime, run_worker
 from test_engine import FakeRegistry, git
 
 
@@ -158,6 +159,24 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         self.hub.complete(self.worker,command["id"],response)
         with self.assertRaises(HTTPException): self.hub.complete(self.worker,command["id"],{**response,"body":{"tampered":True}})
         self.assertEqual(await pending,response)
+
+    async def test_network_loss_retries_but_revocation_exits_worker(self):
+        state=self.root/"connection-state";state.mkdir()
+        credentials={"id":str(uuid.uuid4()),"token":"worker-secret","url":"https://relay.example.com","workspaces":[str(self.project)]}
+        (state/"worker-connection.json").write_text(encode(credentials))
+        requests=[]
+        def handle(request):
+            requests.append(request.url.path)
+            if len(requests)==1: raise httpx.ConnectError("temporary network loss")
+            return httpx.Response(401,json={"detail":"revoked"})
+        original_client=httpx.AsyncClient
+        def client(**kwargs):
+            if "transport" not in kwargs: kwargs["transport"]=httpx.MockTransport(handle)
+            return original_client(**kwargs)
+        with patch("parallax.worker.httpx.AsyncClient",side_effect=client), patch("parallax.worker.asyncio.sleep",new_callable=AsyncMock):
+            with self.assertRaises(PermissionError):
+                await run_worker("https://relay.example.com",state,[self.project],name="Test")
+        self.assertEqual(requests,["/api/worker/sync","/api/worker/sync"])
 
 
 class WorkerProtocolTests(unittest.TestCase):

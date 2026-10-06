@@ -157,6 +157,8 @@ async def run_worker(url, state, workspaces, *, name, pair_code=None):
                     if last_notice == "offline":
                         print("Relay reconnected; replaying saved run evidence.", flush=True)
                     last_notice = "online"
+                except PermissionError:
+                    raise
                 except (httpx.HTTPError, OSError):
                     if last_notice != "offline":
                         print("Relay unavailable. Authorized local runs continue; Studio controls will reconnect when the network returns.", flush=True)

@@ -2285,7 +2285,11 @@ export default function App({
               events={events}
               loading={historyLoading}
               busy={busy}
-              streamStatus={streamStatus}
+              streamStatus={
+                execution?.paired && execution.online === false
+                  ? "worker offline · saved evidence"
+                  : streamStatus
+              }
               selected={selectedTask}
               onOverlayChange={setWorkspaceOverlay}
               onSelect={setSelectedTask}
