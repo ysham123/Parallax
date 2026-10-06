@@ -15,3 +15,14 @@
 
 - Introduced independent Claude consultation, resumable follow-ups, and explicitly delegated file edits.
 - Published the Parallax identity and repository marketplace installation.
+
+## 1.1.0 · Developer alpha (prepared locally)
+
+- Read-only project assessment, package roots, reusable project profiles and selected-provider readiness.
+- Private baseline checks, required final check preservation, per-package dependency setup and environment provenance.
+- Contextual recovery and repair briefs carrying actual failed checks and independent findings.
+- Studio readiness, check comparison, recovery and opt-in aggregate feedback export.
+- Versioned additive contracts and SQLite tables, retained 1.0 receipts and legacy Claude compatibility.
+- Python service, typed React and mixed-project fake-agent acceptance fixtures; prepared matched single-Codex alpha protocol.
+
+Publication, remote CI, live API inference and the five-developer study remain separate validation gates.

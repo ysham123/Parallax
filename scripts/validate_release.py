@@ -17,9 +17,9 @@ manifests={}
 for name in ("plugin.json",".codex-plugin/plugin.json","studio/package.json"):
     doc=json.loads((root/name).read_text());manifests[name]=doc;versions.append(doc["version"])
     if "plugin" in name: check(doc["name"]=="codex-claude-team",name+" changes the installation ID")
-check(len(set(versions))==1 and versions[0]=="1.0.0","Manifest versions differ")
-check('version = "1.0.0"' in (root/"pyproject.toml").read_text(),"Python package version differs")
-check('__version__ = "1.0.0"' in (root/"src/parallax/__init__.py").read_text(),"Runtime version differs")
+check(len(set(versions))==1 and versions[0]=="1.1.0","Manifest versions differ")
+check('version = "1.1.0"' in (root/"pyproject.toml").read_text(),"Python package version differs")
+check('__version__ = "1.1.0"' in (root/"src/parallax/__init__.py").read_text(),"Runtime version differs")
 portable=manifests["plugin.json"]
 compatibility=manifests[".codex-plugin/plugin.json"]
 check(portable.get("$schema")=="https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","Portable plugin schema differs")
@@ -107,4 +107,4 @@ for path in files:
         if path.suffix==".json": check_public_identity(json.loads(content),relative)
 if errors:
     print("\n".join(errors),file=sys.stderr);raise SystemExit(1)
-print("Release consistency passed: 1.0.0 manifests, marketplace, portable MCP, legacy wrapper, locks, skill, and Studio assets.")
+print("Release consistency passed: 1.1.0 manifests, marketplace, portable MCP, legacy wrapper, locks, skill, and Studio assets.")

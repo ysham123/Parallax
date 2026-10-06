@@ -20,3 +20,11 @@ An existing Codex chat may still have the earlier skill loaded. Start a new chat
 Environment references must be visible to the process that starts Parallax. The bundled MCP configuration forwards the standard `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `XAI_API_KEY`, `GROK_API_KEY`, `GEMINI_API_KEY`, and `GOOGLE_API_KEY` names when supplied by the host. For a custom variable name, add that name to the host's MCP environment allowlist or start Parallax from a terminal where it is exported. Restart the local Parallax runtime after changing its environment. Keep secret values out of plugin manifests.
 
 Select a Git repository root for autonomous editing. Existing branches, the index, and unrelated changes are preserved. Provider compatibility failures are reported; do not work around them by disabling all permission checks.
+
+## 1.0 to 1.1 developer alpha
+
+Back up the enabled personal source and replace it with the validated 1.1 bundle, then run `codex plugin add codex-claude-team@personal`. Confirm version 1.1.0. Do not edit Codex's versioned cache manually. Start a new chat to load the added assessment, project-profile, recovery and feedback MCP tools.
+
+Pause or finish active work before restarting the local runtime. The runtime descriptor retains its port and authentication token; cookies and event replay reconnect after restart. SQLite adds project_profiles and feedback tables without dropping 1.0 runs, team profiles, sessions or events. Old final receipts are retained unchanged. A resumed legacy run with no configured checks must obtain a meaningful baseline from its original snapshot or remain Needs attention.
+
+Project setup is now checked before Build and Compare. Add node_modules/ and generated compiler outputs to .gitignore. Commit an npm lockfile or supply supported Python requirements. Linux users need functioning bubblewrap with user namespaces; unprotected command execution no longer falls back silently. See [real-project delivery](docs/DELIVERY.md) and the [alpha protocol](docs/ALPHA.md).

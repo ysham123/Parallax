@@ -11,8 +11,10 @@ import sys
 import time
 import uuid
 from pathlib import Path
-from .models import CoordinatorAction, Participant, RunResult, RunSpec, TaskSpec, CheckSpec
+from .models import CheckEvidence, CoordinatorAction, Participant, RunResult, RunSpec, TaskSpec, CheckSpec
 from .store import Store
+from .assessment import assess_project, execution_capability, package_directory
+from .recovery import classify, recovery_options
 
 TERMINAL = {"completed", "failed", "cancelled", "needs_attention"}
 
@@ -41,6 +43,7 @@ class Engine:
             job.cancel()
         if jobs:
             await asyncio.gather(*(job for _, job in jobs), return_exceptions=True)
+        self.store.close()
 
     def _interrupt_tasks(self, result: dict):
         for task in result["tasks"]:
@@ -282,17 +285,50 @@ class Engine:
         if spec.mode != "review" and not any(p.provider != spec.coordinator.provider for p in spec.team):
             raise ValueError("An independent reviewer from another provider is required")
 
+    async def assess(self, workspace: str, roots=None, checks=None, participants=None) -> dict:
+        providers = await self.registry.discover()
+        result = await asyncio.to_thread(assess_project, workspace, roots, checks, providers=providers)
+        for member in participants or []:
+            try: self.registry.validate(member)
+            except ValueError as exc:
+                result.issues.append({"category": "provider_permission", "severity": "blocker", "provider": member.provider, "message": str(exc)})
+                result.status = "blocked"
+            if member.transport == "api":
+                result.issues.append({"category": "configuration", "severity": "warning", "provider": member.provider, "message": "API execution is experimental; native CLI smoke tests do not validate this connection."})
+        return result.model_dump()
+
+    def recover_run(self, run_id: str, action: str) -> dict:
+        result = self.store.get(run_id)
+        choices = recovery_options(result)
+        if action not in {item["id"] for item in choices["actions"]} or action not in {"repair_candidate", "retry_interrupted"}:
+            raise ValueError("This recovery action is not available for the recorded failure")
+        message = "Reconcile interrupted work and inspect saved evidence before dispatching."
+        if action == "repair_candidate":
+            message = "Repair the candidate against the original acceptance criteria. Use independent findings and actual failed check output. Keep every required check."
+        self.steer(run_id, message)
+        self.store.event(run_id, "recovery_requested", {"action": action, "category": choices["category"]})
+        return self.control(run_id, "resume")
+
     async def start(self, spec: RunSpec) -> dict:
         workspace = Path(spec.workspace).expanduser().resolve()
         if not workspace.is_dir():
             raise ValueError("Workspace does not exist")
         spec.workspace = str(workspace)
         await self.validate_settings(spec)
+        assessment = None
+        if spec.mode != "review":
+            assessment = await self.assess(str(workspace), spec.package_roots, spec.checks, [spec.coordinator, *spec.team])
+            blockers = [item["message"] for item in assessment["issues"] if item["severity"] == "blocker"]
+            if blockers: raise ValueError("Project assessment blocked: " + "; ".join(blockers))
+            if not spec.checks: spec.checks = [CheckSpec.model_validate(c) for c in assessment["proposed_checks"]]
         run_id = str(uuid.uuid4())
         if spec.mode != "review":
             self.store.claim(str(workspace), run_id)
         result = RunResult(run_id=run_id, status="queued", spec=spec).model_dump()
         result["artifacts"] = {"directory":str(self.store.home / "runs" / run_id), "started_at":time.time(), "user_checks":[c.model_dump() for c in spec.checks]}
+        if assessment:
+            result["artifacts"]["assessment"] = assessment
+            result["artifacts"]["required_checks"] = [c.model_dump() for c in spec.checks]
         self.store.save(result)
         self.store.event(run_id,"queued",{"mode":spec.mode})
         self._launch(run_id)
@@ -374,6 +410,9 @@ class Engine:
         for task in result["tasks"]:
             if task["id"] == task_id:
                 task.update(updates)
+                outcome=updates.get("result",{})
+                if outcome and outcome.get("ok") is False:
+                    task["failure_category"]=classify(str(outcome.get("error", "")))
         self.store.save(result)
         self.store.event(run_id,"task",updates,task_id)
 
@@ -437,6 +476,7 @@ class Engine:
                         self.store.save(result)
                         self.store.event(run_id,"completed",{"recovered":True})
                     else:
+                        await self._baseline(run_id, spec, manager)
                         await self._build_run(run_id,spec,manager)
         except asyncio.CancelledError:
             result = self.store.get(run_id)
@@ -448,7 +488,7 @@ class Engine:
             result = self.store.get(run_id)
             result["status"] = "needs_attention"
             self._interrupt_tasks(result)
-            result["errors"].append({"code":"run_blocked","message":str(exc)})
+            result["errors"].append({"code":"run_blocked","category":classify(str(exc)),"message":str(exc)})
             try:
                 result["diff"] = manager.diff()
             except Exception:
@@ -598,7 +638,7 @@ class Engine:
                 self._action_state(run_id, action.id, "failed", error=str(exc))
                 self.store.event(run_id,"action_rejected",{"message":str(exc),"id":action.id})
                 result=self.store.get(run_id)
-                result["errors"].append({"code":"invalid_action","message":str(exc)})
+                result["errors"].append({"code":"invalid_action","category":classify(str(exc)),"message":str(exc)})
                 self.store.save(result)
             except asyncio.CancelledError:
                 self._action_state(run_id, action.id, "interrupted", error="Run stopped before the action completed")
@@ -669,7 +709,7 @@ class Engine:
             if spec.mode=="compare":
                 for task in result["tasks"]:
                     if task["status"]=="completed":
-                        evidence=await self._checks(run_id,Path(task["result"]["workspace"]),checks,task["id"])
+                        evidence=await self._checks(run_id,Path(task["result"]["workspace"]),checks,task["id"],phase="alternative")
                         self._task_update(run_id,task["id"],checks=evidence)
             else:
                 await self._verify(run_id,spec,manager,checks)
@@ -751,12 +791,20 @@ class Engine:
         session = bound["session_id"] if bound else None
         resumed_member = self._session_participant(member, bound)
         scoped = {key: task.get(key) for key in ("id", "title", "prompt", "files", "acceptance", "dependencies")}
+        instructions={}
+        for name in saved["artifacts"].get("assessment",{}).get("instructions",[])[:32]:
+            path=target/name
+            if path.is_file() and not path.is_symlink() and path.resolve().is_relative_to(target.resolve()):
+                instructions[name]=path.read_text(errors="replace")[:8000]
         prompt=("Implement only this scoped task in the isolated project. Preserve pre-existing changes. "
             "Do not spawn agents, commit, push, deploy, or modify files outside ownership. Runtime runs verification.\n"
             +json.dumps({"request":spec.prompt,"task":scoped,"continuation":reuse,
                 "previous_findings":task.get("result",{}).get("review",{}).get("findings",[]),
                 "previous_error":str(task.get("result",{}).get("error") or "")[:2000],
-                "steering":saved["artifacts"].get("steering",[])}) )
+                "baseline_checks":[{"name":c.get("name"),"ok":c.get("ok"),"output":c.get("output","")[-4000:]} for c in saved["artifacts"].get("baseline_checks",[])],
+                "failed_checks":[{"name": c.get("name"), "cwd": c.get("cwd", "."), "output": c.get("output", "")[-8000:]} for c in saved["checks"] if not c.get("ok")],
+                "combined_findings":[r for r in saved["reviews"][-4:] if not r.get("ok")],
+                "project_instructions":instructions,"steering":saved["artifacts"].get("steering",[])}) )
         try:
             outcome=await self._provider(run_id,resumed_member,target,prompt,mode="edit",task_id=task["id"],session_id=session)
         except asyncio.CancelledError:
@@ -791,7 +839,7 @@ class Engine:
         before=fingerprint(target)
         schema={"type":"object","properties":{"approved":{"type":"boolean"},"findings":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}},"required":["approved","findings","summary"],"additionalProperties":False}
         requirements={k:v for k,v in task.items() if k in {"id","title","prompt","files","acceptance","dependencies","diff"}}
-        outcome=await self._provider(run_id,reviewer,target,"Independently review the current implementation against the requirements. Inspect source, check failure modes, and report concrete findings. Approve only if the requirements appear satisfied. Do not change files.\n"+json.dumps({"request":request,"task":requirements}),task_id="review-"+task_id,schema=schema)
+        outcome=await self._provider(run_id,reviewer,target,"Independently review the current implementation against the requirements. Inspect source, check failure modes, and report concrete findings. Approve only if the requirements appear satisfied. Do not change files.\n"+json.dumps({"request":request,"task":requirements,"check_evidence":[{"name":c.get("name"),"ok":c.get("ok"),"output":c.get("output","")[-4000:]} for c in self.store.get(run_id)["checks"]]}),task_id="review-"+task_id,schema=schema)
         try:
             structured=outcome.get("structured_output") or json.loads(outcome.get("answer") or "{}")
         except ValueError:
@@ -804,10 +852,11 @@ class Engine:
 
     def _validate_checks(self,run_id,workspace,checks):
         if not checks: raise ValueError("No meaningful check commands configured")
-        explicit=[c["argv"] for c in self.store.get(run_id)["artifacts"].get("user_checks",[])]
+        explicit=[(c["argv"], c.get("cwd", ".")) for c in self.store.get(run_id)["artifacts"].get("user_checks",[])]
         for check in checks:
             if not check.argv or any(not isinstance(a,str) or not a or "\x00" in a for a in check.argv): raise ValueError("Invalid check argv")
-            if check.argv not in explicit and not _project_check(check.argv,workspace):
+            root = package_directory(workspace, check.cwd)
+            if (check.argv, check.cwd) not in explicit and not _project_check(check.argv,root):
                 raise ValueError("Coordinator proposed a command outside project verification. Configure an explicit check in Studio: "+check.name)
 
     async def _command(self,run_id,argv,workspace,env,timeout,*,writable=(),readable=(),network=False,task_id=None):
@@ -820,7 +869,6 @@ class Engine:
 
     async def _ensure_environment(self,run_id,workspace,checks):
         """Resolve declared dependencies only into this run's private environment."""
-        self._validate_checks(run_id,workspace,checks)
         wants_node={Path(c.argv[0]).name for c in checks}&{"npm","pnpm","yarn"}
         wants_python=any(Path(c.argv[0]).name.startswith("python") for c in checks)
         lock=next((p for p in (workspace/"package-lock.json",workspace/"npm-shrinkwrap.json") if p.is_file()),None)
@@ -842,7 +890,7 @@ class Engine:
                 if not isinstance(dependencies,list) or len(dependencies)>1000 or any(not isinstance(d,str) or not d.strip() or len(d)>2048 for d in dependencies): raise ValueError
             except (ImportError,ValueError,OSError,AttributeError):
                 raise ValueError("Cannot parse declared Python dependencies; use a valid pyproject.toml or requirements.txt")
-        node_needed=bool(wants_node and not (workspace/"node_modules").is_dir() and (lock or package.get("dependencies") or package.get("devDependencies")))
+        node_needed=bool(wants_node and (lock or package.get("dependencies") or package.get("devDependencies")))
         if node_needed:
             if wants_node!={"npm"} or not lock:
                 raise ValueError("Automatic Node provisioning requires npm checks and package-lock.json or npm-shrinkwrap.json; configure the project environment before using other package managers")
@@ -883,24 +931,35 @@ class Engine:
         if python: (environment/"python-ready").write_text("installed")
         return ({"VIRTUAL_ENV":str(python.parent.parent),"PATH":str(python.parent)+os.pathsep+os.environ.get("PATH","")} if python else {}),python
 
-    async def _checks(self,run_id,workspace,checks,task_id=None):
+    async def _checks(self,run_id,workspace,checks,task_id=None,phase="final"):
+        required=self.store.get(run_id)["artifacts"].get("required_checks",[])
+        if required and phase!="baseline":
+            keys={(tuple(c.argv),c.cwd,c.timeout) for c in checks}
+            if any((tuple(c["argv"]),c.get("cwd","."),c.get("timeout",120)) not in keys for c in required):
+                raise ValueError("Every configured check remains required; a coordinator cannot remove or weaken a check")
         self._validate_checks(run_id,workspace,checks)
         self._status(run_id,"validating")
-        environment,project_python=await self._ensure_environment(run_id,workspace,checks)
         evidence=[]
+        environments={}
+        for relative in dict.fromkeys(c.cwd for c in checks):
+            root=package_directory(workspace,relative)
+            group=[c.model_copy(update={"cwd":"."}) for c in checks if c.cwd==relative]
+            environments[relative]=await self._ensure_environment(run_id,root,group)
         for check in checks:
+            root=package_directory(workspace,check.cwd)
+            environment,project_python=environments[check.cwd]
             await self.checkpoint(run_id)
             started=time.monotonic()
             temporary=Path(self.store.get(run_id)["artifacts"]["directory"])/"tmp"/str(uuid.uuid4());temporary.mkdir(parents=True)
             env={k:os.environ[k] for k in ("PATH","LANG","LC_ALL") if k in os.environ}
             env.update(environment)
             env.update(HOME=str(temporary),TMPDIR=str(temporary),TMP=str(temporary),TEMP=str(temporary),CI="true",PYTHONDONTWRITEBYTECODE="1",PARALLAX_OWNED_WORKSPACE=str(workspace))
-            if (workspace/"src").is_dir() and (workspace/"pyproject.toml").is_file():
-                env["PYTHONPATH"]=str(workspace/"src")+os.pathsep+str(workspace)
+            if (root/"src").is_dir() and (root/"pyproject.toml").is_file():
+                env["PYTHONPATH"]=str(root/"src")+os.pathsep+str(root)
             command=list(check.argv)
             if project_python and Path(command[0]).name.startswith("python"): command[0]=str(project_python)
             try:
-                outcome=await self._command(run_id,command,workspace,env,check.timeout,writable=[temporary],
+                outcome=await self._command(run_id,command,root,env,check.timeout,writable=[temporary],
                     readable=[project_python.parent.parent] if project_python else [],task_id=task_id)
                 output=(outcome.stdout+outcome.stderr)[-64000:]
                 ok=outcome.exit_code==0 and not outcome.failure and "Ran 0 tests" not in output and "no tests ran" not in output.lower()
@@ -908,13 +967,41 @@ class Engine:
                 item={"name":check.name,"argv":check.argv,"ok":ok,"exit_code":outcome.exit_code,"output":output,"elapsed_seconds":round(time.monotonic()-started,2),"error":code,"task_id":task_id}
             except OSError as exc:
                 item={"name":check.name,"argv":check.argv,"ok":False,"exit_code":None,"output":str(exc),"elapsed_seconds":0,"error":"check_unavailable","task_id":task_id}
+            manifests={name:hashlib.sha256((root/name).read_bytes()).hexdigest() for name in ("requirements.txt","pyproject.toml","package-lock.json","npm-shrinkwrap.json","package.json") if (root/name).is_file() and not (root/name).is_symlink()}
+            item.update(schema_version="1.1",cwd=check.cwd,phase=phase,environment={"private":True,"python_venv":project_python is not None,"manifest_sha256":manifests,"sandbox":execution_capability()["backend"]})
+            item=CheckEvidence.model_validate(item).model_dump()
             evidence.append(item);self.store.event(run_id,"check",item,task_id)
             if item["error"]=="process_termination_failed": raise RunProblem("A check process survived termination; its workspace cannot be reused yet")
             if item["error"]=="cancelled": raise asyncio.CancelledError()
         return evidence
 
+    async def _baseline(self,run_id,spec,manager):
+        result=self.store.get(run_id)
+        if result["artifacts"].get("baseline_complete"): return
+        checks=[CheckSpec.model_validate(c) for c in result["artifacts"].get("required_checks", [])] or spec.checks
+        target=await self._workspace_call(manager.create_worker,"baseline")
+        if not checks:
+            assessment=await asyncio.to_thread(assess_project,target,spec.package_roots)
+            if assessment.status!="ready": raise ValueError("Configure meaningful checks before resuming this legacy run")
+            checks=assessment.proposed_checks
+            spec.checks=checks
+            result["spec"]["checks"]=[c.model_dump() for c in checks]
+            result["artifacts"]["required_checks"]=result["spec"]["checks"]
+            self.store.save(result)
+        before=manager.fingerprint(target)
+        evidence=await self._checks(run_id,target,checks,"baseline",phase="baseline")
+        if before!=manager.fingerprint(target): raise ValueError("Baseline checks modified source; configure non-mutating verification")
+        result=self.store.get(run_id)
+        result["artifacts"].update(baseline_checks=evidence,baseline_complete=True,baseline_snapshot_sha256=before)
+        self.store.save(result)
+        self.store.event(run_id,"baseline",{"checks":len(evidence),"passed":sum(c["ok"] for c in evidence),"snapshot_sha256":before})
+
     async def _verify(self,run_id,spec,manager,checks):
         result=self.store.get(run_id)
+        required=[CheckSpec.model_validate(c) for c in result["artifacts"].get("required_checks", [])]
+        keys={(tuple(c.argv),c.cwd,c.timeout) for c in checks}
+        if any((tuple(c.argv),c.cwd,c.timeout) not in keys for c in required):
+            raise ValueError("Every configured check remains required; a coordinator cannot remove or weaken a check")
         result["artifacts"].pop("validated_fingerprint",None)
         self.store.save(result)
         before=manager.diff()
@@ -950,10 +1037,10 @@ class Engine:
         if "validated_fingerprint" not in result["artifacts"] or result["artifacts"]["validated_fingerprint"]!=manager.diff():
             raise ValueError("Current combined changes have not passed verification")
         destination=manager.check_destination()
-        if not destination["ok"]: raise RunProblem(destination.get("error","Destination changed"))
+        if not destination["ok"]: raise RunProblem("Destination conflict: " + destination.get("error","Destination changed"))
         if destination.get("revalidate"):
             refreshed=manager.refresh_candidate()
-            if not refreshed["ok"]: raise RunProblem(refreshed.get("error","Could not refresh candidate"))
+            if not refreshed["ok"]: raise RunProblem("Destination conflict: " + refreshed.get("error","Could not refresh candidate"))
             checks=[CheckSpec.model_validate(c) for c in result["spec"]["checks"]]
             await self._verify(run_id,spec,manager,checks)
         self._status(run_id,"integrating")
@@ -964,7 +1051,7 @@ class Engine:
         self.store.save(result)
         if spec.integrate:
             applied=manager.apply()
-            if not applied["ok"]: raise RunProblem(applied.get("error","Integration failed"))
+            if not applied["ok"]: raise RunProblem("Destination conflict: " + applied.get("error","Integration failed"))
             result=self.store.get(run_id)
             result["changed_files"]=applied.get("changed_files",[])
             result["artifacts"]["integration_applied"]=True
@@ -997,6 +1084,8 @@ def _coordinator_state(result):
             "checks":[{"name":c["name"],"ok":c["ok"],"output":c.get("output","")[-4000:]} for c in task.get("checks",[])]})
     return {"run_id":result["run_id"],"mode":result["spec"]["mode"],"coordinator":result["spec"]["coordinator"],
         "team":result["spec"]["team"],"limits":result["spec"]["limits"],"tasks":tasks,
+        "required_checks":result["artifacts"].get("required_checks",result["spec"]["checks"]),
+        "baseline_checks":[{k:v for k,v in c.items() if k != "output"} | {"output":c.get("output","")[-4000:]} for c in result["artifacts"].get("baseline_checks",[])],
         "checks":[{"name":c["name"],"ok":c["ok"],"output":c.get("output","")[-4000:]} for c in result["checks"]],
         "reviews":result["reviews"][-8:],"errors":result["errors"][-8:],"diff":result["diff"][-30000:],
         "steering":result["artifacts"].get("steering",[]),"integrate":result["spec"].get("integrate",True),
@@ -1050,9 +1139,29 @@ def _sandbox_check(argv,workspace,*,writable=None,readable=None,network=False):
             argv=[str(launch),*argv[1:]]
         return ["/usr/bin/sandbox-exec","-p",profile,*argv]
     if sys.platform.startswith("linux") and shutil.which("bwrap"):
-        return ["bwrap","--die-with-parent",*(["--unshare-net"] if not network else []),"--ro-bind","/","/",*[item for path in writable for item in ["--bind",str(path),str(path)]],"--dev","/dev","--tmpfs","/tmp","--",*argv]
-    # Linux adapter/runtime CI does not imply an OS sandbox on every installation.
-    return argv
+        # Mounts are applied in order. Hide host user data first, then expose
+        # only the private workspaces and runtime paths the command requires.
+        command=["bwrap","--die-with-parent","--unshare-pid",*(["--unshare-net"] if not network else []),"--ro-bind","/","/","--proc","/proc","--dev","/dev"]
+        protected={Path(p) for p in ("/home","/root","/tmp","/var/tmp","/run/user")}
+        home=Path.home().resolve()
+        if home != Path("/"): protected.add(home)
+        for path in sorted(protected,key=lambda p:(len(p.parts),str(p))):
+            if path.is_dir(): command.extend(["--tmpfs",str(path)])
+        allowed={Path(sys.base_prefix).resolve(),Path(sys.prefix).resolve(),*(Path(p).resolve() for p in (readable or []))}
+        for path in sorted(allowed,key=lambda p:(len(p.parts),str(p))):
+            if path.exists(): command.extend(["--ro-bind",str(path),str(path)])
+        for path in sorted(set(writable),key=lambda p:(len(p.parts),str(p))):
+            command.extend(["--bind",str(path),str(path)])
+        from .api_agent import BLOCKED
+        blocked={name.lower() for name in BLOCKED-{"node_modules",".venv","__pycache__"}} | {".parallax-owned"}
+        for directory,dirs,files in os.walk(workspace,followlinks=False):
+            for name in sorted(dirs+files):
+                path=Path(directory)/name
+                if name.lower() in blocked or name.lower().startswith(".env"):
+                    command.extend(["--tmpfs",str(path)] if path.is_dir() else ["--ro-bind","/dev/null",str(path)])
+            dirs[:]=[name for name in dirs if name.lower() not in blocked and name not in {"node_modules",".venv","__pycache__"} and not (Path(directory)/name).is_symlink()]
+        return [*command,"--chdir",str(workspace),"--",*argv]
+    raise ValueError("No enforceable command sandbox is available; install bubblewrap with user namespaces before Build or Compare")
 
 def _discover_checks(workspace):
     package=workspace/"package.json"

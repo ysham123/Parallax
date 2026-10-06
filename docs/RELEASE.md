@@ -1,4 +1,4 @@
-# Draft GitHub release: Parallax 1.0 · Constellation
+# Draft GitHub release: Parallax 1.1 · Developer alpha
 
 Prepared locally for review. No GitHub release, tag, push, or deployment has been published as part of this update.
 
@@ -10,8 +10,11 @@ Workers use private snapshots of the effective working tree. Independent reviews
 
 The repository, Parallax identity and `codex-claude-team` install ID are retained. The original Claude bridge arguments and result fields remain compatible. Users do not need Node to run the packaged Studio.
 
+This update adds project readiness, saved package roots and check profiles, private baseline checks, per-package setup, contextual recovery and opt-in local alpha feedback. See [delivery behavior](DELIVERY.md) and the [matched five-developer alpha protocol](ALPHA.md).
+
 ## Validation
 
+- The final 1.1 suite completed 142 cases on Python 3.13 locally, with one Linux-only live case skipped on macOS. Python 3.10 passed the earlier full suite and the final delivery and engine regressions. The real four-provider mixed-project build passed all four unchanged final checks and all five integration gates, and preserved the real index byte for byte. Two baseline test failures are retained.
 - Deterministic native/API provider, engine, workspace, compatibility, server, receipt and release tests validated locally on macOS with Python 3.10 and 3.13. See the [validation index](validation/README.md) for exact coverage.
 - Sixteen real native CLI cases passed across all four installed providers, including consultation, scoped editing, resume and permission boundaries.
 - The representative four-provider build completed with a rejected implementation, repair, independent review and eight passing acceptance tests before application. The actual diff and final verification record are included.
@@ -20,14 +23,14 @@ The repository, Parallax identity and `codex-claude-team` install ID are retaine
 
 ## Requirements and limits
 
-macOS is the launch platform. Python 3.10+ and Git 2.38+ are required for implementation runs. The CI workflow targets macOS and Linux, but remote CI has not run for this unpublished branch. Native capabilities depend on installed CLI versions; diagnostics identify incompatibilities explicitly.
+macOS is the launch platform. Python 3.10+ and Git 2.38+ are required for implementation runs. The CI workflow targets macOS and Linux, but remote CI has not run for this unpublished branch. Linux sandbox command construction is regression tested; actual Linux execution remains unverified locally because Docker was unavailable. Native capabilities depend on installed CLI versions; diagnostics identify incompatibilities explicitly.
 
 API protocol behavior and tool permissions have deterministic endpoint coverage. Real API inference needs separately configured account credentials and has not been verified on these accounts. Remote inference endpoints are supported; SSH workers, remote filesystems, external MCP tools and hosted agent execution are outside this release. API command execution currently requires the macOS sandbox.
 
-Automatic environment setup supports Python requirements.txt/PEP 621 dependencies and locked npm projects with lifecycle scripts disabled. Other package managers need a prepared environment. Git submodules and symlinks escaping the project require manual handling.
+Automatic environment setup supports Python requirements.txt/PEP 621 dependencies and locked npm projects with lifecycle scripts disabled. Yarn, pnpm and npm workspaces setup remains unsupported and blocks preflight. Linux commands require working bubblewrap with user namespaces. Git submodules and symlinks escaping the project require manual handling.
 
 ## Upgrade
 
-Follow [UPGRADE.md](../UPGRADE.md), reinstall through your marketplace and start a new Codex chat to load the skill and MCP operations. Version 1.0 keeps the existing installation ID. The GitHub marketplace commands install the current published version until this release is published.
+Follow [UPGRADE.md](../UPGRADE.md), reinstall through your marketplace and start a new Codex chat to load the skill and MCP operations. Version 1.1 keeps the existing installation ID. The GitHub marketplace commands install the current published version until this release is published.
 
-Attach the four archives and `SHA256SUMS` from `releases/` when publishing is separately requested. Use title **Parallax 1.0: Constellation** and tag **v1.0.0** only after the branch and release artifacts have been reviewed.
+Attach the four archives and `SHA256SUMS` from `releases/` when publishing is separately requested. Use title **Parallax 1.1: Developer alpha** and tag **v1.1.0** only after the branch and release artifacts have been reviewed.

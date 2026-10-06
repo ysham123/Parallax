@@ -9,6 +9,10 @@ import { api, messageOf } from "./api";
 import { ProviderMark } from "./Brand";
 import { TaskGraph } from "./TaskGraph";
 import { Connections as ConnectionsPanel } from "./Connections";
+import { ProjectReadiness } from "./ProjectReadiness";
+import { Recovery } from "./Recovery";
+import { Baseline } from "./Baseline";
+import { AlphaFeedback } from "./AlphaFeedback";
 import { Verification } from "./Verification";
 import {
   INITIAL_SPEC,
@@ -719,6 +723,14 @@ function CheckEditor({
         />
         {error && <span className="inline-error">{error}</span>}
       </label>
+      <label className="check-root">
+        Package root
+        <input
+          aria-label={`Check ${index + 1} package root`}
+          value={check.cwd || "."}
+          onChange={(e) => onChange({ ...check, cwd: e.target.value })}
+        />
+      </label>
       <label className="check-timeout">
         Timeout (s)
         <input
@@ -1179,9 +1191,10 @@ export default function App() {
   const [run, setRun] = useState<RunResult | null>(null);
   const [events, setEvents] = useState<RunEvent[]>([]);
   const [allActivity, setAllActivity] = useState(false);
-  const [spec, setSpec] = useState<RunSpec>(() =>
-    structuredClone(INITIAL_SPEC),
-  );
+  const [spec, setSpec] = useState<RunSpec>(() => ({
+    ...structuredClone(INITIAL_SPEC),
+    workspace: new URLSearchParams(location.search).get("workspace") || "",
+  }));
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
   const [streamStatus, setStreamStatus] = useState("idle");
@@ -1723,7 +1736,7 @@ export default function App() {
             >
               Reduce motion
             </button>
-            <span>v1.0</span>
+            <span>v1.1</span>
           </div>
         </div>
       </aside>
@@ -1889,6 +1902,12 @@ export default function App() {
                   Manage connections <Icon name="arrow" size={14} />
                 </button>
               </div>
+              <ProjectReadiness
+                spec={spec}
+                onChange={setSpec}
+                providers={providers}
+                connections={connections}
+              />
               <div className="team-section-heading">
                 <div>
                   <h2>
@@ -2372,6 +2391,17 @@ export default function App() {
                           </div>
                         </div>
                       </section>
+                      <Recovery
+                        run={run}
+                        onUpdate={updateRun}
+                        onConfigure={() => {
+                          setSpec({
+                            ...structuredClone(run.spec),
+                            schema_version: "1.1",
+                          });
+                          setTab("team");
+                        }}
+                      />
                       <section className="task-map-panel">
                         <div className="section-heading">
                           <h2>Task map</h2>
@@ -2592,6 +2622,8 @@ export default function App() {
                     <Status value={run.status} />
                   </section>
                   <Verification run={run} />
+                  <Baseline run={run} />
+                  <AlphaFeedback run={run} />
                   <div
                     className="review-tabs"
                     role="tablist"

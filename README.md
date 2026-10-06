@@ -6,6 +6,8 @@ Parallax turns an outcome into a reviewed, checked project patch using Codex, Cl
 
 The focus is **verified integration for mixed-model coding teams**. Every integrated result has a downloadable verification record with the current review and check gates, preservation evidence, and patch hash. See [why Parallax](docs/POSITIONING.md) for the target user, competitive context and evidence behind that promise.
 
+See [real-project delivery](docs/DELIVERY.md) and the [five-developer alpha protocol](docs/ALPHA.md). The alpha package is prepared locally; no human study results are claimed.
+
 ## Meet the team
 
 | Provider | Native command | Selection |
@@ -38,11 +40,11 @@ Or:
 
 > Use Parallax to build this feature. Codex leads, Claude and Antigravity implement, and Grok reviews. Use my Quality preset.
 
-The checked-in 1.0 release is prepared locally before publication. Until the GitHub release is published, the commands above install the currently published repository version. See [UPGRADE.md](UPGRADE.md) for local testing and migration.
+The checked-in 1.1 developer alpha is prepared locally before publication. Until the GitHub release is published, the commands above install the currently published repository version. See [UPGRADE.md](UPGRADE.md) for local testing and migration.
 
 ## Studio
 
-**Team** selects connections, providers, models, effort, roles, checks, and limits. Connection details open in a drawer so setup stays focused. Save configurations as reusable presets. **Run** shows an interactive task graph with pan, zoom, fit, and a task inspector, plus agent activity, checkpoint steering, and live status. **Review** brings together the verification record, diff, independent findings, check output, effective settings, and reported usage. Download the record as JSON and the patch separately. Unknown evidence stays unknown; the record is not a correctness guarantee or a signed attestation.
+**Team** assesses project readiness, package roots and required checks, saves reusable project setup, and selects connections, providers, models, effort, roles, checks, and limits. Connection details open in a drawer so setup stays focused. Save configurations as reusable presets. **Run** shows an interactive task graph with pan, zoom, fit, and a task inspector, plus agent activity, checkpoint steering, and live status. **Review** compares baseline and final checks and brings together the verification record, diff, independent findings, check output, effective settings, and reported usage. Download the record as JSON and the patch separately. Unknown evidence stays unknown; the record is not a correctness guarantee or a signed attestation.
 
 - **Review** runs independent assessments and synthesizes disagreements.
 - **Build** divides work into scoped tasks, reviews each change, verifies the combined result, and integrates it.

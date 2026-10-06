@@ -65,7 +65,11 @@ def build_receipt(result: dict, *, final: bool = False) -> dict:
               "spec_sha256": _digest(json.dumps(spec, sort_keys=True, separators=(",", ":")))}
     if artifacts.get("source_snapshot_sha256"):
         hashes["source_snapshot_sha256"] = artifacts["source_snapshot_sha256"]
-    return {"contract_version": "1.0", "run_id": result["run_id"], "generated_at": now(),
+    def safe_check(check,index):
+        return {"id":f"check-{index+1}","ok":check.get("ok") is True,"exit_code":check.get("exit_code"),"elapsed_seconds":check.get("elapsed_seconds"),
+                "environment":{"private":check.get("environment",{}).get("private"),"python_venv":check.get("environment",{}).get("python_venv"),"sandbox":check.get("environment",{}).get("sandbox"),"manifest_sha256":check.get("environment",{}).get("manifest_sha256",{})}}
+    baseline=artifacts.get("baseline_checks",[])
+    return {"contract_version": "1.1", "run_id": result["run_id"], "generated_at": now(),
             "record_state": "final" if final else "snapshot",
             "outcome": "applied" if applied else "verified" if verified else "partial",
             "gates": gates, "artifacts": hashes, "changed_files": result.get("changed_files", []),
@@ -73,8 +77,11 @@ def build_receipt(result: dict, *, final: bool = False) -> dict:
             "checks": [{"id": f"check-{index + 1}", "ok": check.get("ok") is True,
                         "exit_code": check.get("exit_code"), "elapsed_seconds": check.get("elapsed_seconds")}
                        for index, check in enumerate(checks)],
+            "baseline": {"recorded":artifacts.get("baseline_complete",False),"snapshot_sha256":artifacts.get("baseline_snapshot_sha256"),"checks":[safe_check(c,i) for i,c in enumerate(baseline)]},
+            "final_checks": [safe_check(c,i) for i,c in enumerate(checks)],
             "reviews": [{key: review.get(key) for key in ("provider", "task_id", "ok")} for review in reviews],
             "limitations": ["Evidence covers recorded checks and reviews; it does not prove correctness.",
+                            "Manifest hashes identify declared setup; unpinned dependencies may resolve differently.",
                             "This local record is not signed. Its hashes identify the patch and run specification.",
                             "Export omits prompts, raw sessions, endpoints, absolute workspace paths and command output."]}
 

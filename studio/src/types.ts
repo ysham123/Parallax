@@ -29,7 +29,12 @@ export type Provider = {
   default_model?: string | null;
   catalog_source?: string;
 };
-export type CheckSpec = { name: string; argv: string[]; timeout: number };
+export type CheckSpec = {
+  name: string;
+  argv: string[];
+  timeout: number;
+  cwd?: string;
+};
 export type Connection = {
   id: string;
   provider: string;
@@ -74,7 +79,7 @@ export function connectionProvider(
     : undefined;
 }
 export type RunSpec = {
-  schema_version: "1.0";
+  schema_version: "1.0" | "1.1";
   workspace: string;
   prompt: string;
   mode: Mode;
@@ -90,11 +95,12 @@ export type RunSpec = {
   checks: CheckSpec[];
   profile: string;
   integrate: boolean;
+  package_roots?: string[];
 };
 export type Profile = { name: string; spec: RunSpec };
 export type Data = Record<string, unknown>;
 export type RunResult = {
-  schema_version: "1.0";
+  schema_version: "1.0" | "1.1";
   run_id: string;
   status: string;
   spec: RunSpec;
@@ -110,7 +116,7 @@ export type RunResult = {
   artifacts: Data;
 };
 export type RunEvent = {
-  schema_version: "1.0";
+  schema_version: "1.0" | "1.1";
   sequence: number;
   run_id: string;
   timestamp: string;
@@ -132,7 +138,7 @@ export const LABELS: Record<ProviderId, string> = {
   antigravity: "Antigravity",
 };
 export const INITIAL_SPEC: RunSpec = {
-  schema_version: "1.0",
+  schema_version: "1.1",
   workspace: "",
   prompt: "",
   mode: "build",

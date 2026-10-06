@@ -20,7 +20,7 @@ for path in sources:
     if path.is_file(): digest.update(str(path.relative_to(root)).encode());digest.update(path.read_bytes())
 fingerprint=digest.hexdigest()
 python_minor=f"py{sys.version_info.major}.{sys.version_info.minor}"
-environment=home/"environments"/("1.0.0-"+python_minor+"-"+fingerprint[:12])
+environment=home/"environments"/("1.1.0-"+python_minor+"-"+fingerprint[:12])
 executable=environment/"bin"/"python"
 ready=environment/"ready"
 with (home/"bootstrap.lock").open("a") as lock:

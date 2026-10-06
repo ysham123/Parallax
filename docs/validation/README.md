@@ -1,5 +1,15 @@
 # Release validation evidence
 
+## 1.1 developer alpha
+
+[Real mixed-project delivery](delivery-native-1.1.json) records a completed four-native-provider build with two failed baseline test suites, four passing final checks, independent per-task and combined review, two scoped source edits and all five integration gates. The real Git index matched byte for byte after application. This is a disposable build demonstration, not a human alpha outcome.
+
+The final 1.1 suite completed **142 cases on Python 3.13** in 97.8 seconds, with one Linux-only live sandbox case skipped on macOS. The full 139-case suite passed on Python 3.10 in 89.7 seconds before the final additions; the final 20 delivery cases completed on Python 3.10 in 26.2 seconds with the same Linux skip, and the final 33 engine regressions passed after lock cleanup. The Linux mount-order and secret masking regression is exercised structurally on macOS; actual Linux execution remains pending. CI targets Ubuntu/macOS and Python 3.10/3.13 with bubblewrap provisioning. The local Docker daemon was unavailable. Remote CI, live API inference and the five-developer alpha are unperformed.
+
+[Studio delivery QA](delivery-studio-qa-1.1.md) records readiness, project profiles, keyboard task inspection, responsive check comparisons and contextual conflict recovery. [Installed 1.1 runtime](installation-1.1.json) records all 24 MCP operations, current and legacy receipts, a held-SSE shutdown in 3.2 seconds, same-port restart, existing-cookie reconnection and preserved requested workspace. Source and installed cache matched byte for byte.
+
+## Retained 1.0 evidence
+
 Validated locally on macOS, 2026-10-06. The configured GitHub CI matrix targets Ubuntu and macOS with Python 3.10/3.13; it has not run remotely for this unpublished branch.
 
 | Evidence | Coverage |

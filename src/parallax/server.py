@@ -6,6 +6,7 @@ import json
 import os
 import secrets
 import time
+from urllib.parse import urlencode
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, Request, HTTPException
@@ -13,10 +14,14 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 from .engine import Engine
-from .models import RunSpec
+from .models import RunSpec, ProjectProfile, Participant
+from .recovery import RecoveryRequest, AlphaFeedback, recovery_options, save_feedback, save_baseline_feedback, export_feedback
 from .connections import ConnectionInput
 from .store import Store
 from .receipt import get_receipt
+
+class AssessmentRequest(ProjectProfile):
+    participants: list[Participant] = Field(default_factory=list)
 
 class Steering(BaseModel):
     message: str = Field(min_length=1,max_length=20000)
@@ -39,7 +44,7 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
         await engine.reconcile_children()
         yield
         await engine.shutdown()
-    app=FastAPI(title="Parallax",version="1.0.0",lifespan=lifespan,docs_url=None,redoc_url=None,openapi_url=None)
+    app=FastAPI(title="Parallax",version="1.1.0",lifespan=lifespan,docs_url=None,redoc_url=None,openapi_url=None)
     app.state.engine=engine;app.state.token=token;app.state.store=store
 
     @app.middleware("http")
@@ -58,7 +63,9 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
         if request.url.path=="/" and presented and hmac.compare_digest(presented,token):
             session=secrets.token_urlsafe(32)+"."+str(int(time.time()))
             session+="."+hmac.new(token.encode(),session.encode(),"sha256").hexdigest()
-            response=RedirectResponse("/",status_code=303)
+            selected=request.query_params.get("workspace","")
+            destination="/?"+urlencode({"workspace":selected}) if selected and len(selected)<=4096 else "/"
+            response=RedirectResponse(destination,status_code=303)
             response.set_cookie("parallax_session",session,httponly=True,samesite="strict",max_age=86400)
             response.headers["Referrer-Policy"]="no-referrer"
             response.headers["Cache-Control"]="no-store"
@@ -81,7 +88,7 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
     async def missing(request,exc): return JSONResponse({"detail":"Run not found"},status_code=404)
 
     @app.get("/api/health")
-    async def health(): return {"ok":True,"version":"1.0.0"}
+    async def health(): return {"ok":True,"version":"1.1.0"}
     @app.get("/api/context")
     async def context(): return {"workspace":workspace or os.environ.get("PARALLAX_WORKSPACE","")}
     @app.get("/api/providers")
@@ -107,6 +114,29 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
         return {"name":name,"spec":spec.model_dump()}
     @app.delete("/api/profiles/{name}")
     async def remove_profile(name:str): store.delete_profile(name);return {"ok":True}
+    @app.post("/api/project/assess")
+    async def assess(body:AssessmentRequest):
+        return await engine.assess(body.workspace,body.package_roots,body.checks,body.participants)
+    @app.get("/api/project-profiles")
+    async def project_profiles(): return store.project_profiles()
+    @app.put("/api/project-profiles/{name}")
+    async def project_profile(name:str,body:ProjectProfile):
+        assessment=await engine.assess(body.workspace,body.package_roots,body.checks)
+        store.put_project_profile(name,body.model_dump())
+        return {"name":name,"profile":body.model_dump(),"assessment":assessment}
+    @app.delete("/api/project-profiles/{name}")
+    async def remove_project_profile(name:str): store.delete_project_profile(name);return {"ok":True}
+    @app.post("/api/feedback/baseline")
+    async def baseline_feedback(body:AlphaFeedback): return save_baseline_feedback(store,body)
+    @app.get("/api/feedback/export")
+    async def feedback_export():
+        return JSONResponse(export_feedback(store),headers={"Content-Disposition":"attachment; filename=parallax-alpha-metrics.json"})
+    @app.get("/api/runs/{run_id}/recovery")
+    async def recovery(run_id:str): return recovery_options(store.get(run_id))
+    @app.post("/api/runs/{run_id}/recover")
+    async def recover(run_id:str,body:RecoveryRequest): return engine.recover_run(run_id,body.action)
+    @app.post("/api/runs/{run_id}/feedback")
+    async def feedback(run_id:str,body:AlphaFeedback): return save_feedback(store,run_id,body)
     @app.get("/api/runs")
     async def runs(): return store.runs()
     @app.post("/api/runs")

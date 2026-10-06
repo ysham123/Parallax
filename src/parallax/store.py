@@ -4,6 +4,7 @@ import json
 import os
 import sqlite3
 import sys
+import hashlib
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,6 +21,7 @@ def state_directory() -> Path:
 
 class Store:
     def __init__(self, home: Path | None = None):
+        self._project_handles = {}
         self.home = (home or state_directory()).resolve()
         self.home.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.path = self.home / "state.sqlite3"
@@ -35,6 +37,8 @@ class Store:
                 result TEXT NOT NULL, PRIMARY KEY(run_id,id));
             CREATE TABLE IF NOT EXISTS profiles(name TEXT PRIMARY KEY, spec TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS project_locks(workspace TEXT PRIMARY KEY, run_id TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS project_profiles(name TEXT PRIMARY KEY, profile TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS feedback(run_id TEXT PRIMARY KEY, metrics TEXT NOT NULL);
             """)
         self.path.chmod(0o600)
 
@@ -77,6 +81,36 @@ class Store:
         return [{"schema_version":"1.0", **dict(row), "data":json.loads(row["data"])} for row in rows]
 
     def claim(self, workspace: str, run_id: str):
+        # SQLite protects one state directory; a process lock also protects the
+        # same project when two runtimes use different PARALLAX_HOME values.
+        import fcntl
+        key = str(Path(workspace).resolve())
+        acquired = None
+        if key in self._project_handles:
+            if self._project_handles[key][0] != run_id:
+                raise ValueError("Project already has an implementation run")
+        else:
+            locks = Path("/tmp") / f"parallax-project-locks-{os.getuid()}"
+            locks.mkdir(mode=0o700, exist_ok=True)
+            if locks.is_symlink() or locks.stat().st_uid != os.getuid() or locks.stat().st_mode & 0o077:
+                raise ValueError("Project lock directory must be private and owned by this user")
+            path = locks / (hashlib.sha256(key.encode()).hexdigest() + ".lock")
+            descriptor = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+            acquired = os.fdopen(descriptor, "a")
+            try:
+                if os.fstat(descriptor).st_uid != os.getuid(): raise ValueError("Project lock has a different owner")
+                fcntl.flock(acquired, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except (BlockingIOError, ValueError):
+                acquired.close()
+                raise ValueError("Project already has an implementation run in another runtime")
+        try:
+            self._claim_database(workspace, run_id)
+        except BaseException:
+            if acquired: acquired.close()
+            raise
+        if acquired: self._project_handles[key] = (run_id, acquired)
+
+    def _claim_database(self, workspace: str, run_id: str):
         with self.connect() as db:
             try:
                 db.execute("INSERT INTO project_locks VALUES(?,?)", (workspace,run_id))
@@ -85,9 +119,21 @@ class Store:
                 if owner != run_id:
                     raise ValueError(f"Project already has an implementation run: {owner}")
 
+    def close(self):
+        for _, handle in getattr(self, "_project_handles", {}).values():
+            handle.close()
+        self._project_handles = {}
+
+    def __del__(self):
+        self.close()
+
     def release(self, run_id: str):
         with self.connect() as db:
             db.execute("DELETE FROM project_locks WHERE run_id=?", (run_id,))
+        for key, (owner, handle) in list(self._project_handles.items()):
+            if owner == run_id:
+                handle.close()
+                del self._project_handles[key]
 
     def action(self, run_id: str, action_id: str) -> dict | None:
         with self.connect() as db:
@@ -111,3 +157,18 @@ class Store:
     def delete_profile(self, name: str):
         with self.connect() as db:
             db.execute("DELETE FROM profiles WHERE name=?",(name,))
+
+    def project_profiles(self) -> list[dict]:
+        with self.connect() as db:
+            return [{"name": row[0], "profile": json.loads(row[1])} for row in db.execute("SELECT name,profile FROM project_profiles ORDER BY name")]
+
+    def put_project_profile(self, name: str, profile: dict):
+        from .models import ProjectProfile
+        if not name.strip() or len(name) > 100: raise ValueError("Profile name must contain 1–100 characters")
+        value = ProjectProfile.model_validate(profile).model_dump()
+        with self.connect() as db:
+            db.execute("INSERT INTO project_profiles VALUES(?,?) ON CONFLICT(name) DO UPDATE SET profile=excluded.profile", (name, json.dumps(value)))
+
+    def delete_project_profile(self, name: str):
+        with self.connect() as db:
+            db.execute("DELETE FROM project_profiles WHERE name=?", (name,))
