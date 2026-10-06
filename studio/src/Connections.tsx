@@ -339,6 +339,9 @@ export function Connections({
                             : "Sign in through the CLI, then refresh connections."
                           : "Authentication is managed by the CLI."}
                       </p>
+                      {c.cli_status?.error && (
+                        <p role="status">{c.cli_status.error}</p>
+                      )}
                     </details>
                   </article>
                 ))}

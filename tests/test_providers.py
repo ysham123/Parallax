@@ -28,6 +28,8 @@ if a==['login','status']:
  print('Logged in using ChatGPT'); sys.exit()
 if a==['auth','status']:
  emit({'loggedIn':True});sys.exit()
+if a==['sandbox','--','/bin/true']:
+ sys.exit()
 if 'models' in a:
  if provider=='codex':
   emit({'models':[{'slug':'fake-codex','display_name':'Codex Fixture','supported_reasoning_levels':[{'effort':'high'},{'effort':'low'}],'default_reasoning_level':'high'}]})
@@ -384,6 +386,32 @@ class CodexCatalogRegressionTests(unittest.IsolatedAsyncioTestCase):
     """Catalog/default regressions use executable metadata fixtures, never inference."""
     asyncSetUp = ProvidersTest.asyncSetUp
     asyncTearDown = ProvidersTest.asyncTearDown
+
+    async def test_linux_native_sandbox_failure_blocks_authenticated_provider(self):
+        registry = self.catalog_registry()
+        original_metadata = registry._metadata
+
+        async def metadata(executable, args, *, timeout=20):
+            if args == ['sandbox', '--', '/bin/true']:
+                return Captured(1, '', 'bwrap: No permissions to create a new namespace', [])
+            return await original_metadata(executable, args, timeout=timeout)
+
+        registry._metadata = metadata
+        with patch('parallax.providers.sys.platform', 'linux'):
+            info = await registry.catalog('codex')
+        self.assertTrue(info['authenticated'])
+        self.assertEqual(info['status'], 'sandbox_unavailable')
+        self.assertTrue(info['models'])
+        for capability in ('native_command_sandbox', 'consult', 'edit', 'coordinate', 'edit_shell'):
+            self.assertFalse(info['capabilities'][capability])
+        with self.assertRaisesRegex(ValueError, 'host compatibility'):
+            registry.validate(Participant(provider='codex'))
+
+    async def test_linux_native_sandbox_success_preserves_readiness(self):
+        with patch('parallax.providers.sys.platform', 'linux'):
+            info = await self.catalog_registry().catalog('codex')
+        self.assertEqual(info['status'], 'ready')
+        self.assertTrue(info['capabilities']['native_command_sandbox'])
 
     def configured(self, content, folder=None):
         folder = folder or self.home / '.codex'

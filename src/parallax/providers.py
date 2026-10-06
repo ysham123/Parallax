@@ -498,6 +498,17 @@ class ProviderRegistry:
                 info["status"] = "ready" if info["authenticated"] and info["models"] else "sign_in_required" if not info["authenticated"] else "catalog_unavailable"
                 if info["status"] != "ready":
                     info["error"] = "Sign in with the native CLI." if not info["authenticated"] else "No selectable models were discovered."
+                if provider == "codex" and sys.platform.startswith("linux") and info["authenticated"]:
+                    # Native Codex needs different kernel capabilities from
+                    # Parallax's command runner. Login and model discovery do
+                    # not establish that it can inspect the assigned files.
+                    probe = await self._metadata(executable, ["sandbox", "--", "/bin/true"])
+                    available = probe.exit_code == 0 and not probe.failure
+                    info["capabilities"]["native_command_sandbox"] = available
+                    if not available:
+                        info["capabilities"].update(consult=False, edit=False, coordinate=False, edit_shell=False)
+                        info["status"] = "sandbox_unavailable"
+                        info["error"] = "Codex is signed in, but its native command sandbox failed the host compatibility check. File-based runs are blocked; use a host that supports Codex's sandbox or an API connection."
             except (OSError, ValueError, KeyError) as exc:
                 info["status"], info["error"] = "unavailable", _safe_error(exc)
             return self._remember(provider, info)
