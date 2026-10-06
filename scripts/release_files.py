@@ -7,8 +7,9 @@ ENTRIES = (
     ".codex-plugin", ".agents", ".github", ".mcp.json", "mcp.json",
     "plugin.json", "pyproject.toml", "uv.lock", "requirements.lock",
     "README.md", "UPGRADE.md", "CONTRIBUTING.md", "CHANGELOG.md", "LICENSE", ".gitignore",
+    "vercel.json", ".vercelignore", "railway.json", "Dockerfile", ".dockerignore",
 )
-EXCLUDED_COMPONENTS = {"node_modules", "dist", "__pycache__", ".venv", ".pytest_cache", ".playwright-cli", ".git", "releases", ".DS_Store"}
+EXCLUDED_COMPONENTS = {"node_modules", "dist", "__pycache__", ".venv", ".vercel", ".pytest_cache", ".playwright-cli", ".git", "releases", ".DS_Store"}
 PRIVATE_COMPONENTS = {"api-sessions", "artifacts", "sessions", "runs", "environments", ".codex", ".claude", ".grok", ".gemini"}
 PRIVATE_NAMES = {".parallax-owned", "server.json", "connections.json", "credentials.json", "auth.json", "token_cache.json", "models_cache.json", "jetski-standalone-oauth-token"}
 PRIVATE_SUFFIXES = {".sqlite3", ".sqlite", ".db", ".log", ".pem", ".key"}

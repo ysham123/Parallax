@@ -19,6 +19,7 @@ from .recovery import RecoveryRequest, AlphaFeedback, recovery_options, save_fee
 from .connections import ConnectionInput
 from .store import Store
 from .receipt import get_receipt
+from .deployment import Deployment
 
 class AssessmentRequest(ProjectProfile):
     participants: list[Participant] = Field(default_factory=list)
@@ -26,17 +27,32 @@ class AssessmentRequest(ProjectProfile):
 class Steering(BaseModel):
     message: str = Field(min_length=1,max_length=20000)
 
-def create_app(store:Store|None=None, registry=None, *, token:str|None=None, workspace:str|None=None):
+class SessionInput(BaseModel):
+    token: str = Field(min_length=1,max_length=512)
+
+def create_app(store:Store|None=None, registry=None, *, token:str|None=None, workspace:str|None=None, deployment:Deployment|None=None):
     store=store or Store()
     engine=Engine(store,registry)
     token=token or secrets.token_urlsafe(32)
+    if deployment and not hmac.compare_digest(token,deployment.token):
+        raise ValueError("Hosted access token does not match deployment configuration")
+    def check_workspace(value):
+        if deployment: deployment.check_workspace(value)
+    def set_session(response):
+        session=secrets.token_urlsafe(32)+"."+str(int(time.time()))
+        session+="."+hmac.new(token.encode(),session.encode(),"sha256").hexdigest()
+        response.set_cookie("parallax_session",session,httponly=True,secure=bool(deployment),samesite="strict",max_age=86400)
+        response.headers["Referrer-Policy"]="no-referrer"
+        response.headers["Cache-Control"]="no-store"
+        return response
+    attempts=[]
     def session_valid(value):
         try:
             identifier,stamp,signature=value.split(".")
             age=time.time()-int(stamp)
             expected=hmac.new(token.encode(),(identifier+"."+stamp).encode(),"sha256").hexdigest()
             return 0<=age<=86400 and hmac.compare_digest(signature,expected)
-        except (AttributeError,ValueError): return False
+        except (AttributeError,ValueError,TypeError): return False
     static=Path(__file__).parent/"static"
     @asynccontextmanager
     async def lifespan(app):
@@ -50,26 +66,29 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
     @app.middleware("http")
     async def guard(request:Request,call_next):
         host=request.headers.get("host","").split(":")[0]
-        if host not in {"127.0.0.1","localhost","testserver"}:
-            return JSONResponse({"detail":"Loopback Host required"},status_code=403)
+        allowed_hosts=deployment.hosts|{"127.0.0.1","localhost"} if deployment else {"127.0.0.1","localhost","testserver"}
+        if deployment and host=="healthcheck.railway.app" and request.url.path=="/api/health":
+            return await call_next(request)
+        if host.lower() not in allowed_hosts:
+            return JSONResponse({"detail":"Host is not allowed" if deployment else "Loopback Host required"},status_code=403)
         origin=request.headers.get("origin")
-        if origin and origin != f"{request.url.scheme}://{request.headers.get('host')}":
+        allowed_origins=deployment.origins if deployment else {f"{request.url.scheme}://{request.headers.get('host')}"}
+        if origin and origin not in allowed_origins:
             return JSONResponse({"detail":"Cross-origin requests are not allowed"},status_code=403)
         if request.url.path=="/api/health":
             return await call_next(request)
         bearer=request.headers.get("authorization","").removeprefix("Bearer ")
-        authorized=session_valid(request.cookies.get("parallax_session")) or (bool(bearer) and hmac.compare_digest(bearer,token))
+        authorized=session_valid(request.cookies.get("parallax_session")) or (bool(bearer) and hmac.compare_digest(bearer.encode(),token.encode()))
+        if deployment and request.method not in {"GET","HEAD","OPTIONS"} and not bearer and origin not in allowed_origins:
+            return JSONResponse({"detail":"Studio Origin required"},status_code=403)
+        if deployment and request.url.path=="/api/session" and request.method=="POST":
+            return await call_next(request)
         presented=request.query_params.get("token","")
-        if request.url.path=="/" and presented and hmac.compare_digest(presented,token):
-            session=secrets.token_urlsafe(32)+"."+str(int(time.time()))
-            session+="."+hmac.new(token.encode(),session.encode(),"sha256").hexdigest()
+        if not deployment and request.url.path=="/" and presented and hmac.compare_digest(presented,token):
             selected=request.query_params.get("workspace","")
             destination="/?"+urlencode({"workspace":selected}) if selected and len(selected)<=4096 else "/"
             response=RedirectResponse(destination,status_code=303)
-            response.set_cookie("parallax_session",session,httponly=True,samesite="strict",max_age=86400)
-            response.headers["Referrer-Policy"]="no-referrer"
-            response.headers["Cache-Control"]="no-store"
-            return response
+            return set_session(response)
         if not authorized:
             return JSONResponse({"detail":"Open Studio from Parallax to establish a local session"},status_code=401)
         response=await call_next(request)
@@ -91,6 +110,26 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
     async def health(): return {"ok":True,"version":"1.1.0"}
     @app.get("/api/context")
     async def context(): return {"workspace":workspace or os.environ.get("PARALLAX_WORKSPACE","")}
+    @app.post("/api/session")
+    async def sign_in(body:SessionInput):
+        if not deployment: raise HTTPException(404)
+        stamp=time.monotonic()
+        attempts[:]=[value for value in attempts if stamp-value<60]
+        if len(attempts)>=20: raise HTTPException(429,"Too many sign-in attempts. Try again in one minute.")
+        attempts.append(stamp)
+        if not hmac.compare_digest(body.token.encode(),token.encode()): raise HTTPException(401,"Invalid access key")
+        return set_session(JSONResponse({"ok":True}))
+    @app.get("/api/session")
+    async def session(): return {"ok":True,"mode":"hosted" if deployment else "local"}
+    @app.delete("/api/session")
+    async def sign_out():
+        response=JSONResponse({"ok":True})
+        response.delete_cookie("parallax_session",secure=bool(deployment),httponly=True,samesite="strict")
+        return response
+    @app.get("/api/deployment")
+    async def deployment_status():
+        from .assessment import execution_capability
+        return {"mode":"hosted" if deployment else "local","execution":execution_capability()}
     @app.get("/api/providers")
     async def providers(refresh:bool=False):
         return await engine.registry.discover(refresh=True) if refresh else await engine.registry.discover()
@@ -111,6 +150,7 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
     async def profiles(): return store.profiles()
     @app.put("/api/profiles/{name}")
     async def profile(name:str,spec:RunSpec):
+        check_workspace(spec.workspace)
         await engine.validate_settings(spec)
         store.put_profile(name,spec.model_dump())
         return {"name":name,"spec":spec.model_dump()}
@@ -118,11 +158,13 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
     async def remove_profile(name:str): store.delete_profile(name);return {"ok":True}
     @app.post("/api/project/assess")
     async def assess(body:AssessmentRequest):
+        check_workspace(body.workspace)
         return await engine.assess(body.workspace,body.package_roots,body.checks,body.participants)
     @app.get("/api/project-profiles")
     async def project_profiles(): return store.project_profiles()
     @app.put("/api/project-profiles/{name}")
     async def project_profile(name:str,body:ProjectProfile):
+        check_workspace(body.workspace)
         assessment=await engine.assess(body.workspace,body.package_roots,body.checks)
         store.put_project_profile(name,body.model_dump())
         return {"name":name,"profile":body.model_dump(),"assessment":assessment}
@@ -142,7 +184,9 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
     @app.get("/api/runs")
     async def runs(): return store.runs()
     @app.post("/api/runs")
-    async def start(spec:RunSpec): return await engine.start(spec)
+    async def start(spec:RunSpec):
+        check_workspace(spec.workspace)
+        return await engine.start(spec)
     @app.get("/api/runs/{run_id}")
     async def result(run_id:str): return store.get(run_id)
     @app.get("/api/runs/{run_id}/receipt")
