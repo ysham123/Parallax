@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "parallax-team"
+version = "1.1.0"
+description = "Autonomous coding teams across Codex, Claude, Grok Build, and Antigravity."
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = ["fastapi==0.115.12", "uvicorn==0.34.2", "pydantic==2.11.4", "httpx==0.28.1", "tomli==2.2.1; python_version < '3.11'"]
+
+[project.scripts]
+parallax = "parallax.cli:main"
+
+[project.optional-dependencies]
+test = ["httpx==0.28.1"]
+
+[tool.hatch.build]
+exclude = ["**/node_modules/**", "**/__pycache__/**", "**/.playwright-cli/**", "**/.venv/**", "**/.pytest_cache/**", "**/.git/**", "**/.DS_Store", "studio/dist/**", "releases/**", "**/*.pyc", "**/*.pyo", "**/.env", "**/.env.*", "**/*.sqlite3", "**/*.sqlite3-wal", "**/*.sqlite3-shm", "**/*.sqlite", "**/*.db", "**/*.db-wal", "**/*.db-shm", "**/*.log", "**/*.pem", "**/*.key", "**/.parallax-owned", "**/api-sessions/**", "**/artifacts/**", "**/sessions/**", "**/runs/**", "**/environments/**", "**/.codex/**", "**/.claude/**", "**/.grok/**", "**/.gemini/**", "**/server.json", "**/connections.json", "**/credentials.json", "**/auth.json", "**/token_cache.json", "**/models_cache.json", "**/jetski-standalone-oauth-token"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/parallax"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "scripts", "skills", "studio", "tests", "assets", "plugin.json", "mcp.json", ".codex-plugin", ".mcp.json", "README.md", "UPGRADE.md", "CONTRIBUTING.md", "docs", "requirements.lock", ".agents", ".github", "LICENSE", "CHANGELOG.md", "pyproject.toml", "uv.lock"]

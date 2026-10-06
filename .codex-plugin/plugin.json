@@ -1,22 +1,30 @@
 {
   "name": "codex-claude-team",
-  "version": "0.1.0",
-  "description": "Parallax brings a second perspective from Claude Code into a local Codex task.",
+  "version": "1.1.0",
+  "description": "Parallax Constellation coordinates autonomous teams across Codex, Claude Code, Grok Build, and Antigravity.",
   "author": {
     "name": "Yosef Shammout"
   },
   "skills": "./skills/",
   "interface": {
     "displayName": "Parallax",
-    "shortDescription": "Two minds. One codebase. Sharper judgment.",
-    "longDescription": "Bring Claude Code into a local Codex task for independent reviews, focused follow-ups, and explicitly delegated edits. Codex inspects and synthesizes the result.",
+    "shortDescription": "Verified coding teams.",
+    "longDescription": "Build from Codex with your chosen CLI or API agents. Parallax isolates edits, runs independent review and project checks, preserves your staging, and records the evidence before integration.",
     "developerName": "Yosef Shammout",
     "category": "Productivity",
-    "capabilities": ["Read", "Write"],
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
     "websiteURL": "https://github.com/ysham123/codex-claude-team",
     "defaultPrompt": [
-      "Consult Claude on this task and show both perspectives.",
-      "Work with Claude on this project and compare your findings."
-    ]
-  }
+      "Use Parallax to build this feature with my Quality preset.",
+      "Open Parallax Studio for this project.",
+      "Run an independent Parallax review."
+    ],
+    "logo": "./assets/parallax-icon.svg",
+    "composerIcon": "./assets/parallax-icon.svg"
+  },
+  "mcpServers": "./.mcp.json",
+  "keywords": []
 }

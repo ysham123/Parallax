@@ -1,0 +1,261 @@
+{
+  "release": "1.1.0",
+  "validation": "Actual native CLI inference in a disposable mixed project; not a developer alpha study.",
+  "status": "completed",
+  "requested": {
+    "coordinator": {
+      "effort": "low",
+      "model": "gpt-5.6-sol",
+      "provider": "codex",
+      "role": "generalist",
+      "transport": "cli"
+    },
+    "integrate": true,
+    "limits": {
+      "attempt_seconds": 300,
+      "coordinator_turns": 20,
+      "minutes": 20,
+      "repairs": 2,
+      "workers": 3
+    },
+    "mode": "build",
+    "team": [
+      {
+        "effort": "high",
+        "model": "sonnet",
+        "provider": "claude",
+        "role": "implementer",
+        "transport": "cli"
+      },
+      {
+        "effort": "high",
+        "model": "grok-4.7",
+        "provider": "grok",
+        "role": "reviewer",
+        "transport": "cli"
+      },
+      {
+        "effort": "high",
+        "model": "gemini-3.8-flash-high",
+        "provider": "antigravity",
+        "role": "implementer",
+        "transport": "cli"
+      }
+    ]
+  },
+  "effective": [
+    {
+      "effort": "low",
+      "model": "gpt-5.6-sol",
+      "provider": "codex",
+      "transport": "cli"
+    },
+    {
+      "effort": "high",
+      "model": "sonnet",
+      "provider": "claude",
+      "transport": "cli"
+    },
+    {
+      "effort": "high",
+      "model": "gemini-3.8-flash-high",
+      "provider": "antigravity",
+      "transport": "cli"
+    },
+    {
+      "effort": "high",
+      "model": "grok-4.7",
+      "provider": "grok",
+      "transport": "cli"
+    }
+  ],
+  "changed_files": [
+    "api/service.py",
+    "web/src/totals.ts"
+  ],
+  "baseline": {
+    "checks": [
+      {
+        "elapsed_seconds": 0.08,
+        "environment": {
+          "manifest_sha256": {
+            "pyproject.toml": "eddd2c82f66e722a3508ff35d2ec80f0c5287c28cc3c086253905e3c1deaef0a"
+          },
+          "private": true,
+          "python_venv": false,
+          "sandbox": "seatbelt"
+        },
+        "exit_code": 1,
+        "id": "check-1",
+        "ok": false
+      },
+      {
+        "elapsed_seconds": 1.13,
+        "environment": {
+          "manifest_sha256": {
+            "package-lock.json": "15a484be8cfd667cdaa280ca254342d05adcd9fb1ad511e266363c18b0eab234",
+            "package.json": "ed3e9266916fc7dda1757a6651b6ce7de368c07d707e3878e872144349b778e0"
+          },
+          "private": true,
+          "python_venv": false,
+          "sandbox": "seatbelt"
+        },
+        "exit_code": 1,
+        "id": "check-2",
+        "ok": false
+      },
+      {
+        "elapsed_seconds": 0.82,
+        "environment": {
+          "manifest_sha256": {
+            "package-lock.json": "15a484be8cfd667cdaa280ca254342d05adcd9fb1ad511e266363c18b0eab234",
+            "package.json": "ed3e9266916fc7dda1757a6651b6ce7de368c07d707e3878e872144349b778e0"
+          },
+          "private": true,
+          "python_venv": false,
+          "sandbox": "seatbelt"
+        },
+        "exit_code": 0,
+        "id": "check-3",
+        "ok": true
+      },
+      {
+        "elapsed_seconds": 0.71,
+        "environment": {
+          "manifest_sha256": {
+            "package-lock.json": "15a484be8cfd667cdaa280ca254342d05adcd9fb1ad511e266363c18b0eab234",
+            "package.json": "ed3e9266916fc7dda1757a6651b6ce7de368c07d707e3878e872144349b778e0"
+          },
+          "private": true,
+          "python_venv": false,
+          "sandbox": "seatbelt"
+        },
+        "exit_code": 0,
+        "id": "check-4",
+        "ok": true
+      }
+    ],
+    "recorded": true,
+    "snapshot_sha256": "ee29b16f32707c9aa7daa510d93f9f4fee38ba1b94f8fa5754d08e74ffa4b521"
+  },
+  "final_checks": [
+    {
+      "elapsed_seconds": 0.08,
+      "environment": {
+        "manifest_sha256": {
+          "pyproject.toml": "eddd2c82f66e722a3508ff35d2ec80f0c5287c28cc3c086253905e3c1deaef0a"
+        },
+        "private": true,
+        "python_venv": false,
+        "sandbox": "seatbelt"
+      },
+      "exit_code": 0,
+      "id": "check-1",
+      "ok": true
+    },
+    {
+      "elapsed_seconds": 0.95,
+      "environment": {
+        "manifest_sha256": {
+          "package-lock.json": "15a484be8cfd667cdaa280ca254342d05adcd9fb1ad511e266363c18b0eab234",
+          "package.json": "ed3e9266916fc7dda1757a6651b6ce7de368c07d707e3878e872144349b778e0"
+        },
+        "private": true,
+        "python_venv": false,
+        "sandbox": "seatbelt"
+      },
+      "exit_code": 0,
+      "id": "check-2",
+      "ok": true
+    },
+    {
+      "elapsed_seconds": 0.65,
+      "environment": {
+        "manifest_sha256": {
+          "package-lock.json": "15a484be8cfd667cdaa280ca254342d05adcd9fb1ad511e266363c18b0eab234",
+          "package.json": "ed3e9266916fc7dda1757a6651b6ce7de368c07d707e3878e872144349b778e0"
+        },
+        "private": true,
+        "python_venv": false,
+        "sandbox": "seatbelt"
+      },
+      "exit_code": 0,
+      "id": "check-3",
+      "ok": true
+    },
+    {
+      "elapsed_seconds": 0.63,
+      "environment": {
+        "manifest_sha256": {
+          "package-lock.json": "15a484be8cfd667cdaa280ca254342d05adcd9fb1ad511e266363c18b0eab234",
+          "package.json": "ed3e9266916fc7dda1757a6651b6ce7de368c07d707e3878e872144349b778e0"
+        },
+        "private": true,
+        "python_venv": false,
+        "sandbox": "seatbelt"
+      },
+      "exit_code": 0,
+      "id": "check-4",
+      "ok": true
+    }
+  ],
+  "reviews": [
+    {
+      "ok": true,
+      "provider": "grok",
+      "task_id": "api-total-fix"
+    },
+    {
+      "ok": true,
+      "provider": "grok",
+      "task_id": "web-total-fix"
+    },
+    {
+      "ok": true,
+      "provider": "grok",
+      "task_id": "integration"
+    }
+  ],
+  "gates": [
+    {
+      "detail": "Recorded verification matches this patch.",
+      "id": "current_verification",
+      "label": "Verified candidate",
+      "status": "passed"
+    },
+    {
+      "detail": "A provider outside the implementing team approved the candidate.",
+      "id": "independent_review",
+      "label": "Independent combined review",
+      "status": "passed"
+    },
+    {
+      "detail": "4 recorded command(s); current candidate verified.",
+      "id": "project_checks",
+      "label": "Project checks",
+      "status": "passed"
+    },
+    {
+      "detail": "Runtime recorded successful application.",
+      "id": "integration",
+      "label": "Applied to project",
+      "status": "passed"
+    },
+    {
+      "detail": "Git staging, HEAD, branch and unrelated files matched during recorded application or recovery.",
+      "id": "preservation",
+      "label": "Staging and unrelated files preserved",
+      "status": "passed"
+    }
+  ],
+  "patch": "diff --git a/api/service.py b/api/service.py\nindex 4411ee233554578a44add00d30f37d978dcab756..9e366ec5bcb94d1b71bad5bd3d41142a1ccded6d 100644\n--- a/api/service.py\n+++ b/api/service.py\n@@ -1,3 +1,3 @@\n def total(values):\n     \"\"\"Return the total for an invoice.\"\"\"\n-    return sum(values) - 1\n+    return sum(values)\ndiff --git a/web/src/totals.ts b/web/src/totals.ts\nindex b3b59c427134db1c768295d78d3bb032cbac0fe6..a2c818c720a8ad69ecff6f5f95b4632177102911 100644\n--- a/web/src/totals.ts\n+++ b/web/src/totals.ts\n@@ -1,3 +1,3 @@\n export function total(values: number[]): number {\n-  return values.reduce((sum, value) => sum + value, 0) - 1;\n+  return values.reduce((sum, value) => sum + value, 0);\n }\n",
+  "preservation": {
+    "staging": true,
+    "head": true,
+    "branch": true,
+    "unrelated_files": true
+  },
+  "index_bytes_preserved": true,
+  "coordinator_turns": 5,
+  "runtime_seconds": 305.648
+}

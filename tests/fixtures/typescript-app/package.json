@@ -1,0 +1,1 @@
+{"name":"parallax-alpha-app","version":"0.0.1","private":true,"type":"module","scripts":{"test:ci":"tsc && node --test tests/*.mjs","typecheck":"tsc --noEmit","build":"tsc"},"dependencies":{"react":"19.1.1"},"devDependencies":{"@types/react":"19.1.13","typescript":"5.9.2"}}

@@ -1,142 +1,133 @@
-<p align="center">
-  <img src="assets/parallax-hero.svg" alt="Parallax — Two minds. One codebase. Sharper judgment." width="100%">
-</p>
+<p align="center"><img src="assets/parallax-hero.svg" alt="Parallax Constellation" width="100%"></p>
 
-<p align="center">
-  <a href="https://github.com/ysham123/codex-claude-team/actions/workflows/tests.yml"><img alt="Tests" src="https://github.com/ysham123/codex-claude-team/actions/workflows/tests.yml/badge.svg"></a>
-  <a href="https://github.com/ysham123/codex-claude-team/releases/tag/v0.1.0"><img alt="First Contact release" src="https://img.shields.io/badge/release-First_Contact-A989FF?style=flat-square"></a>
-  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-62D8D1?style=flat-square"></a>
-</p>
+<p align="center"><strong>CONSTELLATION · PARALLAX 1.0</strong><br>Many perspectives. One verified result.</p>
 
-<p align="center">
-  <a href="#launch-in-30-seconds">Install</a> ·
-  <a href="#the-experience">See how it works</a> ·
-  <a href="https://github.com/ysham123/codex-claude-team/releases/tag/v0.1.0">Download First Contact</a>
-</p>
+Parallax turns an outcome into a reviewed, checked project patch using Codex, Claude Code, Grok Build, and Antigravity. Invoke it from your existing Codex chat, choose your CLI or API agents, and let the team implement, review, repair and verify the result. Studio shows the work and its evidence. Integration preserves your staging and unrelated edits.
 
----
+The focus is **verified integration for mixed-model coding teams**. Every integrated result has a downloadable verification record with the current review and check gates, preservation evidence, and patch hash. See [why Parallax](docs/POSITIONING.md) for the target user, competitive context and evidence behind that promise.
 
-## A second perspective, built into the flow
+See [real-project delivery](docs/DELIVERY.md) and the [five-developer alpha protocol](docs/ALPHA.md). The alpha package is prepared locally; no human study results are claimed.
 
-**Parallax** brings Claude Code into a local Codex task. Codex considers your problem, asks Claude for an independent read of the same project, then brings the two views together. When you explicitly hand Claude an edit, Codex reviews the changed files and runs the relevant checks.
+## Meet the team
 
-No extra dashboard. No copy-pasting context between chats. Just a deliberate handoff between two coding agents in your workspace.
+| Provider | Native command | Selection |
+| --- | --- | --- |
+| Codex | `codex` | Account model catalog and native reasoning effort |
+| Claude Code | `claude` | Installed CLI aliases and supported effort |
+| Grok Build | `grok` | Native model IDs and cached model-specific effort menus |
+| Antigravity | `agy` | Account model variants and their supported effort |
 
-> **First Contact** is the inaugural release. The plugin's install ID remains `codex-claude-team`, so the commands below are stable and easy to share.
+Choose a signed-in local CLI or an API connection. OpenAI and xAI use Responses, Claude uses Messages, and Gemini uses Google's documented OpenAI compatibility endpoint. Gemini API is a separate connection from the Antigravity CLI. Custom models can connect through an OpenAI-compatible endpoint with an explicit model and capability catalog.
 
-## Launch in 30 seconds
+Orchestration and history stay on your machine; prompts and relevant project content go to the selected inference endpoint. Account access and CLI capabilities can differ. Studio identifies catalog provenance and shows requested and effective settings without inventing usage or cost.
 
-You need a local Codex task, [Claude Code CLI](https://code.claude.com/docs/en/overview) signed in on the same machine, Python 3.10+, and Git. Verify your Claude login with `claude auth status`; run `claude auth login` if needed.
+## Install
+
+You need macOS, Python 3.10+, Git 2.38+, and either signed-in CLIs or configured API connections. The CI workflow targets macOS and Linux; local release validation was performed on macOS. Native integrations must pass the compatibility checks on your machine. Node is only needed to develop Studio.
 
 ```sh
 codex plugin marketplace add ysham123/codex-claude-team
 codex plugin add codex-claude-team@codex-claude-team
 ```
 
-Start a new Codex task for your project and say:
+Start a new Codex chat after installing or upgrading. The plugin's stable install ID remains `codex-claude-team`; its display name is Parallax. The launcher prepares a private Python environment with hash-locked dependencies for the installed release and Python version. No global Python packages or provider settings are changed.
 
-> Consult Claude on this bug. Form your own diagnosis first, ask Claude for an independent view, and show me where your conclusions differ.
+In Codex, say:
 
-You can also install from the **Parallax** marketplace source in the Codex desktop Plugins Directory. The CLI steps follow [OpenAI's repository marketplace flow](https://developers.openai.com/plugins/build/plugins).
+> Open Parallax Studio for this project.
 
-## The experience
+Or:
 
-| 01 / Ask for perspective | 02 / Continue the conversation | 03 / Hand off an edit |
-| :--- | :--- | :--- |
-| Codex gets Claude's independent, read-only assessment of your current workspace. | Codex can ask a focused follow-up in the same Claude session when the first answer raises a question. | You explicitly delegate a specific change. Claude edits files; Codex inspects the diff and verifies the result. |
+> Use Parallax to build this feature. Codex leads, Claude and Antigravity implement, and Grok reviews. Use my Quality preset.
 
-### Try a review
+The checked-in 1.1 developer alpha is prepared locally before publication. Until the GitHub release is published, the commands above install the currently published repository version. See [UPGRADE.md](UPGRADE.md) for local testing and migration.
 
-> Review the retry logic with Claude. I want two independent diagnoses of any failure modes, then a single recommendation that explains the tradeoffs.
+## Studio
 
-### Try an implementation handoff
+**Workspace** opens on your active or recent project run. Its agent graph shows the coordinator, implementers and reviewers; select an agent to inspect its assignments, requested and effective settings, provider sessions, files and observed activity. Switch to **Task graph** for dependencies, repairs, independent reviews and combined checks, or use the keyboard-accessible **List**. Run history filters by project and status, with checkpoint steering and pause, stop and resume controls beside the work. **New run** handles project readiness, saved profiles, connections, models, effort and limits. **Review** brings together baseline and final checks, the verification record, combined diff, findings and reported usage. Download the record and patch separately. Unknown evidence stays unknown; the record is not a correctness guarantee or a signed attestation.
 
-> Delegate the empty-field fix in the CSV parser to Claude. When it finishes, inspect every changed file and run the parser tests before summarizing the result.
+- **Review** runs independent assessments and synthesizes disagreements.
+- **Build** divides work into scoped tasks, reviews each change, verifies the combined result, and integrates it.
+- **Compare** builds isolated alternatives, checks each against the same commands, and verifies the selected candidate before integration.
 
-### What Codex receives
+Codex is the default coordinator. Every selectable coordinator runs in a dedicated CLI or API session, distinct from the Codex chat that starts the team. Studio does not change that chat's model.
 
-```json
-{
-  "ok": true,
-  "answer": "Claude's response…",
-  "session_id": "…",
-  "changed_files": [],
-  "error": null
-}
+Quality first uses high supported effort, independent review, three concurrent workers, two repair rounds per task, and a configurable 45-minute limit. Models initialize from discovered/configured provider defaults. Explicit selections are never silently substituted.
+
+## How a run reaches your project
+
+```mermaid
+flowchart LR
+  Request[Your request] --> Plan[Selected coordinator]
+  Plan --> Workers[Isolated workers]
+  Workers --> Review[Independent review]
+  Review --> Checks[Combined checks]
+  Checks --> Apply[Verified project patch]
 ```
 
-That structured result lets Codex continue the conversation and check what actually changed. The example shows the shape of a response, not a real session.
+The runtime validates structured coordinator actions and owns scheduling, budgets, process cancellation, and integration. Native recursive teams are disabled. Workers have explicit relative file ownership. Antigravity uses gated edit/read tools; its project checks are executed by the runtime. Other providers expose scoped shell execution only when the installed platform can enforce it.
 
-## A clear line between review and edits
+Build and Compare require a Git repository root. Parallax snapshots staged changes, unstaged changes, and nonignored untracked files without modifying your index. It uses private worktrees, merges accepted changes privately, and applies only the verified patch. Your existing staging and unrelated edits are preserved. Conflicting edits, failed checks, or unsupported configurations produce **Needs attention** with work preserved. Submodules and external symlinks currently need manual handling.
 
-```text
-YOUR TASK
-   │
-   ▼
-CODEX forms an independent view
-   │
-   ├──── consultation ────► CLAUDE CODE reads the workspace
-   │                            │
-   │◄──── answer + file report ─┘
-   │
-   └──── explicit delegation ► CLAUDE CODE edits the project
-                                │
-        CODEX reviews + tests ◄─┘
-```
+Meaningful checks are required for automatic integration. Add direct argv commands in Studio, such as `["npm", "run", "test:ci"]`. The coordinator may propose checks discovered from project configuration. An agent's claim that tests passed is not verification. Python requirements.txt and PEP 621 dependencies install into a private run environment. Locked npm dependencies install in the isolated checkout with lifecycle scripts disabled. Other package managers require a prepared project environment.
 
-The bridge gives consultations `Read`, `Glob`, and `Grep`. An explicitly delegated edit also gets `Edit` and `Write`. It snapshots the workspace before and after the Claude run and reports detected file changes. If a consultation changes files, the bridge returns an error for Codex to inspect.
+Pause stops new assignments while active work finishes. Stop terminates managed processes and preserves partial work. Resume reconciles saved state before proceeding. Runs, provider sessions, and replayable events are stored locally outside the project.
 
-The plugin is a Codex skill plus a small Python bridge. It uses your existing Claude Code CLI login and does not require a separate API key or hosted relay. The workflow runs in **local Codex tasks**; it does not sync cloud sessions or Claude Desktop chats.
+Parallax integrates project changes; publishing, deployment, and pushing require their own user request.
 
-## Download the launch edition
+## CLI and automation interfaces
 
-Get the source from the [First Contact release](https://github.com/ysham123/codex-claude-team/releases/tag/v0.1.0), [download the ZIP](https://github.com/ysham123/codex-claude-team/archive/refs/tags/v0.1.0.zip), or clone it:
+From a clone or installed plugin:
 
 ```sh
-git clone https://github.com/ysham123/codex-claude-team.git
+python3 scripts/parallax.py doctor
+python3 scripts/parallax.py studio --workspace /path/to/project
+python3 scripts/parallax.py models grok
+python3 scripts/parallax.py connections
+python3 scripts/parallax.py models codex --transport api --connection-id codex-api
+python3 scripts/parallax.py run --spec /path/to/run.json
+python3 scripts/parallax.py status RUN_ID
+python3 scripts/parallax.py receipt RUN_ID
+python3 scripts/parallax.py pause RUN_ID
+python3 scripts/parallax.py steer RUN_ID --message 'Preserve the public API'
+python3 scripts/parallax.py resume RUN_ID
+python3 scripts/parallax.py cancel RUN_ID
 ```
 
-The marketplace commands above install the plugin into Codex. A ZIP or clone gives you the source for inspection and development.
+`run --wait` waits for a checkpoint or terminal result. `history` lists recent runs. `profiles --save NAME --spec FILE` saves a team. Inputs and results use the versioned [shared contracts](src/parallax/models.py). CLI, Studio, and the bundled stdio MCP server use the same persistent runtime. MCP tools cover diagnostics, connections, models, profiles, run lifecycle, and Studio. Configure API secrets in Studio or refer to environment variables from connection specifications. The bundled MCP configuration forwards standard provider key variables; custom names also need the Codex host environment allowlist configured.
 
-## For builders
+Studio binds only to loopback. Its launch URL exchanges a local token for an HttpOnly session cookie, removes the token from the URL, and rejects cross-origin requests. Native sign-ins remain with their CLIs. API secrets are stored in macOS Keychain or referenced by environment variable; they never appear in run specs, profiles, SQLite metadata, or browser local storage. Linux supports environment references. Protect local history as project data. `PARALLAX_HOME` selects an alternate state directory for testing.
 
-Call the bridge directly when you want its JSON result in a local script:
+Use **Refresh models** in Team settings after updating or signing in to a CLI. Studio also rereads catalogs when you return to Team or bring the page back into view. Native Codex discovery reads its model catalog and the configured default from `CODEX_HOME/config.toml` (normally `~/.codex/config.toml`), including the configured profile. An unavailable default produces an error; refreshing never replaces explicit saved model or effort selections. Catalog and default sources appear beside the model controls.
+
+## API connections and remote endpoints
+
+Open Connections from the top bar, choose the provider, and enter an API key or environment-variable name. Test the connection to discover account models without starting inference. Select a model explicitly. Maintained and user-declared effort capabilities are labeled; unsupported or unverified selections fail explicitly. Custom endpoints require HTTPS, except loopback services. Your chosen endpoint receives the relevant project content.
+
+API workers have runtime-owned file tools and a bounded tool loop, with file ownership, command restrictions, private session journals, and cancellation. Read-only roles receive no write or command tools. API command execution currently requires the macOS sandbox. API activity streams at request/tool/message boundaries; native CLIs retain their native stream events. Live API inference needs separately configured credentials and is not established by fake endpoint tests.
+
+Remote inference endpoints work through the API transport. SSH workers, remote filesystem mounts, external MCP tools, and provider-hosted agent execution are not enabled in 1.0. They need an authenticated executor protocol, capability negotiation, independent workspace snapshots, and the same local integration gates. The [architecture notes](docs/ARCHITECTURE.md) explain these boundaries.
+
+## Original Claude bridge
+
+Existing scripts remain supported:
 
 ```sh
-printf '%s\n' 'Review the retry logic for correctness.' | \
-  python3 scripts/claude_bridge.py --workspace /path/to/project --mode consult
+python3 scripts/claude_bridge.py --workspace /path/to/project --mode consult --prompt-file request.txt
 ```
 
-Use `--resume SESSION_ID` for a follow-up. Use `--mode edit` only when you intend to give Claude a defined file-editing task. Direct calls also accept `--prompt-file` and `--timeout SECONDS`. The default timeout is 180 seconds for consultation and 600 seconds for edits.
+The original CLI arguments and JSON result fields remain available, including `--resume`, `--timeout`, and explicitly delegated `--mode edit`. This compatibility path is independent of the autonomous team workflow.
 
-Run the test suite without third-party Python packages:
+## Develop and verify
 
 ```sh
-python3 -m unittest discover -s tests -v
+uv sync --extra test
+PYTHONPATH=src uv run python -m unittest discover -s tests -v
+cd studio
+npm ci
+npm run build
 ```
 
-Explore the [skill](skills/codex-claude-team/SKILL.md), [bridge](scripts/claude_bridge.py), [plugin manifest](plugin.json), and [marketplace catalog](.agents/plugins/marketplace.json). Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
+Studio's production build is copied into the Python package. Runtime users do not need npm. Deterministic tests exercise adapter contracts, dirty-worktree integration, rejected reviews, checks, cancellation, auth/origin protection, and recovery. Native smoke and team-demo evidence is under [docs/validation](docs/validation).
 
-<details>
-<summary><strong>Troubleshooting</strong></summary>
-
-| Symptom | Check |
-| --- | --- |
-| `Claude Code CLI was not found` | Install Claude Code and make sure `claude` is on the `PATH` used by Codex. |
-| `Claude Code is not signed in` | Run `claude auth login`, then `claude auth status`. |
-| Plugin is missing in an existing task | Start a new Codex task after installation. |
-| Claude times out | Narrow the question or use `--timeout SECONDS` for a direct bridge call. |
-| A consultation reports changed files | Inspect the named files before continuing. The bridge treats this as an error. |
-
-</details>
-
-<details>
-<summary><strong>Data and permissions</strong></summary>
-
-Claude Code may transmit your prompt and project content to Anthropic under your Claude account settings. Use Parallax with projects you are permitted to share with Claude. Consultations use read-only file tools; file edits require an explicit delegation in your request.
-
-</details>
-
----
-
-<p align="center"><strong>FIRST CONTACT</strong><br>Made by <a href="https://github.com/ysham123">Yosef Shammout</a> · <a href="LICENSE">MIT licensed</a></p>
+The project is MIT licensed. Provider marks identify the services and retain their owners’ trademark rights; see [asset provenance](studio/ASSETS.md). See [CONTRIBUTING.md](CONTRIBUTING.md), [CHANGELOG.md](CHANGELOG.md), and [UPGRADE.md](UPGRADE.md).

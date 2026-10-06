@@ -1,0 +1,17 @@
+{
+  "version": "1.1.0",
+  "plugin_id": "codex-claude-team@personal",
+  "enabled": true,
+  "installed_launcher": true,
+  "mcp_tools": 24,
+  "current_and_legacy_receipts": true,
+  "receipt_gates": "all five passed",
+  "baseline_recorded": true,
+  "sse_connected_shutdown_seconds": 3.169,
+  "same_port_restart": true,
+  "cookie_reconnect": true,
+  "requested_workspace_preserved": true,
+  "source_cache_byte_match": true,
+  "opt_in_feedback_records": 0,
+  "native_inference_during_this_check": false
+}

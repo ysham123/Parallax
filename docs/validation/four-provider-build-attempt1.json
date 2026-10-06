@@ -1,0 +1,81 @@
+{
+  "validated_at": "2026-10-06T16:21:36.245779+00:00",
+  "run_id": "52121c20-f585-4e71-acc4-4ad56db35a34",
+  "status": "needs_attention",
+  "summary": "",
+  "fixture": "docs/demo",
+  "baseline_check": {
+    "exit_code": 1,
+    "tests": 8,
+    "failures": 3,
+    "errors": 4
+  },
+  "final_check": {
+    "exit_code": 1,
+    "output": "test_clamp_inside_and_both_boundaries (__main__.Acceptance.test_clamp_inside_and_both_boundaries) ... FAIL\ntest_clamp_reversed_bounds_rejected (__main__.Acceptance.test_clamp_reversed_bounds_rejected) ... FAIL\ntest_division (__main__.Acceptance.test_division) ... ok\ntest_division_zero_rejected (__main__.Acceptance.test_division_zero_rejected) ... ERROR\ntest_mean_empty_rejected (__main__.Acceptance.test_mean_empty_rejected) ... ERROR\ntest_mean_lists_and_generators (__main__.Acceptance.test_mean_lists_and_generators) ... ERROR\ntest_median_empty_rejected (__main__.Acceptance.test_median_empty_rejected) ... ERROR\ntest_median_odd_even_and_input_preserved (__main__.Acceptance.test_median_odd_even_and_input_preserved) ... FAIL\n\n======================================================================\nERROR: test_division_zero_rejected (__main__.Acceptance.test_division_zero_rejected)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<private-fixture>/check.py\", line 26, in test_division_zero_rejected\n    safe_divide(5, denominator)\n    ~~~~~~~~~~~^^^^^^^^^^^^^^^^\n  File \"<private-fixture>/maths.py\", line 11, in safe_divide\n    return numerator / denominator\n           ~~~~~~~~~~^~~~~~~~~~~~~\nZeroDivisionError: division by zero\n\n======================================================================\nERROR: test_mean_empty_rejected (__main__.Acceptance.test_mean_empty_rejected)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<private-fixture>/check.py\", line 37, in test_mean_empty_rejected\n    mean(values)\n    ~~~~^^^^^^^^\n  File \"<private-fixture>/stats.py\", line 6, in mean\n    return sum(values) / len(values)\n           ~~~~~~~~~~~~^~~~~~~~~~~~~\nZeroDivisionError: division by zero\n\n======================================================================\nERROR: test_mean_lists_and_generators (__main__.Acceptance.test_mean_lists_and_generators)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<private-fixture>/check.py\", line 30, in test_mean_lists_and_generators\n    self.assertEqual(mean(iter([-2, 2])), 0)\n                     ~~~~^^^^^^^^^^^^^^^\n  File \"<private-fixture>/stats.py\", line 6, in mean\n    return sum(values) / len(values)\n                         ~~~^^^^^^^^\nTypeError: object of type 'list_iterator' has no len()\n\n======================================================================\nERROR: test_median_empty_rejected (__main__.Acceptance.test_median_empty_rejected)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<private-fixture>/check.py\", line 50, in test_median_empty_rejected\n    median(values)\n    ~~~~~~^^^^^^^^\n  File \"<private-fixture>/stats.py\", line 12, in median\n    return ordered[len(ordered) // 2]\n           ~~~~~~~^^^^^^^^^^^^^^^^^^^\nIndexError: list index out of range\n\n======================================================================\nFAIL: test_clamp_inside_and_both_boundaries (__main__.Acceptance.test_clamp_inside_and_both_boundaries)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<private-fixture>/check.py\", line 10, in test_clamp_inside_and_both_boundaries\n    self.assertEqual(clamp(-3, 0, 10), 0)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^\nAssertionError: -3 != 0\n\n======================================================================\nFAIL: test_clamp_reversed_bounds_rejected (__main__.Acceptance.test_clamp_reversed_bounds_rejected)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<private-fixture>/check.py\", line 15, in test_clamp_reversed_bounds_rejected\n    with self.assertRaises(ValueError):\n         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^\nAssertionError: ValueError not raised\n\n======================================================================\nFAIL: test_median_odd_even_and_input_preserved (__main__.Acceptance.test_median_odd_even_and_input_preserved)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<private-fixture>/check.py\", line 41, in test_median_odd_even_and_input_preserved\n    self.assertEqual(median(data), 2.5)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^\nAssertionError: 3 != 2.5\n\n----------------------------------------------------------------------\nRan 8 tests in 0.001s\n\nFAILED (failures=3, errors=4)\n"
+  },
+  "integration_applied": false,
+  "changed_files": [],
+  "diff": "",
+  "tasks": [],
+  "reviews": [],
+  "checks": [],
+  "actions": [],
+  "providers": {
+    "codex": {
+      "version": "codex-cli 0.144.1",
+      "catalog_source": "native CLI model discovery"
+    },
+    "claude": {
+      "version": "2.1.283 (Claude Code)",
+      "catalog_source": "installed CLI aliases; account/model access checked by native invocation"
+    },
+    "grok": {
+      "version": "grok 1.0.46 (2765805b9442) [stable]",
+      "catalog_source": "native CLI IDs + cached native effort menus; fetched=2026-10-06T16:21:29.962606Z"
+    },
+    "antigravity": {
+      "version": "1.3.0",
+      "catalog_source": "native account model catalog; effort variants derived from model IDs"
+    }
+  },
+  "effective_sessions": [
+    {
+      "provider": "codex",
+      "task_id": "coordinator",
+      "mode": "coordinate",
+      "effective_settings": {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "effort": "low",
+        "effort_source": "requested",
+        "effort_selection": "flag",
+        "catalog_source": "native CLI model discovery",
+        "shell": false,
+        "sandbox": "native read-only"
+      }
+    }
+  ],
+  "errors": [
+    {
+      "code": "run_blocked",
+      "message": "Coordinator failed: {'code': 'provider_error', 'message': '{\\'message\\': \\'{\\\\n  \"type\": \"error\",\\\\n  \"error\": {\\\\n    \"type\": \"invalid_request_error\",\\\\n    \"code\": \"invalid_json_schema\",\\\\n    \"message\": \"Invalid schema for response_format \\\\\\'codex_output_schema\\\\\\': In context=(), \\\\\\'required\\\\\\' is required to be supplied and to be an array including every key in properties. Missing \\\\\\'timeout\\\\\\'.\",\\\\n    \"param\": \"text.format.schema\"\\\\n  },\\\\n  \"status\": 400\\\\n}\\'}'}"
+    }
+  ],
+  "capability_confidence": {
+    "scope": "Actual signed-in native CLI calls on this macOS host, selected low-effort models, and this small Python fixture.",
+    "verified": [
+      "two independent file-owned implementation tasks",
+      "native coordinator decisions",
+      "separate provider patch reviews",
+      "combined direct-argv acceptance check",
+      "independent combined review",
+      "automatic verified integration"
+    ],
+    "limitations": [
+      "This smoke does not validate every listed model or repository toolchain.",
+      "Antigravity uses gated file editing; shell checks remain runtime-owned."
+    ]
+  },
+  "privacy_note": "Private absolute filesystem paths are deidentified. Native session identifiers, authentication material, and private reasoning are omitted; validation run IDs remain for traceability."
+}

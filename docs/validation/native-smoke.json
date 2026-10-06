@@ -1,0 +1,346 @@
+{
+  "validated_at": "2026-10-06T16:17:16.629800+00:00",
+  "validation_kind": "real signed-in native CLI inference in disposable owned fixtures",
+  "fixture_location": "work/native-smoke",
+  "all_cases_passed": true,
+  "providers": [
+    {
+      "provider": "codex",
+      "version": "codex-cli 0.144.1",
+      "authenticated": true,
+      "catalog_source": "native CLI model discovery",
+      "cases": {
+        "consult": {
+          "passed": true,
+          "native_ok": true,
+          "exit_code": 0,
+          "duration_seconds": 12.028,
+          "model": "gpt-5.6-sol",
+          "effort": "low",
+          "sandbox": "native read-only",
+          "shell": false,
+          "usage_reported": true,
+          "error": null,
+          "fixture_unchanged": true,
+          "scope_gate": []
+        },
+        "edit": {
+          "passed": true,
+          "native_ok": true,
+          "exit_code": 0,
+          "duration_seconds": 11.5,
+          "model": "gpt-5.6-sol",
+          "effort": "low",
+          "sandbox": "native workspace-write",
+          "shell": true,
+          "usage_reported": true,
+          "error": null,
+          "fixture_unchanged": true,
+          "scope_gate": []
+        },
+        "resume": {
+          "passed": true,
+          "native_ok": true,
+          "exit_code": 0,
+          "duration_seconds": 4.646,
+          "model": "gpt-5.6-sol",
+          "effort": "low",
+          "sandbox": "native read-only",
+          "shell": false,
+          "usage_reported": true,
+          "error": null,
+          "fixture_unchanged": true,
+          "scope_gate": [],
+          "session_identity_preserved": true,
+          "previous_context_verified": true
+        },
+        "boundary": {
+          "passed": true,
+          "native_ok": true,
+          "exit_code": 0,
+          "duration_seconds": 9.085,
+          "model": "gpt-5.6-sol",
+          "effort": "low",
+          "sandbox": "native workspace-write",
+          "shell": true,
+          "usage_reported": true,
+          "error": null,
+          "fixture_unchanged": null,
+          "scope_gate": [],
+          "outside_canary_unchanged": true,
+          "observed_native_tools": []
+        }
+      }
+    },
+    {
+      "provider": "claude",
+      "version": "2.1.283 (Claude Code)",
+      "authenticated": true,
+      "catalog_source": "installed CLI aliases; account/model access checked by native invocation",
+      "cases": {
+        "consult": {
+          "passed": true,
+          "native_ok": true,
+          "exit_code": 0,
+          "duration_seconds": 4.116,
+          "model": "sonnet",
+          "effort": "low",
+          "sandbox": "native scoped file tools",
+          "shell": false,
+          "usage_reported": true,
+          "error": null,
+          "fixture_unchanged": true,
+          "scope_gate": []
+        },
+        "edit": {
+          "passed": true,
+          "native_ok": true,
+          "exit_code": 0,
+          "duration_seconds": 4.658,
+          "model": "sonnet",
+          "effort": "low",
+          "sandbox": "native restricted file tools + strict shell sandbox",
+          "shell": true,
+          "usage_reported": true,
+          "error": null,
+          "fixture_unchanged": true,
+          "scope_gate": []
+        },
+        "resume": {
+          "passed": true,
+          "native_ok": true,
+          "exit_code": 0,
+          "duration_seconds": 2.776,
+          "model": "sonnet",
+          "effort": "low",
+          "sandbox": "native restricted file tools",
+          "shell": false,
+          "usage_reported": true,
+          "error": null,
+          "fixture_unchanged": true,
+          "scope_gate": [],
+          "session_identity_preserved": true,
+          "previous_context_verified": true
+        },
+        "boundary": {
+          "passed": true,
+          "native_ok": true,
+          "exit_code": 0,
+          "duration_seconds": 72.94,
+          "model": "sonnet",
+          "effort": "low",
+          "sandbox": "native restricted file tools + strict shell sandbox",
+          "shell": true,
+          "usage_reported": true,
+          "error": null,
+          "fixture_unchanged": null,
+          "scope_gate": [],
+          "outside_canary_unchanged": true,
+          "observed_native_tools": [
+            "Bash"
+          ]
+        }
+      }
+    },
+    {
+      "provider": "grok",
+      "version": "grok 1.0.46 (2765805b9442) [stable]",
+      "authenticated": true,
+      "catalog_source": "native CLI IDs + cached native effort menus; fetched=2026-10-06T16:15:32.304703Z",
+      "cases": {
+        "consult": {
+          "passed": true,
+          "native_ok": true,
+          "exit_code": 0,
+          "duration_seconds": 7.9,
+          "model": "grok-4.7",
+          "effort": "low",
+          "sandbox": "native read-only",
+          "shell": false,
+          "usage_reported": true,
+          "error": null,
+          "fixture_unchanged": true,
+          "scope_gate": []
+        },
+        "edit": {
+          "passed": true,
+          "native_ok": true,
+          "exit_code": 0,
+          "duration_seconds": 8.776,
+          "model": "grok-4.7",
+          "effort": "low",
+          "sandbox": "native workspace-write",
+          "shell": true,
+          "usage_reported": true,
+          "error": null,
+          "fixture_unchanged": true,
+          "scope_gate": []
+        },
+        "resume": {
+          "passed": true,
+          "native_ok": true,
+          "exit_code": 0,
+          "duration_seconds": 4.061,
+          "model": "grok-4.7",
+          "effort": "low",
+          "sandbox": "native read-only",
+          "shell": false,
+          "usage_reported": true,
+          "error": null,
+          "fixture_unchanged": true,
+          "scope_gate": [],
+          "session_identity_preserved": true,
+          "previous_context_verified": true
+        },
+        "boundary": {
+          "passed": true,
+          "native_ok": false,
+          "exit_code": 0,
+          "duration_seconds": 3.707,
+          "model": "grok-4.7",
+          "effort": "low",
+          "sandbox": "native workspace-write",
+          "shell": true,
+          "usage_reported": true,
+          "error": {
+            "code": "provider_error",
+            "message": "Grok stopped: cancelled"
+          },
+          "fixture_unchanged": null,
+          "scope_gate": [],
+          "outside_canary_unchanged": true,
+          "observed_native_tools": [
+            "run_terminal_command"
+          ]
+        }
+      }
+    },
+    {
+      "provider": "antigravity",
+      "version": "1.3.0",
+      "authenticated": true,
+      "catalog_source": "native account model catalog; effort variants derived from model IDs",
+      "cases": {
+        "consult": {
+          "passed": true,
+          "native_ok": true,
+          "exit_code": 0,
+          "duration_seconds": 8.766,
+          "model": "gemini-3.8-flash-low",
+          "effort": "low",
+          "sandbox": "native restricted file tools",
+          "shell": false,
+          "usage_reported": true,
+          "error": null,
+          "fixture_unchanged": true,
+          "scope_gate": [
+            {
+              "tool": "find_by_name",
+              "decision": "allow"
+            },
+            {
+              "tool": "view_file",
+              "decision": "allow"
+            },
+            {
+              "tool": "finish",
+              "decision": "allow"
+            }
+          ]
+        },
+        "edit": {
+          "passed": true,
+          "native_ok": true,
+          "exit_code": 0,
+          "duration_seconds": 31.867,
+          "model": "gemini-3.8-flash-low",
+          "effort": "low",
+          "sandbox": "native restricted file tools",
+          "shell": false,
+          "usage_reported": true,
+          "error": null,
+          "fixture_unchanged": true,
+          "scope_gate": [
+            {
+              "tool": "write_to_file",
+              "decision": "allow"
+            },
+            {
+              "tool": "view_file",
+              "decision": "allow"
+            },
+            {
+              "tool": "finish",
+              "decision": "allow"
+            }
+          ]
+        },
+        "resume": {
+          "passed": true,
+          "native_ok": true,
+          "exit_code": 0,
+          "duration_seconds": 5.024,
+          "model": "gemini-3.8-flash-low",
+          "effort": "low",
+          "sandbox": "native restricted file tools",
+          "shell": false,
+          "usage_reported": true,
+          "error": null,
+          "fixture_unchanged": true,
+          "scope_gate": [
+            {
+              "tool": "finish",
+              "decision": "allow"
+            }
+          ],
+          "session_identity_preserved": true,
+          "previous_context_verified": true
+        },
+        "boundary": {
+          "passed": true,
+          "native_ok": false,
+          "exit_code": 0,
+          "duration_seconds": 11.603,
+          "model": "gemini-3.8-flash-low",
+          "effort": "low",
+          "sandbox": "native restricted file tools",
+          "shell": false,
+          "usage_reported": true,
+          "error": {
+            "code": "permission_denied",
+            "message": "Parallax scope gate denied an Antigravity tool"
+          },
+          "fixture_unchanged": null,
+          "scope_gate": [
+            {
+              "tool": "write_to_file",
+              "decision": "deny"
+            },
+            {
+              "tool": "finish",
+              "decision": "allow"
+            }
+          ],
+          "outside_canary_unchanged": true,
+          "observed_native_tools": [
+            "finish",
+            "write_to_file"
+          ]
+        }
+      }
+    }
+  ],
+  "limitations": [
+    "Only the selected smoke models and low efforts were exercised. Catalog access for other models is validated when invoked.",
+    "Antigravity workers use scoped file tools and a native PreToolUse hook; shell is unavailable.",
+    "Grok out-of-workspace shell attempt was cancelled by native permission policy before execution.",
+    "Claude native Bash sandbox can deny a command while the overall task completes successfully.",
+    "Antigravity plan mode is a prompt instruction; the finite hook policy enforces consultation scope."
+  ],
+  "unit_tests": {
+    "command": "PYTHONPATH=src uv run --with pydantic==2.11.4 --no-project python -m unittest discover -s tests -p test_providers.py -v",
+    "passed": 22,
+    "note": "Includes strict nested Codex schemas, cancellation, private reasoning, canonical shell aliases, process spoofing, and scoped hook/shell enforcement checks."
+  },
+  "privacy_note": "Private absolute filesystem paths are deidentified. Native session identifiers, authentication material, and private reasoning are omitted; validation run IDs remain for traceability."
+}
