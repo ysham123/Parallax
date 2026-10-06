@@ -3,6 +3,8 @@ import { api, messageOf } from "./api";
 import { ProviderMark } from "./Brand";
 import { LABELS, type Connection, type Model } from "./types";
 
+const hosted = import.meta.env.MODE === "cloud";
+
 const API_NAMES: Record<string, string> = {
   codex: "OpenAI API",
   claude: "Claude API",
@@ -52,7 +54,9 @@ export function Connections({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [remove, setRemove] = useState<string | null>(null);
-  const [credential, setCredential] = useState<"key" | "env">("key");
+  const [credential, setCredential] = useState<"key" | "env">(
+    hosted ? "env" : "key",
+  );
   const initialFocus = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -106,7 +110,7 @@ export function Connections({
       default_model: c.default_model || "",
       advanced: true,
     });
-    setCredential(c.api_key_env ? "env" : "key");
+    setCredential(hosted || c.api_key_env ? "env" : "key");
     setError("");
     setNotice("");
     setRemove(null);
@@ -275,7 +279,11 @@ export function Connections({
           <div>
             <span className="eyebrow">YOUR MODELS. YOUR CONNECTIONS.</span>
             <h2 id="connections-title">Connect your workspace</h2>
-            <p>Use signed-in local CLIs or bring an API connection.</p>
+            <p>
+              {hosted
+                ? "Connect CLIs signed in on Railway or use a provider API."
+                : "Use signed-in local CLIs or bring an API connection."}
+            </p>
           </div>
           <button
             className="icon-button"
@@ -290,12 +298,16 @@ export function Connections({
           <section className="native-connections">
             <div className="section-heading">
               <div>
-                <h3>Local agents</h3>
+                <h3>{hosted ? "Hosted agents" : "Local agents"}</h3>
                 <p>
-                  Run on this machine with the CLI’s existing authentication.
+                  {hosted
+                    ? "Run on your Railway machine with its CLI authentication."
+                    : "Run on this machine with the CLI’s existing authentication."}
                 </p>
               </div>
-              <span className="connection-section-tag">LOCAL CLI</span>
+              <span className="connection-section-tag">
+                {hosted ? "RAILWAY CLI" : "LOCAL CLI"}
+              </span>
             </div>
             <div className="native-connection-grid">
               {connections
@@ -322,7 +334,9 @@ export function Connections({
                       </code>
                       <p>
                         {c.cli_status?.authenticated === false
-                          ? "Sign in through the CLI, then refresh connections."
+                          ? hosted
+                            ? "Sign in to this CLI on Railway, then refresh connections."
+                            : "Sign in through the CLI, then refresh connections."
                           : "Authentication is managed by the CLI."}
                       </p>
                     </details>
@@ -335,8 +349,9 @@ export function Connections({
               <div>
                 <h3>API connections</h3>
                 <p>
-                  Remote inference, with execution inside the run’s local
-                  workspace.
+                  {hosted
+                    ? "Provider inference, with project execution on Railway."
+                    : "Remote inference, with execution inside the run’s local workspace."}
                 </p>
               </div>
               <button
@@ -434,8 +449,7 @@ export function Connections({
               </div>
             ) : (
               <p className="connection-empty">
-                No API connections yet. Your local agents remain available
-                above.
+                No API connections yet. CLI connection status appears above.
               </p>
             )}
           </section>
@@ -490,6 +504,7 @@ export function Connections({
                 aria-pressed={credential === "key"}
                 className={credential === "key" ? "selected" : ""}
                 onClick={() => setCredential("key")}
+                disabled={hosted}
               >
                 API key
               </button>
@@ -531,9 +546,9 @@ export function Connections({
               </label>
             )}
             <p className="credential-help">
-              Keys are stored in macOS Keychain on Mac. Other platforms use an
-              environment reference. Keys are never included in profiles or run
-              records.
+              {hosted
+                ? "Set your API key privately in the Railway runtime’s environment, restart the runtime, then enter the variable name here. Keys are never included in run records."
+                : "Keys are stored in macOS Keychain on Mac. Other platforms use an environment reference. Keys are never included in profiles or run records."}
             </p>
             {draft.provider === "antigravity" && (
               <p className="connection-note">
@@ -635,7 +650,11 @@ export function Connections({
               </p>
             )}
             <div className="connection-form-footer">
-              <span>SSH and remote execution are not supported.</span>
+              <span>
+                {hosted
+                  ? "Projects and execution stay on Railway."
+                  : "SSH and remote execution are not supported."}
+              </span>
               <button
                 className="primary-button"
                 onClick={() => void save()}

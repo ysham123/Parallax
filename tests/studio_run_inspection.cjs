@@ -218,6 +218,9 @@ try {
   check("review assessment ownership", () =>
     assert.equal(assessmentAgents[1].reviews.length, 1),
   );
+  check("failed assessment is not shown as review complete", () =>
+    assert.equal(getRunAgents({ ...assessment, status: "needs_attention", reviews: [{ provider: "codex", ok: false, error: { code: "authentication_required" } }] }, [])[1].state, "review failed"),
+  );
   check("Verified candidate state tone", () =>
     assert.equal(graphTone("Verified candidate"), "good"),
   );

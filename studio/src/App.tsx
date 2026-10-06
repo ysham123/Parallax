@@ -1103,6 +1103,7 @@ function ReviewContent({ run, tab }: { run: RunResult; tab: ReviewTab }) {
 }
 
 export default function App() {
+  const hostedWorkspace = import.meta.env.MODE === "cloud";
   const [tab, setTab] = useState<Tab>("run");
   const [reviewTab, setReviewTab] = useState<ReviewTab>("findings");
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -1799,11 +1800,14 @@ export default function App() {
               {historyLoading
                 ? "Connecting"
                 : connected
-                  ? "Local connection"
+                  ? hostedWorkspace
+                    ? "Hosted connection"
+                    : "Local connection"
                   : "Connection unavailable"}
             </span>
             <span className="local-only">
-              <Icon name="command" size={13} /> On your machine
+              <Icon name="command" size={13} />{" "}
+              {hostedWorkspace ? "On Railway" : "On your machine"}
             </span>
           </div>
         </header>

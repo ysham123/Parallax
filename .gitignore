@@ -14,3 +14,5 @@ __pycache__/
 
 releases/
 .vercel/
+.env*
+project-link.json

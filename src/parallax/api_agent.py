@@ -364,7 +364,7 @@ class ApiAgent:
         if not isinstance(argv,list) or not argv or any(not isinstance(a,str) or not a or "\0" in a for a in argv): raise ValueError("Command must be an argv array")
         from .engine import _project_check
         if not _project_check(argv,root): raise ValueError("Only project verification commands are supported by API workers")
-        if sys.platform!="darwin": raise ValueError("API command execution currently requires the macOS sandbox")
+        if sys.platform!="darwin" and not sys.platform.startswith("linux"): raise ValueError("API command execution requires an enforceable macOS or Linux sandbox")
         from .providers import _capture
         import shutil
         executable=shutil.which(argv[0]) if not Path(argv[0]).is_absolute() else argv[0]
@@ -380,7 +380,15 @@ class ApiAgent:
                 if emit and event.get("type") in {"parallax.process_started","parallax.process_finished","parallax.process_termination_failed"}:
                     returned=emit(event)
                     if inspect.isawaitable(returned): await returned
-            result=await _capture(["/usr/bin/sandbox-exec","-p",rule,*command],cwd=root,env=env,timeout=120,cancel_event=cancel_event,on_event=command_event,max_output=65536)
+            if sys.platform.startswith("linux"):
+                from .assessment import execution_capability
+                from .engine import _sandbox_check
+                if not execution_capability()["enforced"]:
+                    raise ValueError("API command execution requires bubblewrap with working user and network namespaces")
+                wrapped=_sandbox_check(command,root,writable=[Path(temporary)])
+            else:
+                wrapped=["/usr/bin/sandbox-exec","-p",rule,*command]
+            result=await _capture(wrapped,cwd=root,env=env,timeout=120,cancel_event=cancel_event,on_event=command_event,max_output=65536)
         if result.failure=="cancelled": raise asyncio.CancelledError
         return {"ok":result.exit_code==0 and not result.failure,"exit_code":result.exit_code,"output":result.stdout+result.stderr,"error":result.failure}
 
