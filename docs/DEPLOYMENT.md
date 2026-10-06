@@ -80,3 +80,9 @@ python3 scripts/smoke_container.py
 The Docker smoke test uses a disposable container, a temporary access key, health checks, and authenticated API requests. It does not start inference or access a real project. CI builds both Vercel modes and the Railway image, runs authentication/origin/workspace boundary tests, and ensures hosted builds do not overwrite the packaged local Studio.
 
 After deployment, verify `/api/health`, sign-in, refresh/reconnect, sign-out, model discovery, provider auth failures, downloaded receipts, and a replaying SSE connection through Vercel. Check Railway logs and the persistent volume after a restart. Run real CLI/provider smoke tests separately in disposable project clones. No deployment is created by these preparation commands.
+
+## Paired local execution
+
+Hosted Studio can control an explicitly paired local worker through an outbound HTTPS relay. Select **Machines** to pair, then choose its name in the **Execution machine** menu. Native sign-ins, project worktrees, checks, and verified integration stay on the chosen machine; the hosted workspace receives run evidence for graph inspection and replay. This bypasses the Railway native Codex compatibility problem by moving execution to a compatible machine, without disabling any sandbox gate. See [local worker setup, scope, and recovery](LOCAL-WORKERS.md).
+
+This remains a private operator workspace. Pairing is approval for anyone with Studio access to operate the exact project roots declared on that worker; it is not customer tenant isolation. A sleeping Mac cannot execute work, and connection revocation reaches an offline worker only after it reconnects.

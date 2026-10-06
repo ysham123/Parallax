@@ -5,7 +5,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { api, messageOf } from "./api";
+import { api, apiUrl, messageOf } from "./api";
 import { ProviderMark } from "./Brand";
 import { RunWorkspace } from "./RunWorkspace";
 import { Connections as ConnectionsPanel } from "./Connections";
@@ -1102,7 +1102,19 @@ function ReviewContent({ run, tab }: { run: RunResult; tab: ReviewTab }) {
   );
 }
 
-export default function App() {
+export default function App({
+  execution,
+  executionControls,
+}: {
+  execution?: {
+    name: string;
+    workspace?: string;
+    platform?: string;
+    online?: boolean;
+    paired?: boolean;
+  };
+  executionControls?: ReactNode;
+} = {}) {
   const hostedWorkspace = import.meta.env.MODE === "cloud";
   const [tab, setTab] = useState<Tab>("run");
   const [reviewTab, setReviewTab] = useState<ReviewTab>("findings");
@@ -1117,7 +1129,10 @@ export default function App() {
   const [events, setEvents] = useState<RunEvent[]>([]);
   const [spec, setSpec] = useState<RunSpec>(() => ({
     ...structuredClone(INITIAL_SPEC),
-    workspace: new URLSearchParams(location.search).get("workspace") || "",
+    workspace:
+      execution?.workspace ||
+      new URLSearchParams(location.search).get("workspace") ||
+      "",
   }));
   const [loading, setLoading] = useState(true);
   const [catalogLoading, setCatalogLoading] = useState(false);
@@ -1357,7 +1372,7 @@ export default function App() {
     setStreamStatus("connecting");
     const id = run.run_id;
     const source = new EventSource(
-      `/api/runs/${encodeURIComponent(id)}/events?cursor=0`,
+      apiUrl(`/runs/${encodeURIComponent(id)}/events?cursor=0`),
       { withCredentials: true },
     );
     let disposed = false;
@@ -1646,6 +1661,7 @@ export default function App() {
       </a>
       {connectionsOpen && (
         <ConnectionsPanel
+          execution={execution}
           connections={connections}
           onChanged={load}
           onClose={closeConnections}
@@ -1789,6 +1805,7 @@ export default function App() {
             </strong>
           </div>
           <div className="topbar-right">
+            {executionControls}
             <button
               className="work-button"
               onClick={() => setConnectionsOpen(true)}
@@ -1807,7 +1824,11 @@ export default function App() {
             </span>
             <span className="local-only">
               <Icon name="command" size={13} />{" "}
-              {hostedWorkspace ? "On Railway" : "On your machine"}
+              {execution?.paired
+                ? `On ${execution.name}`
+                : hostedWorkspace
+                  ? "On Railway"
+                  : "On your machine"}
             </span>
           </div>
         </header>

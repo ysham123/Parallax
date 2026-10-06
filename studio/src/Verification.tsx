@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, messageOf } from "./api";
+import { api, apiUrl, messageOf } from "./api";
 import type { RunResult } from "./types";
 
 export type VerificationGate = {
@@ -96,14 +96,14 @@ export function Verification({ run }: { run: RunResult }) {
           <div className="verification-downloads">
             <a
               className="secondary-button"
-              href={`/api/runs/${encodeURIComponent(run.run_id)}/receipt`}
+              href={apiUrl(`/runs/${encodeURIComponent(run.run_id)}/receipt`)}
               download={`parallax-${run.run_id}-verification.json`}
             >
               Download JSON <span aria-hidden="true">↓</span>
             </a>
             <a
               className="secondary-button"
-              href={`/api/runs/${encodeURIComponent(run.run_id)}/patch`}
+              href={apiUrl(`/runs/${encodeURIComponent(run.run_id)}/patch`)}
               download={`parallax-${run.run_id}.patch`}
             >
               Download patch <span aria-hidden="true">↓</span>

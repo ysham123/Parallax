@@ -4,6 +4,7 @@ import asyncio
 import hmac
 import json
 import os
+import re
 import secrets
 import time
 from urllib.parse import urlencode
@@ -12,9 +13,9 @@ from pathlib import Path
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse, JSONResponse, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from .engine import Engine
-from .models import RunSpec, ProjectProfile, Participant
+from .models import RunSpec, RunResult, RunEvent, ProjectProfile, Participant
 from .recovery import RecoveryRequest, AlphaFeedback, recovery_options, save_feedback, save_baseline_feedback, export_feedback
 from .connections import ConnectionInput
 from .store import Store
@@ -30,7 +31,26 @@ class Steering(BaseModel):
 class SessionInput(BaseModel):
     token: str = Field(min_length=1,max_length=512)
 
-def create_app(store:Store|None=None, registry=None, *, token:str|None=None, workspace:str|None=None, deployment:Deployment|None=None):
+class WorkerConnect(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    code: str = Field(min_length=20, max_length=128)
+    name: str = Field(min_length=1, max_length=80)
+    platform: str = Field(min_length=1, max_length=32)
+    workspaces: list[str] = Field(min_length=1, max_length=16)
+
+class WorkerReply(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(pattern=r"^[a-f0-9-]{36}$")
+    status: int = Field(ge=100, le=599)
+    body: object = None
+    content_type: str = "application/json"
+
+class WorkerSync(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    runs: list[RunResult] = Field(default_factory=list, max_length=100)
+    events: list[RunEvent] = Field(default_factory=list, max_length=500)
+
+def create_app(store:Store|None=None, registry=None, *, token:str|None=None, workspace:str|None=None, deployment:Deployment|None=None, allowed_workspaces:tuple[Path,...]|None=None):
     store=store or Store()
     engine=Engine(store,registry)
     token=token or secrets.token_urlsafe(32)
@@ -38,6 +58,8 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
         raise ValueError("Hosted access token does not match deployment configuration")
     def check_workspace(value):
         if deployment: deployment.check_workspace(value)
+        if allowed_workspaces is not None and Path(value).expanduser().resolve() not in allowed_workspaces:
+            raise ValueError("This project was not approved on the execution machine")
     def set_session(response):
         session=secrets.token_urlsafe(32)+"."+str(int(time.time()))
         session+="."+hmac.new(token.encode(),session.encode(),"sha256").hexdigest()
@@ -62,6 +84,9 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
         await engine.shutdown()
     app=FastAPI(title="Parallax",version="1.1.0",lifespan=lifespan,docs_url=None,redoc_url=None,openapi_url=None)
     app.state.engine=engine;app.state.token=token;app.state.store=store
+    from .executors import ExecutorHub, MAX_MESSAGE
+    hub = ExecutorHub(store) if deployment else None
+    app.state.executors = hub
 
     @app.middleware("http")
     async def guard(request:Request,call_next):
@@ -76,6 +101,20 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
         if origin and origin not in allowed_origins:
             return JSONResponse({"detail":"Cross-origin requests are not allowed"},status_code=403)
         if request.url.path=="/api/health":
+            return await call_next(request)
+        if hub and request.url.path.startswith("/api/worker/"):
+            if origin:
+                return JSONResponse({"detail":"Worker protocol requires an outbound CLI connection"},status_code=403)
+            try: size=int(request.headers.get("content-length", "0"))
+            except ValueError: return JSONResponse({"detail":"Invalid content length"},status_code=400)
+            if size > MAX_MESSAGE:
+                return JSONResponse({"detail":"Worker message exceeds limit"},status_code=413)
+            if request.url.path == "/api/worker/connect" and request.method == "POST":
+                return await call_next(request)
+            try:
+                request.state.worker = hub.authenticate(request.headers.get("authorization", "").removeprefix("Bearer "))
+            except HTTPException as exc:
+                return JSONResponse({"detail":exc.detail},status_code=exc.status_code)
             return await call_next(request)
         bearer=request.headers.get("authorization","").removeprefix("Bearer ")
         authorized=session_valid(request.cookies.get("parallax_session")) or (bool(bearer) and hmac.compare_digest(bearer.encode(),token.encode()))
@@ -130,6 +169,63 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
     async def deployment_status():
         from .assessment import execution_capability
         return {"mode":"hosted" if deployment else "local","execution":execution_capability()}
+    @app.get("/api/executors")
+    async def executors():
+        return hub.workers() if hub else []
+    @app.post("/api/executors/pair")
+    async def pair_worker():
+        if not hub: raise HTTPException(404)
+        return hub.pair()
+    @app.delete("/api/executors/{identifier}")
+    async def revoke_worker(identifier:str):
+        if not hub: raise HTTPException(404)
+        return hub.revoke(identifier)
+    @app.post("/api/worker/connect")
+    async def connect_worker(body:WorkerConnect):
+        if not hub: raise HTTPException(404)
+        if any(len(path)>4096 or not Path(path).is_absolute() for path in body.workspaces):
+            raise ValueError("Worker projects must be absolute paths")
+        return hub.connect(body.code,body.name,{"platform":body.platform,"workspaces":body.workspaces})
+    @app.get("/api/worker/next")
+    async def next_worker(request:Request):
+        if not hub: raise HTTPException(404)
+        return hub.pending(request.state.worker)
+    @app.post("/api/worker/reply")
+    async def reply_worker(body:WorkerReply,request:Request):
+        if not hub: raise HTTPException(404)
+        return hub.complete(request.state.worker,body.id,body.model_dump(exclude={"id"}))
+    @app.post("/api/worker/sync")
+    async def sync_worker(body:WorkerSync,request:Request):
+        if not hub: raise HTTPException(404)
+        return hub.sync(request.state.worker,[r.model_dump() for r in body.runs],[e.model_dump() for e in body.events])
+    @app.api_route("/api/executors/{identifier}/proxy/{path:path}", methods=["GET","POST","PUT","DELETE"])
+    async def worker_proxy(identifier:str,path:str,request:Request):
+        if not hub: raise HTTPException(404)
+        hub.worker(identifier)
+        if request.method=="GET" and re.fullmatch(r"runs/[a-f0-9-]{36}/events",path):
+            try: cursor=max(0,int(request.query_params.get("cursor","0")),int(request.headers.get("last-event-id","0")))
+            except ValueError: raise HTTPException(400,"Invalid event cursor")
+            async def replay():
+                position=cursor
+                while not await request.is_disconnected():
+                    hub.worker(identifier)
+                    for event in hub.events(identifier,path.split('/')[1],position):
+                        position=event["sequence"]
+                        yield f"id: {position}\ndata: {json.dumps(event)}\n\n"
+                    yield ": keepalive\n\n"
+                    await asyncio.sleep(1)
+            return StreamingResponse(replay(),media_type="text/event-stream",headers={"X-Accel-Buffering":"no"})
+        raw=await request.body()
+        if len(raw)>MAX_MESSAGE: raise HTTPException(413,"Worker request exceeds limit")
+        try: body=json.loads(raw) if raw else None
+        except ValueError: raise HTTPException(400,"Invalid JSON body")
+        reply=await hub.request(identifier,request.method,"/api/"+path,str(request.query_params),body)
+        headers={"X-Parallax-Worker":identifier,"X-Parallax-Offline":"true" if reply.get("offline") else "false"}
+        if path.endswith('/patch'):
+            headers["Content-Disposition"]='attachment; filename=parallax.patch'
+            return Response(str(reply["body"]),status_code=reply["status"],media_type="text/plain",headers=headers)
+        if path.endswith('/receipt'): headers["Content-Disposition"]='attachment; filename=parallax-verification.json'
+        return JSONResponse(reply["body"],status_code=reply["status"],headers=headers)
     @app.get("/api/providers")
     async def providers(refresh:bool=False):
         return await engine.registry.discover(refresh=True) if refresh else await engine.registry.discover()
@@ -178,7 +274,9 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
     @app.get("/api/runs/{run_id}/recovery")
     async def recovery(run_id:str): return recovery_options(store.get(run_id))
     @app.post("/api/runs/{run_id}/recover")
-    async def recover(run_id:str,body:RecoveryRequest): return engine.recover_run(run_id,body.action)
+    async def recover(run_id:str,body:RecoveryRequest):
+        check_workspace(store.get(run_id)["spec"]["workspace"])
+        return engine.recover_run(run_id,body.action)
     @app.post("/api/runs/{run_id}/feedback")
     async def feedback(run_id:str,body:AlphaFeedback): return save_feedback(store,run_id,body)
     @app.get("/api/runs")
@@ -197,9 +295,13 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
         return Response(store.get(run_id).get("diff",""),media_type="text/plain",
                         headers={"Content-Disposition":"attachment; filename=parallax.patch"})
     @app.post("/api/runs/{run_id}/steer")
-    async def steer(run_id:str,body:Steering): return engine.steer(run_id,body.message)
+    async def steer(run_id:str,body:Steering):
+        check_workspace(store.get(run_id)["spec"]["workspace"])
+        return engine.steer(run_id,body.message)
     @app.post("/api/runs/{run_id}/{operation}")
-    async def control(run_id:str,operation:str): return engine.control(run_id,operation)
+    async def control(run_id:str,operation:str):
+        check_workspace(store.get(run_id)["spec"]["workspace"])
+        return engine.control(run_id,operation)
     @app.get("/api/runs/{run_id}/events")
     async def events(run_id:str,request:Request,cursor:int=0):
         store.get(run_id)
@@ -214,6 +316,10 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
                 yield ": keepalive\n\n"
                 await asyncio.sleep(1)
         return StreamingResponse(stream(),media_type="text/event-stream",headers={"X-Accel-Buffering":"no"})
+    @app.get("/api/runs/{run_id}/event-log")
+    async def event_log(run_id:str,cursor:int=0):
+        store.get(run_id)
+        return store.events(run_id,max(0,cursor))[:500]
     @app.get("/{path:path}")
     async def studio(path:str):
         requested=(static/path).resolve()

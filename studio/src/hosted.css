@@ -262,3 +262,114 @@
 .cloud-session [role="alert"] {
   color: var(--danger);
 }
+
+.execution-picker select {
+  max-width: 210px;
+  width: auto;
+  font-size: 12px;
+  padding: 7px 24px 7px 10px;
+  border-radius: 7px;
+}
+.machine-offline {
+  color: var(--muted);
+  font-size: 11px;
+}
+.machine-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: #0009;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.machine-dialog {
+  width: min(660px, 100%);
+  max-height: 88vh;
+  overflow: auto;
+  padding: 28px;
+  background: var(--surface, var(--bg));
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: 0 24px 100px #0007;
+}
+.machine-dialog header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.machine-dialog h2 {
+  margin: 7px 0 14px;
+  font-size: 24px;
+}
+.machine-dialog p {
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--muted);
+  white-space: normal;
+}
+.machine-list {
+  margin: 24px 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.machine-list article {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  padding: 16px;
+  border-bottom: 1px solid var(--line);
+}
+.machine-list article:last-child {
+  border-bottom: 0;
+}
+.machine-list small {
+  display: block;
+  color: var(--muted);
+  margin-top: 5px;
+}
+.machine-list summary {
+  font-size: 12px;
+  margin-top: 10px;
+  cursor: pointer;
+}
+.machine-dialog code {
+  display: block;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  font-size: 12px;
+  line-height: 1.65;
+  margin: 9px 0;
+}
+.pair-machine {
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+.pair-code {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  margin-top: 12px;
+}
+.pair-code code {
+  user-select: all;
+  font-size: 16px;
+}
+.pair-code small {
+  color: var(--muted);
+}
+.machine-error {
+  color: var(--danger, #e58787) !important;
+}
+@media (max-width: 1000px) {
+  .topbar-right .local-only {
+    display: none;
+  }
+  .execution-picker select {
+    max-width: 130px;
+  }
+}
