@@ -1,0 +1,585 @@
+{
+  "validated_at": "2026-10-06T16:27:08.012644+00:00",
+  "run_id": "a15f2572-3729-46ec-986c-09c0a6937b46",
+  "status": "needs_attention",
+  "summary": "Plan one focused repair for the rejected stats.py patch using the originally assigned implementer. The reviewed evidence shows stats.py remains stubbed; maths.py is already completed and approved and must remain untouched.",
+  "fixture": "docs/demo",
+  "baseline_check": {
+    "exit_code": 1,
+    "tests": 8,
+    "failures": 3,
+    "errors": 4
+  },
+  "final_check": {
+    "exit_code": 1,
+    "output": "test_clamp_inside_and_both_boundaries (__main__.Acceptance.test_clamp_inside_and_both_boundaries) ... FAIL\ntest_clamp_reversed_bounds_rejected (__main__.Acceptance.test_clamp_reversed_bounds_rejected) ... FAIL\ntest_division (__main__.Acceptance.test_division) ... ok\ntest_division_zero_rejected (__main__.Acceptance.test_division_zero_rejected) ... ERROR\ntest_mean_empty_rejected (__main__.Acceptance.test_mean_empty_rejected) ... ERROR\ntest_mean_lists_and_generators (__main__.Acceptance.test_mean_lists_and_generators) ... ERROR\ntest_median_empty_rejected (__main__.Acceptance.test_median_empty_rejected) ... ERROR\ntest_median_odd_even_and_input_preserved (__main__.Acceptance.test_median_odd_even_and_input_preserved) ... FAIL\n\n======================================================================\nERROR: test_division_zero_rejected (__main__.Acceptance.test_division_zero_rejected)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<private-fixture>/check.py\", line 26, in test_division_zero_rejected\n    safe_divide(5, denominator)\n    ~~~~~~~~~~~^^^^^^^^^^^^^^^^\n  File \"<private-fixture>/maths.py\", line 11, in safe_divide\n    return numerator / denominator\n           ~~~~~~~~~~^~~~~~~~~~~~~\nZeroDivisionError: division by zero\n\n======================================================================\nERROR: test_mean_empty_rejected (__main__.Acceptance.test_mean_empty_rejected)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<private-fixture>/check.py\", line 37, in test_mean_empty_rejected\n    mean(values)\n    ~~~~^^^^^^^^\n  File \"<private-fixture>/stats.py\", line 6, in mean\n    return sum(values) / len(values)\n           ~~~~~~~~~~~~^~~~~~~~~~~~~\nZeroDivisionError: division by zero\n\n======================================================================\nERROR: test_mean_lists_and_generators (__main__.Acceptance.test_mean_lists_and_generators)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<private-fixture>/check.py\", line 30, in test_mean_lists_and_generators\n    self.assertEqual(mean(iter([-2, 2])), 0)\n                     ~~~~^^^^^^^^^^^^^^^\n  File \"<private-fixture>/stats.py\", line 6, in mean\n    return sum(values) / len(values)\n                         ~~~^^^^^^^^\nTypeError: object of type 'list_iterator' has no len()\n\n======================================================================\nERROR: test_median_empty_rejected (__main__.Acceptance.test_median_empty_rejected)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<private-fixture>/check.py\", line 50, in test_median_empty_rejected\n    median(values)\n    ~~~~~~^^^^^^^^\n  File \"<private-fixture>/stats.py\", line 12, in median\n    return ordered[len(ordered) // 2]\n           ~~~~~~~^^^^^^^^^^^^^^^^^^^\nIndexError: list index out of range\n\n======================================================================\nFAIL: test_clamp_inside_and_both_boundaries (__main__.Acceptance.test_clamp_inside_and_both_boundaries)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<private-fixture>/check.py\", line 10, in test_clamp_inside_and_both_boundaries\n    self.assertEqual(clamp(-3, 0, 10), 0)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^\nAssertionError: -3 != 0\n\n======================================================================\nFAIL: test_clamp_reversed_bounds_rejected (__main__.Acceptance.test_clamp_reversed_bounds_rejected)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<private-fixture>/check.py\", line 15, in test_clamp_reversed_bounds_rejected\n    with self.assertRaises(ValueError):\n         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^\nAssertionError: ValueError not raised\n\n======================================================================\nFAIL: test_median_odd_even_and_input_preserved (__main__.Acceptance.test_median_odd_even_and_input_preserved)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<private-fixture>/check.py\", line 41, in test_median_odd_even_and_input_preserved\n    self.assertEqual(median(data), 2.5)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^\nAssertionError: 3 != 2.5\n\n----------------------------------------------------------------------\nRan 8 tests in 0.002s\n\nFAILED (failures=3, errors=4)\n"
+  },
+  "integration_applied": false,
+  "changed_files": [],
+  "diff": "diff --git a/maths.py b/maths.py\nindex 3c97d395729e0dbd8336f008ced395269bd4bc82..7010aeedeb6edf79b06bd9040a91e4b212eb3faa 100644\n--- a/maths.py\n+++ b/maths.py\n@@ -3,9 +3,13 @@\n \n def clamp(value, lower, upper):\n     \"\"\"Clamp value to inclusive lower/upper bounds; reject reversed bounds.\"\"\"\n-    return min(value, upper)\n+    if lower > upper:\n+        raise ValueError(\"lower bound must not exceed upper bound\")\n+    return min(max(value, lower), upper)\n \n \n def safe_divide(numerator, denominator):\n     \"\"\"Divide two numbers; raise ValueError for a zero denominator.\"\"\"\n+    if denominator == 0:\n+        raise ValueError(\"denominator must not be zero\")\n     return numerator / denominator\ndiff --git a/stats.py b/stats.py\nindex d76a0c6a1ab60ef07d90c79f2b8a6829e93f38f9..dd2f102108bb1c3f141d6f5774fc31b8cfeb11f6 100644\n--- a/stats.py\n+++ b/stats.py\n@@ -3,10 +3,20 @@\n \n def mean(values):\n     \"\"\"Return arithmetic mean of a finite iterable; reject empty input.\"\"\"\n-    return sum(values) / len(values)\n+    items = list(values)\n+    if not items:\n+        raise ValueError(\"Cannot compute mean of empty iterable\")\n+    return sum(items) / len(items)\n \n \n def median(values):\n     \"\"\"Return median of a finite iterable; reject empty input.\"\"\"\n-    ordered = sorted(values)\n-    return ordered[len(ordered) // 2]\n+    items = list(values)\n+    if not items:\n+        raise ValueError(\"Cannot compute median of empty iterable\")\n+    ordered = sorted(items)\n+    n = len(ordered)\n+    mid = n // 2\n+    if n % 2 == 1:\n+        return ordered[mid]\n+    return (ordered[mid - 1] + ordered[mid]) / 2\n",
+  "tasks": [
+    {
+      "id": "fix-maths-claude",
+      "provider": "claude",
+      "files": [
+        "maths.py"
+      ],
+      "status": "completed",
+      "attempts": 1,
+      "changed_files": [
+        "maths.py"
+      ],
+      "error": null,
+      "native_ok": true
+    },
+    {
+      "id": "fix-stats-antigravity",
+      "provider": "antigravity",
+      "files": [
+        "stats.py"
+      ],
+      "status": "failed",
+      "attempts": 2,
+      "changed_files": [
+        "stats.py"
+      ],
+      "error": null,
+      "native_ok": true
+    },
+    {
+      "id": "repair-stats-antigravity",
+      "provider": "antigravity",
+      "files": [
+        "stats.py"
+      ],
+      "status": "completed",
+      "attempts": 1,
+      "changed_files": [
+        "stats.py"
+      ],
+      "error": null,
+      "native_ok": true
+    }
+  ],
+  "reviews": [
+    {
+      "provider": "grok",
+      "task_id": "fix-maths-claude",
+      "ok": true,
+      "findings": [],
+      "summary": "maths.py matches its contract. clamp returns the value inside inclusive bounds, the nearer bound outside them, and the shared bound when lower equals upper; lower > upper raises ValueError. safe_divide returns numerator / denominator and raises ValueError for 0 and -0.0. Those paths cover the maths cases in check.py. stats.py is outside this task and still fails its own checks.",
+      "error": null
+    },
+    {
+      "provider": "grok",
+      "task_id": "fix-stats-antigravity",
+      "ok": false,
+      "findings": [
+        "stats.py mean and median are stubs that return None and do not implement the documented contracts.",
+        "Empty input does not raise ValueError.",
+        "Finite iterables, generators, odd-length middle values, and even-length middle-pair averages are not computed.",
+        "The supplied acceptance checks in check.py for stats behavior are not satisfied."
+      ],
+      "summary": "stats.py still returns None from mean and median, so the arithmetic mean, median, empty-input ValueError, generator support, and non-mutation contracts are unmet.",
+      "error": null
+    },
+    {
+      "provider": "grok",
+      "task_id": "repair-stats-antigravity",
+      "ok": true,
+      "findings": [],
+      "summary": "stats.py matches the repair contract. mean and median materialize any finite iterable, raise ValueError on empty input, leave input lists unchanged, and median sorts a separate collection, returning the middle value for odd length and the average of the two middle values for even length. maths.py still implements inclusive clamp and zero-denominator rejection. check.py is unchanged and its cases line up with those behaviors.",
+      "error": null
+    },
+    {
+      "provider": "grok",
+      "task_id": "integration",
+      "ok": true,
+      "findings": [],
+      "summary": "maths.py and stats.py match their contracts and the acceptance checks in check.py. clamp uses inclusive bounds and raises ValueError when lower > upper; safe_divide returns ordinary division and rejects zero denominators, including -0.0. mean and median copy finite iterables, including generators, raise ValueError on empty input, leave input lists unchanged, and average the middle pair for even-length medians.",
+      "error": null
+    },
+    {
+      "provider": "grok",
+      "task_id": "fix-stats-antigravity",
+      "ok": true,
+      "findings": [],
+      "summary": "stats.py matches the documented contracts and the stats cases in check.py. mean and median materialize finite iterables, including generators, raise ValueError on empty input, and leave input lists unchanged. Odd-length median returns the middle value; even-length median averages the middle pair.",
+      "error": null
+    },
+    {
+      "provider": "grok",
+      "task_id": "integration",
+      "ok": true,
+      "findings": [],
+      "summary": "maths.py and stats.py match their contracts and check.py. clamp uses inclusive min/max and raises ValueError when lower > upper, including equal bounds. safe_divide returns ordinary division and rejects 0 and -0.0 because both compare equal to zero. mean and median copy finite iterables, including generators, raise ValueError on empty input, leave the original list unchanged, and average the two middle values for even-length medians.",
+      "error": null
+    }
+  ],
+  "checks": [
+    {
+      "name": "supplied acceptance check after merge conflict",
+      "argv": [
+        "python3",
+        "check.py"
+      ],
+      "ok": true,
+      "exit_code": 0,
+      "output": "test_clamp_inside_and_both_boundaries (__main__.Acceptance.test_clamp_inside_and_both_boundaries) ... ok\ntest_clamp_reversed_bounds_rejected (__main__.Acceptance.test_clamp_reversed_bounds_rejected) ... ok\ntest_division (__main__.Acceptance.test_division) ... ok\ntest_division_zero_rejected (__main__.Acceptance.test_division_zero_rejected) ... ok\ntest_mean_empty_rejected (__main__.Acceptance.test_mean_empty_rejected) ... ok\ntest_mean_lists_and_generators (__main__.Acceptance.test_mean_lists_and_generators) ... ok\ntest_median_empty_rejected (__main__.Acceptance.test_median_empty_rejected) ... ok\ntest_median_odd_even_and_input_preserved (__main__.Acceptance.test_median_odd_even_and_input_preserved) ... ok\n\n----------------------------------------------------------------------\nRan 8 tests in 0.000s\n\nOK\n",
+      "elapsed_seconds": 0.06,
+      "error": null,
+      "task_id": null
+    }
+  ],
+  "actions": [
+    {
+      "id": "dispatch-002",
+      "action": "dispatch",
+      "state": "completed"
+    },
+    {
+      "id": "dispatch-repair-stats-004",
+      "action": "dispatch",
+      "state": "completed"
+    },
+    {
+      "id": "inspect-stats-conflict-009",
+      "action": "inspect_results",
+      "state": "completed"
+    },
+    {
+      "id": "plan-001",
+      "action": "plan",
+      "state": "completed"
+    },
+    {
+      "id": "plan-repair-stats-003",
+      "action": "plan",
+      "state": "completed"
+    },
+    {
+      "id": "redispatch-stats-original-008",
+      "action": "dispatch",
+      "state": "completed"
+    },
+    {
+      "id": "request-integration-006",
+      "action": "request_integration",
+      "state": "failed"
+    },
+    {
+      "id": "request-integration-repaired-007",
+      "action": "request_integration",
+      "state": "failed"
+    },
+    {
+      "id": "request-integration-selection-011",
+      "action": "request_integration",
+      "state": "failed"
+    },
+    {
+      "id": "resume-stats-conflict-010",
+      "action": "dispatch",
+      "state": "failed"
+    },
+    {
+      "id": "revalidate-after-conflict-012",
+      "action": "validate",
+      "state": "completed"
+    },
+    {
+      "id": "validate-acceptance-005",
+      "action": "validate",
+      "state": "completed"
+    }
+  ],
+  "providers": {
+    "codex": {
+      "version": "codex-cli 0.144.1",
+      "catalog_source": "native CLI model discovery"
+    },
+    "claude": {
+      "version": "2.1.283 (Claude Code)",
+      "catalog_source": "installed CLI aliases; account/model access checked by native invocation"
+    },
+    "grok": {
+      "version": "grok 1.0.46 (2765805b9442) [stable]",
+      "catalog_source": "native CLI IDs + cached native effort menus; fetched=2026-10-06T16:21:29.962606Z"
+    },
+    "antigravity": {
+      "version": "1.3.0",
+      "catalog_source": "native account model catalog; effort variants derived from model IDs"
+    }
+  },
+  "effective_sessions": [
+    {
+      "provider": "codex",
+      "task_id": "coordinator",
+      "mode": "coordinate",
+      "effective_settings": {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "effort": "low",
+        "effort_source": "requested",
+        "effort_selection": "flag",
+        "catalog_source": "native CLI model discovery",
+        "shell": false,
+        "sandbox": "native read-only"
+      }
+    },
+    {
+      "provider": "codex",
+      "task_id": "coordinator",
+      "mode": "coordinate",
+      "effective_settings": {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "effort": "low",
+        "effort_source": "requested",
+        "effort_selection": "flag",
+        "catalog_source": "native CLI model discovery",
+        "shell": false,
+        "sandbox": "native read-only"
+      }
+    },
+    {
+      "provider": "claude",
+      "task_id": "fix-maths-claude",
+      "mode": "edit",
+      "effective_settings": {
+        "provider": "claude",
+        "model": "sonnet",
+        "effort": "low",
+        "effort_source": "requested",
+        "effort_selection": "flag",
+        "catalog_source": "installed CLI aliases; account/model access checked by native invocation",
+        "shell": true,
+        "sandbox": "native restricted file tools + strict shell sandbox"
+      }
+    },
+    {
+      "provider": "antigravity",
+      "task_id": "fix-stats-antigravity",
+      "mode": "edit",
+      "effective_settings": {
+        "provider": "antigravity",
+        "model": "gemini-3.8-flash-low",
+        "effort": "low",
+        "effort_source": "requested",
+        "effort_selection": "model_variant",
+        "catalog_source": "native account model catalog; effort variants derived from model IDs",
+        "shell": false,
+        "sandbox": "native restricted file tools"
+      }
+    },
+    {
+      "provider": "grok",
+      "task_id": "review-fix-maths-claude",
+      "mode": "consult",
+      "effective_settings": {
+        "provider": "grok",
+        "model": "grok-4.7",
+        "effort": "low",
+        "effort_source": "requested",
+        "effort_selection": "flag",
+        "catalog_source": "native CLI IDs + cached native effort menus; fetched=2026-10-06T16:21:29.962606Z",
+        "shell": false,
+        "sandbox": "native read-only"
+      }
+    },
+    {
+      "provider": "grok",
+      "task_id": "review-fix-stats-antigravity",
+      "mode": "consult",
+      "effective_settings": {
+        "provider": "grok",
+        "model": "grok-4.7",
+        "effort": "low",
+        "effort_source": "requested",
+        "effort_selection": "flag",
+        "catalog_source": "native CLI IDs + cached native effort menus; fetched=2026-10-06T16:21:29.962606Z",
+        "shell": false,
+        "sandbox": "native read-only"
+      }
+    },
+    {
+      "provider": "codex",
+      "task_id": "coordinator",
+      "mode": "coordinate",
+      "effective_settings": {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "effort": "low",
+        "effort_source": "requested",
+        "effort_selection": "flag",
+        "catalog_source": "native CLI model discovery",
+        "shell": false,
+        "sandbox": "native read-only"
+      }
+    },
+    {
+      "provider": "codex",
+      "task_id": "coordinator",
+      "mode": "coordinate",
+      "effective_settings": {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "effort": "low",
+        "effort_source": "requested",
+        "effort_selection": "flag",
+        "catalog_source": "native CLI model discovery",
+        "shell": false,
+        "sandbox": "native read-only"
+      }
+    },
+    {
+      "provider": "antigravity",
+      "task_id": "repair-stats-antigravity",
+      "mode": "edit",
+      "effective_settings": {
+        "provider": "antigravity",
+        "model": "gemini-3.8-flash-low",
+        "effort": "low",
+        "effort_source": "requested",
+        "effort_selection": "model_variant",
+        "catalog_source": "native account model catalog; effort variants derived from model IDs",
+        "shell": false,
+        "sandbox": "native restricted file tools"
+      }
+    },
+    {
+      "provider": "grok",
+      "task_id": "review-repair-stats-antigravity",
+      "mode": "consult",
+      "effective_settings": {
+        "provider": "grok",
+        "model": "grok-4.7",
+        "effort": "low",
+        "effort_source": "requested",
+        "effort_selection": "flag",
+        "catalog_source": "native CLI IDs + cached native effort menus; fetched=2026-10-06T16:21:29.962606Z",
+        "shell": false,
+        "sandbox": "native read-only"
+      }
+    },
+    {
+      "provider": "codex",
+      "task_id": "coordinator",
+      "mode": "coordinate",
+      "effective_settings": {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "effort": "low",
+        "effort_source": "requested",
+        "effort_selection": "flag",
+        "catalog_source": "native CLI model discovery",
+        "shell": false,
+        "sandbox": "native read-only"
+      }
+    },
+    {
+      "provider": "grok",
+      "task_id": "review-integration",
+      "mode": "consult",
+      "effective_settings": {
+        "provider": "grok",
+        "model": "grok-4.7",
+        "effort": "low",
+        "effort_source": "requested",
+        "effort_selection": "flag",
+        "catalog_source": "native CLI IDs + cached native effort menus; fetched=2026-10-06T16:21:29.962606Z",
+        "shell": false,
+        "sandbox": "native read-only"
+      }
+    },
+    {
+      "provider": "codex",
+      "task_id": "coordinator",
+      "mode": "coordinate",
+      "effective_settings": {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "effort": "low",
+        "effort_source": "requested",
+        "effort_selection": "flag",
+        "catalog_source": "native CLI model discovery",
+        "shell": false,
+        "sandbox": "native read-only"
+      }
+    },
+    {
+      "provider": "codex",
+      "task_id": "coordinator",
+      "mode": "coordinate",
+      "effective_settings": {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "effort": "low",
+        "effort_source": "requested",
+        "effort_selection": "flag",
+        "catalog_source": "native CLI model discovery",
+        "shell": false,
+        "sandbox": "native read-only"
+      }
+    },
+    {
+      "provider": "codex",
+      "task_id": "coordinator",
+      "mode": "coordinate",
+      "effective_settings": {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "effort": "low",
+        "effort_source": "requested",
+        "effort_selection": "flag",
+        "catalog_source": "native CLI model discovery",
+        "shell": false,
+        "sandbox": "native read-only"
+      }
+    },
+    {
+      "provider": "antigravity",
+      "task_id": "fix-stats-antigravity",
+      "mode": "edit",
+      "effective_settings": {
+        "provider": "antigravity",
+        "model": "gemini-3.8-flash-low",
+        "effort": "low",
+        "effort_source": "requested",
+        "effort_selection": "model_variant",
+        "catalog_source": "native account model catalog; effort variants derived from model IDs",
+        "shell": false,
+        "sandbox": "native restricted file tools"
+      }
+    },
+    {
+      "provider": "grok",
+      "task_id": "review-fix-stats-antigravity",
+      "mode": "consult",
+      "effective_settings": {
+        "provider": "grok",
+        "model": "grok-4.7",
+        "effort": "low",
+        "effort_source": "requested",
+        "effort_selection": "flag",
+        "catalog_source": "native CLI IDs + cached native effort menus; fetched=2026-10-06T16:21:29.962606Z",
+        "shell": false,
+        "sandbox": "native read-only"
+      }
+    },
+    {
+      "provider": "codex",
+      "task_id": "coordinator",
+      "mode": "coordinate",
+      "effective_settings": {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "effort": "low",
+        "effort_source": "requested",
+        "effort_selection": "flag",
+        "catalog_source": "native CLI model discovery",
+        "shell": false,
+        "sandbox": "native read-only"
+      }
+    },
+    {
+      "provider": "codex",
+      "task_id": "coordinator",
+      "mode": "coordinate",
+      "effective_settings": {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "effort": "low",
+        "effort_source": "requested",
+        "effort_selection": "flag",
+        "catalog_source": "native CLI model discovery",
+        "shell": false,
+        "sandbox": "native read-only"
+      }
+    },
+    {
+      "provider": "codex",
+      "task_id": "coordinator",
+      "mode": "coordinate",
+      "effective_settings": {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "effort": "low",
+        "effort_source": "requested",
+        "effort_selection": "flag",
+        "catalog_source": "native CLI model discovery",
+        "shell": false,
+        "sandbox": "native read-only"
+      }
+    },
+    {
+      "provider": "codex",
+      "task_id": "coordinator",
+      "mode": "coordinate",
+      "effective_settings": {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "effort": "low",
+        "effort_source": "requested",
+        "effort_selection": "flag",
+        "catalog_source": "native CLI model discovery",
+        "shell": false,
+        "sandbox": "native read-only"
+      }
+    },
+    {
+      "provider": "grok",
+      "task_id": "review-integration",
+      "mode": "consult",
+      "effective_settings": {
+        "provider": "grok",
+        "model": "grok-4.7",
+        "effort": "low",
+        "effort_source": "requested",
+        "effort_selection": "flag",
+        "catalog_source": "native CLI IDs + cached native effort menus; fetched=2026-10-06T16:21:29.962606Z",
+        "shell": false,
+        "sandbox": "native read-only"
+      }
+    }
+  ],
+  "errors": [
+    {
+      "code": "invalid_action",
+      "message": "Unfinished tasks block integration"
+    },
+    {
+      "code": "invalid_action",
+      "message": "Unfinished tasks block integration"
+    },
+    {
+      "code": "invalid_action",
+      "message": "Task repair limit reached"
+    },
+    {
+      "code": "invalid_action",
+      "message": "Unfinished tasks block integration"
+    },
+    {
+      "code": "run_blocked",
+      "message": "Coordinator decision limit reached; work and evidence are preserved"
+    }
+  ],
+  "capability_confidence": {
+    "scope": "Actual signed-in native CLI calls on this macOS host, selected low-effort models, and this small Python fixture.",
+    "verified": [
+      "native coordinator decisions",
+      "two disjoint file-owned implementation tasks",
+      "separate provider patch reviews",
+      "combined direct-argv acceptance check passed on private candidate",
+      "independent combined review approved private candidate",
+      "unresolved failed task blocked integration into source"
+    ],
+    "limitations": [
+      "This smoke does not validate every listed model or repository toolchain.",
+      "Antigravity uses gated file editing; shell checks remain runtime-owned."
+    ]
+  },
+  "original_source_unchanged_while_blocked": true,
+  "privacy_note": "Private absolute filesystem paths are deidentified. Native session identifiers, authentication material, and private reasoning are omitted; validation run IDs remain for traceability."
+}

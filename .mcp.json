@@ -1,0 +1,24 @@
+{
+  "mcpServers": {
+    "parallax": {
+      "command": "./scripts/launch.sh",
+      "args": [
+        "mcp"
+      ],
+      "cwd": ".",
+      "startup_timeout_sec": 120,
+      "tool_timeout_sec": 120,
+      "env_vars": [
+        "PATH",
+        "PARALLAX_HOME",
+        "PARALLAX_WORKSPACE",
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "XAI_API_KEY",
+        "GROK_API_KEY",
+        "GEMINI_API_KEY",
+        "GOOGLE_API_KEY"
+      ]
+    }
+  }
+}

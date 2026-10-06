@@ -1,0 +1,165 @@
+{
+  "contract_version": "1.0",
+  "run_id": "a15f2572-3729-46ec-986c-09c0a6937b46",
+  "generated_at": "2026-10-06T16:55:31.965033+00:00",
+  "record_state": "final",
+  "outcome": "applied",
+  "gates": [
+    {
+      "id": "current_verification",
+      "label": "Verified candidate",
+      "status": "passed",
+      "detail": "Recorded verification matches this patch."
+    },
+    {
+      "id": "independent_review",
+      "label": "Independent combined review",
+      "status": "passed",
+      "detail": "A provider outside the implementing team approved the candidate."
+    },
+    {
+      "id": "project_checks",
+      "label": "Project checks",
+      "status": "passed",
+      "detail": "1 recorded command(s); current candidate verified."
+    },
+    {
+      "id": "integration",
+      "label": "Applied to project",
+      "status": "passed",
+      "detail": "Runtime recorded successful application."
+    },
+    {
+      "id": "preservation",
+      "label": "Staging and unrelated files preserved",
+      "status": "passed",
+      "detail": "Git staging, HEAD, branch and unrelated files matched during recorded application or recovery."
+    }
+  ],
+  "artifacts": {
+    "patch_sha256": "f64bae8718cee65f9a1a1fe3348fb425927c6d2f6a607c824516988d5e633770",
+    "spec_sha256": "ff5bc6878fe7a161120bb86deea24bd3cf3b2521d328ff8b44d1e83908a1974d",
+    "source_snapshot_sha256": "f8085be7a8df2764775138b938e334b19a411e98fdb0390d34cc05fa5b26d4c4"
+  },
+  "changed_files": [
+    "maths.py",
+    "stats.py"
+  ],
+  "requested": {
+    "mode": "build",
+    "coordinator": {
+      "provider": "codex",
+      "transport": "cli",
+      "model": "gpt-5.6-sol",
+      "effort": "low",
+      "role": "generalist"
+    },
+    "team": [
+      {
+        "provider": "claude",
+        "transport": "cli",
+        "model": "sonnet",
+        "effort": "low",
+        "role": "implementer"
+      },
+      {
+        "provider": "antigravity",
+        "transport": "cli",
+        "model": "gemini-3.8-flash-low",
+        "effort": "low",
+        "role": "implementer"
+      },
+      {
+        "provider": "grok",
+        "transport": "cli",
+        "model": "grok-4.7",
+        "effort": "low",
+        "role": "reviewer"
+      }
+    ],
+    "limits": {
+      "workers": 2,
+      "repairs": 2,
+      "minutes": 10,
+      "attempt_seconds": 120,
+      "coordinator_turns": 20
+    },
+    "integrate": true
+  },
+  "effective": [
+    {
+      "provider": "codex",
+      "transport": "cli",
+      "model": "gpt-5.6-sol",
+      "effort": "low"
+    },
+    {
+      "provider": "claude",
+      "transport": "cli",
+      "model": "sonnet",
+      "effort": "low"
+    },
+    {
+      "provider": "antigravity",
+      "transport": "cli",
+      "model": "gemini-3.8-flash-low",
+      "effort": "low"
+    },
+    {
+      "provider": "grok",
+      "transport": "cli",
+      "model": "grok-4.7",
+      "effort": "low"
+    }
+  ],
+  "checks": [
+    {
+      "id": "check-1",
+      "ok": true,
+      "exit_code": 0,
+      "elapsed_seconds": 0.06
+    }
+  ],
+  "reviews": [
+    {
+      "provider": "grok",
+      "task_id": "fix-maths-claude",
+      "ok": true
+    },
+    {
+      "provider": "grok",
+      "task_id": "fix-stats-antigravity",
+      "ok": false
+    },
+    {
+      "provider": "grok",
+      "task_id": "repair-stats-antigravity",
+      "ok": true
+    },
+    {
+      "provider": "grok",
+      "task_id": "integration",
+      "ok": true
+    },
+    {
+      "provider": "grok",
+      "task_id": "fix-stats-antigravity",
+      "ok": true
+    },
+    {
+      "provider": "grok",
+      "task_id": "integration",
+      "ok": true
+    },
+    {
+      "provider": "grok",
+      "task_id": "resolution-fix-stats-antigravity",
+      "ok": true
+    }
+  ],
+  "limitations": [
+    "Evidence covers recorded checks and reviews; it does not prove correctness.",
+    "This local record is not signed. Its hashes identify the patch and run specification.",
+    "Export omits prompts, raw sessions, endpoints, absolute workspace paths and command output."
+  ]
+}

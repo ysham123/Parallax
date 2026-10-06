@@ -1,16 +1,20 @@
 ---
 name: codex-claude-team
-description: Consult the signed-in Claude Code CLI from a local Codex task when the user explicitly asks Codex to consult or work with Claude. Supports independent review, follow-up exchanges, and expressly delegated file edits.
+description: Use Parallax when the user asks for a coding team, invokes Parallax, or asks to involve Claude Code, Grok Build, or Antigravity in a local Codex task. Supports independent reviews, autonomous implementation, alternative solutions, model and effort selection, and Studio.
 ---
 
-# Parallax — Codex–Claude team
+# Parallax Constellation
 
-Use this skill only when the user asks to involve Claude in the current task. A request to “consult Claude” or “work with Claude” starts with an independent, read-only review. Claude may edit files only when the user explicitly delegates an implementation task to Claude.
+Activate when requested. Keep the user's chosen providers, models, effort, scope, and existing authorization. A request for consultation is a Review; a request to implement with the team is a Build. Use Compare when the user wants alternative implementations evaluated against common checks.
 
-1. Form your own view of the user's request before reading Claude's answer. Give Claude the original task and any essential constraints, without your conclusion, so the first views are independent. The bridge runs in the active workspace; Claude can inspect relevant files there.
-2. Find `scripts/claude_bridge.py` at the plugin root, two directories above this `SKILL.md`. Run it with `--workspace` set to the active workspace and `--mode consult`. Supply the prompt through stdin or a temporary UTF-8 file with `--prompt-file`; do not interpolate untrusted prompt text into a shell command. The script prints one JSON object containing `ok`, `answer`, `session_id`, `changed_files`, and `error`.
-3. For further exchanges, pass the returned `session_id` as `--resume`. Share the precise question or disagreement to resolve. Keep the exchange bounded by what the task needs.
-4. For an explicitly delegated edit, call the bridge with `--mode edit` and a specific implementation task. Wait for Claude to finish before editing the same workspace. Inspect `changed_files` and the actual diff, preserve pre-existing changes, run relevant checks, and fix or report problems. The bridge gives Claude file read and edit tools, without command execution; Codex runs tests and other commands.
-5. Present Codex's view, Claude's view, meaningful disagreements, and the final synthesis. Attribute Claude's claims and changes. If the bridge fails, report the error and proceed with the work you can complete; do not invent Claude's opinion.
+Use the Parallax MCP tools when available. Otherwise locate `scripts/parallax.py` at the plugin root, two directories above this skill, and call it with Python. Prompts and structured run specifications go through UTF-8 files or stdin, never interpolated shell commands.
 
-The plugin uses the existing Claude Code CLI login. It operates in local tasks; CLI conversations need not appear in Claude Desktop. Read-only consultations have a default three-minute timeout; edits have ten minutes. Override `--timeout` when a known task needs longer.
+- Run diagnostics, inspect connections, and read model catalogs before choosing settings. Catalogs identify their source. Honor explicit settings; report unsupported choices instead of silently substituting them. Defaults are Codex coordinator, Quality first, and the available team requested by the user.
+- Open Studio with `parallax_studio` or `scripts/parallax.py studio --workspace PATH`, then open its returned local URL in the Codex browser panel. Studio shares the same profiles and run state as chat controls.
+- Start a run with `parallax_start_run` or `scripts/parallax.py run --spec FILE`. Supply the current repository root, task, mode, coordinator, team, limits, and meaningful check argv commands when known. The runtime handles private workspaces, scheduling, review, and integration. Do not independently edit the same project during an implementation run.
+- Inspect status and evidence through `parallax_get_run`. Steering applies at the next checkpoint. Pause, Stop, and Resume have distinct lifecycle operations. Keep user progress updates tied to actual events and wait between unchanged status checks.
+- Evaluate the result's diffs, independent findings, and check evidence. Report failures and preserved artifacts honestly. Completion requires the runtime's verification gates; model claims and consensus do not replace checks. Build and Compare need Git. Review can operate in non-Git workspaces.
+
+Every selected coordinator is a dedicated CLI or API session. Model and effort controls do not change the initiating Codex chat. CLI connections use existing native sign-ins. API connections use macOS Keychain or environment references. Inspect parallax_connections and the selected transport catalog. API secrets belong in Studio; do not embed them in run specs, prompts, or profiles. Custom models need an explicit compatible endpoint and capability catalog. Remote inference is supported; SSH execution and remote workspace mounts are not enabled. Publishing, deploying, or pushing requires a separate user request.
+
+For a simple legacy Claude consultation or delegated edit, `scripts/claude_bridge.py` remains compatible. Use `--mode consult` for independent read-only assessment, `--resume` for follow-ups, and `--mode edit` for the specifically delegated implementation. Inspect its changed-files result and actual diff.

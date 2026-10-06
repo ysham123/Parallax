@@ -3,3 +3,13 @@ __pycache__/
 .DS_Store
 .pytest_cache/
 .venv/
+/.venv/
+/studio/node_modules/
+/studio/dist/
+__pycache__/
+*.pyc
+/dist/
+/output/
+.playwright-cli/
+
+releases/

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "parallax": {
+      "type": "stdio",
+      "command": "./scripts/launch.sh",
+      "args": [
+        "mcp"
+      ],
+      "cwd": ".",
+      "env_vars": [
+        "PATH",
+        "PARALLAX_HOME",
+        "PARALLAX_WORKSPACE",
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "XAI_API_KEY",
+        "GROK_API_KEY",
+        "GEMINI_API_KEY",
+        "GOOGLE_API_KEY"
+      ]
+    }
+  }
+}
