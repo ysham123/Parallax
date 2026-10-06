@@ -1112,15 +1112,48 @@ def _project_check(argv,workspace):
     if command=="make": return bool(args and args[0] in {"test","check","lint","build"})
     return False
 
+def _node_toolchain_reads(argv):
+    """Expose selected Node/npm code, never a user toolchain's parent directory."""
+    if not argv or Path(argv[0]).name not in {"node", "npm", "npm-cli.js"}:
+        return set()
+    executable = argv[0] if Path(argv[0]).is_absolute() else shutil.which(argv[0])
+    if not executable:
+        return set()
+    launch = Path(executable).absolute()
+    resolved = launch.resolve()
+    if not resolved.is_file():
+        return set()
+    paths = {launch, resolved}
+    if Path(argv[0]).name != "node":
+        # Native npm installations have a fixed bin/npm-cli.js entry point.
+        # Only its verified package contains npm's required bundled modules.
+        package = resolved.parent.parent
+        manifest = package / "package.json"
+        if resolved == package / "bin" / "npm-cli.js":
+            try:
+                if (not manifest.is_symlink() and manifest.is_file()
+                        and manifest.stat().st_size <= 1024 * 1024
+                        and json.loads(manifest.read_text()).get("name") == "npm"):
+                    paths.add(package)
+            except (OSError, ValueError, AttributeError):
+                pass
+        node = shutil.which("node")
+        if node:
+            node_launch = Path(node).absolute()
+            if node_launch.resolve().is_file():
+                paths.update({node_launch, node_launch.resolve()})
+    return paths
+
 def _sandbox_check(argv,workspace,*,writable=None,readable=None,network=False):
     writable=[workspace.resolve(),*(Path(p).resolve() for p in (writable or []))]
+    toolchain = _node_toolchain_reads(argv)
     if sys.platform=="darwin" and Path("/usr/bin/sandbox-exec").exists():
-        readable=[*writable,Path(sys.base_prefix).resolve(),Path(sys.prefix).resolve(),*(Path(p).resolve() for p in (readable or []))]
+        readable=[*writable,Path(sys.base_prefix).resolve(),Path(sys.prefix).resolve(),*(Path(p).resolve() for p in (readable or [])),*sorted(toolchain)]
         userdata=["/Users","/Volumes","/private/var/folders","/private/tmp","/tmp","/System/Volumes/Data/Users","/System/Volumes/Data/private/var/folders","/System/Volumes/Data/private/tmp"]
         quoted=lambda value: json.dumps(str(value))
         writes=" ".join(f'(subpath {quoted(p)})' for p in writable)
         protected="(require-any "+" ".join(f'(subpath {quoted(p)})' for p in userdata)+")"
-        permitted="(require-any "+" ".join(f'(subpath {quoted(p)})' for p in readable)+")"
+        permitted="(require-any "+" ".join(f'({"literal" if p.is_file() else "subpath"} {quoted(p)})' for p in readable)+")"
         profile=f'(version 1) (allow default) (deny file-write*) (allow file-write* {writes} (literal "/dev/null"))'
         profile+='(deny file-read-data (require-all '+protected+' (require-not '+permitted+')))'
         from .api_agent import BLOCKED
@@ -1147,7 +1180,10 @@ def _sandbox_check(argv,workspace,*,writable=None,readable=None,network=False):
         if home != Path("/"): protected.add(home)
         for path in sorted(protected,key=lambda p:(len(p.parts),str(p))):
             if path.is_dir(): command.extend(["--tmpfs",str(path)])
-        allowed={Path(sys.base_prefix).resolve(),Path(sys.prefix).resolve(),*(Path(p).resolve() for p in (readable or []))}
+        # Keep exact launcher aliases: masking a home hides ~/.local/bin/node,
+        # which npm's /usr/bin/env shebang still locates through PATH. A file
+        # bind restores that alias without exposing its directory or siblings.
+        allowed={Path(sys.base_prefix).resolve(),Path(sys.prefix).resolve(),*(Path(p).resolve() for p in (readable or [])),*toolchain}
         for path in sorted(allowed,key=lambda p:(len(p.parts),str(p))):
             if path.exists(): command.extend(["--ro-bind",str(path),str(path)])
         for path in sorted(set(writable),key=lambda p:(len(p.parts),str(p))):
@@ -1160,6 +1196,9 @@ def _sandbox_check(argv,workspace,*,writable=None,readable=None,network=False):
                 if name.lower() in blocked or name.lower().startswith(".env"):
                     command.extend(["--tmpfs",str(path)] if path.is_dir() else ["--ro-bind","/dev/null",str(path)])
             dirs[:]=[name for name in dirs if name.lower() not in blocked and name not in {"node_modules",".venv","__pycache__"} and not (Path(directory)/name).is_symlink()]
+        if toolchain:
+            executable=argv[0] if Path(argv[0]).is_absolute() else shutil.which(argv[0])
+            if executable: argv=[str(Path(executable).resolve()),*argv[1:]]
         return [*command,"--chdir",str(workspace),"--",*argv]
     raise ValueError("No enforceable command sandbox is available; install bubblewrap with user namespaces before Build or Compare")
 

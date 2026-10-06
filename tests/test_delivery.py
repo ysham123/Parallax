@@ -147,12 +147,32 @@ class AssessmentContractTests(unittest.TestCase):
     @unittest.skipUnless(sys.platform.startswith('linux') and shutil.which('bwrap'),'requires Linux bubblewrap')
     def test_linux_live_private_workspace_and_host_canary(self):
         outside=self.root/'canary';outside.write_text('private')
+        original_host_bytes=outside.read_bytes()
         (self.project/'.ENV.local').write_text('private')
-        script="import pathlib; p=pathlib.Path("+repr(str(self.project))+ "); assert p.exists(); assert not pathlib.Path("+repr(str(outside))+").exists(); assert (p/'.ENV.local').read_text() != 'private'; (p/'output').write_text('isolated')"
+        script=f'''import pathlib
+p = pathlib.Path({str(self.project)!r})
+outside = pathlib.Path({str(outside)!r})
+assert p.exists()
+assert not outside.exists(), 'Host canary is visible'
+try:
+    masked_secret = (p / '.ENV.local').read_text()
+except PermissionError:
+    pass
+else:
+    assert masked_secret == '', 'Project secret is readable'
+try:
+    outside.write_text('escaped')
+except (PermissionError, FileNotFoundError):
+    pass
+# A write may create a new file in the private /tmp namespace. The parent
+# verifies that this cannot change the actual host canary.
+(p / 'output').write_text('isolated')
+'''
         command=_sandbox_check([sys.executable,'-c',script],self.project)
         result=subprocess.run(command,capture_output=True,text=True,timeout=10,cwd=self.project)
         self.assertEqual(result.returncode,0,result.stderr)
         self.assertEqual((self.project/'output').read_text(),'isolated')
+        self.assertEqual(outside.read_bytes(),original_host_bytes)
     def test_assessment_and_profile_shared_api_and_mcp_contracts(self):
         from parallax.cli import mcp_tools
         client=TestClient(create_app(self.store,FakeRegistry(),token='test'));headers={'Authorization':'Bearer test'}

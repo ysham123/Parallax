@@ -272,7 +272,12 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
         (self.project/"check.py").write_text("import parallax_fixture_dep,sys\nassert parallax_fixture_dep.VALUE==7\nprint(sys.executable)\n")
         git(self.project,"add",".");git(self.project,"commit","-qm","local dependency fixture")
         original_index=(self.project/".git"/"index").read_bytes()
-        original_env=(Path(sys.prefix)/"pyvenv.cfg").read_bytes()
+        # CI can use a base interpreter; preserve the absence of its venv
+        # metadata as well as the contents when the caller is in a venv.
+        environment_config=Path(sys.prefix)/"pyvenv.cfg"
+        original_env=environment_config.read_bytes() if environment_config.exists() else None
+        import importlib.util
+        self.assertIsNone(importlib.util.find_spec("parallax_fixture_dep"))
         run_id,spec,manager=self.seed();engine=Engine(self.store,FakeRegistry());engine.cancel_flags[run_id]=asyncio.Event()
         before=manager.fingerprint(manager.integration_path)
         evidence=await asyncio.wait_for(engine._checks(run_id,manager.integration_path,spec.checks),30)
@@ -280,8 +285,7 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(str(Path(self.store.get(run_id)["artifacts"]["directory"])/"environments"),evidence[0]["output"])
         self.assertEqual(before,manager.fingerprint(manager.integration_path))
         self.assertEqual((self.project/".git"/"index").read_bytes(),original_index)
-        self.assertEqual((Path(sys.prefix)/"pyvenv.cfg").read_bytes(),original_env)
-        import importlib.util
+        self.assertEqual(environment_config.read_bytes() if environment_config.exists() else None,original_env)
         self.assertIsNone(importlib.util.find_spec("parallax_fixture_dep"))
         self.assertFalse((self.project/".venv").exists())
         self.assertTrue(any(Path(self.store.get(run_id)["artifacts"]["directory"]).glob("environments/*/python-ready")))
