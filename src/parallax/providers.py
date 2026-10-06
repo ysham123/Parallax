@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from .models import Participant
+from .deployment import HOSTED_SECRETS
 
 PROVIDERS = ("codex", "claude", "grok", "antigravity")
 LABELS = {"codex": "Codex", "claude": "Claude Code", "grok": "Grok Build", "antigravity": "Antigravity"}
@@ -365,7 +366,8 @@ class ProviderRegistry:
 
     async def _metadata(self, executable: str, args: list[str], *, timeout: int = 20) -> Captured:
         env = os.environ.copy()
-        env.pop("PARALLAX_ACCESS_TOKEN", None)
+        for secret in HOSTED_SECRETS:
+            env.pop(secret, None)
         env["GROK_DISABLE_AUTOUPDATER"] = "1"
         return await _capture([executable, *args], cwd=self.home, env=env, timeout=timeout,
                               max_output=self.max_output)
@@ -682,7 +684,8 @@ class ProviderRegistry:
                  settings: dict, mode: str, session: str | None, timeout: int,
                  schema: dict | None, scratch: Path, customization: dict) -> tuple[list[str], str, dict, set[str]]:
         env = os.environ.copy()
-        env.pop("PARALLAX_ACCESS_TOKEN", None)
+        for secret in HOSTED_SECRETS:
+            env.pop(secret, None)
         env["PARALLAX_OWNED_WORKSPACE"] = str(workspace)
         env["GROK_DISABLE_AUTOUPDATER"] = "1"
         env["GROK_MEMORY"] = "0"

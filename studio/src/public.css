@@ -1,0 +1,743 @@
+/* Public entry, onboarding, operator access, and account controls. Built on the Studio tokens in style.css. */
+
+.pub-page {
+  max-width: 1200px;
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 0 40px;
+  color: var(--text);
+}
+.pub-page main:focus {
+  outline: none;
+}
+.pub-header {
+  height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--line-soft);
+}
+.pub-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+  text-decoration: none;
+}
+.pub-brand svg {
+  color: var(--accent);
+}
+.pub-crumb {
+  color: var(--muted);
+  font-weight: 450;
+  font-size: 14px;
+  letter-spacing: 0;
+}
+.pub-crumb::before {
+  content: "/";
+  margin: 0 10px 0 4px;
+  color: var(--line);
+}
+.pub-header nav {
+  display: flex;
+  flex-direction: row;
+  flex: 0 0 auto;
+  width: auto;
+  align-items: center;
+  gap: 20px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.pub-header nav > a {
+  text-decoration: none;
+}
+.pub-header nav > a:hover {
+  color: var(--text);
+}
+.pub-icon-button {
+  width: 32px;
+  height: 32px;
+  display: inline-grid;
+  place-items: center;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+.pub-icon-button:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+.pub-signin-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+.pub-signin-link:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.pub-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+  gap: 64px;
+  align-items: center;
+  padding: 96px 0 88px;
+}
+.pub-eyebrow {
+  margin: 0 0 18px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.pub-hero h1,
+.onb-main h1,
+.operator-main h1 {
+  font-size: clamp(38px, 5vw, 58px);
+  line-height: 1.05;
+  font-weight: 560;
+  letter-spacing: -0.035em;
+}
+.onb-main h1,
+.operator-main h1 {
+  font-size: clamp(32px, 4vw, 42px);
+}
+.pub-lead {
+  max-width: 480px;
+  margin-top: 22px;
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+.pub-lead a {
+  color: var(--text);
+}
+.pub-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 32px;
+}
+.pub-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 11px 18px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--background);
+  background: var(--text);
+  border-radius: 8px;
+}
+.pub-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text), var(--background) 14%);
+}
+.pub-secondary {
+  display: inline-flex;
+  align-items: center;
+  padding: 11px 16px;
+  font-size: 13.5px;
+  color: var(--text);
+  text-decoration: none;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.pub-secondary:hover {
+  background: var(--surface-hover);
+}
+.pub-fineprint {
+  max-width: 460px;
+  margin-top: 16px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.pub-alert {
+  max-width: 480px;
+  margin-top: 20px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--danger);
+  background: var(--danger-tint);
+  border: 1px solid color-mix(in srgb, var(--danger), transparent 72%);
+  border-radius: 8px;
+}
+.pub-providers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 20px;
+  margin: 40px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.pub-providers li {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Illustrative team graph */
+.pub-graph {
+  margin: 0;
+  padding: 18px 18px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+}
+.pub-graph-canvas {
+  position: relative;
+  aspect-ratio: 16 / 11;
+  border-radius: 10px;
+  background-image: radial-gradient(var(--line-soft) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+.pub-graph-canvas svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.pub-edge {
+  fill: none;
+  stroke-width: 1.5;
+}
+.pub-edge.assign {
+  stroke: color-mix(in srgb, var(--accent), var(--line) 40%);
+}
+.pub-edge.review {
+  stroke: color-mix(in srgb, var(--teal), var(--line) 40%);
+  stroke-dasharray: 4 4;
+}
+.pub-node {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 12px 8px 9px;
+  font-size: 12.5px;
+  white-space: nowrap;
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.pub-node small {
+  display: block;
+  font-size: 9.5px;
+  line-height: 1.4;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.pub-graph figcaption {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-top: 12px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.pub-graph figcaption i {
+  display: inline-block;
+  width: 16px;
+  margin-right: 6px;
+  vertical-align: middle;
+  border-top: 2px solid var(--accent);
+}
+.pub-graph figcaption i.review {
+  border-top: 2px dashed var(--teal);
+}
+.pub-graph-note {
+  margin-left: auto;
+  color: var(--faint);
+}
+
+/* Sections */
+.pub-section {
+  padding: 72px 0;
+  border-top: 1px solid var(--line-soft);
+}
+.pub-section h2 {
+  margin-bottom: 32px;
+  font-size: 22px;
+  font-weight: 550;
+  letter-spacing: -0.4px;
+}
+.pub-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 40px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pub-steps span {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  color: var(--faint);
+}
+.pub-steps h3 {
+  margin: 12px 0 8px;
+  font-size: 15px;
+}
+.pub-steps p,
+.pub-local p {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--muted);
+}
+.pub-columns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 40px;
+}
+.pub-columns h3 {
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+.pub-columns ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pub-columns li {
+  padding: 9px 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--muted);
+  border-top: 1px solid var(--line-soft);
+}
+.pub-section > .pub-fineprint {
+  max-width: 640px;
+  margin-top: 28px;
+}
+.pub-local {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+.pub-local h2 {
+  margin-bottom: 8px;
+}
+.pub-footer {
+  display: flex;
+  justify-content: space-between;
+  padding: 28px 0 36px;
+  font-size: 12px;
+  color: var(--muted);
+  border-top: 1px solid var(--line-soft);
+}
+.pub-footer a {
+  text-decoration: none;
+}
+
+/* Onboarding */
+.onb-main {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 72px 0 96px;
+}
+.onb-steps {
+  margin: 48px 0 32px;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+}
+.onb-steps > li {
+  position: relative;
+  padding: 26px 0 28px 56px;
+  border-top: 1px solid var(--line-soft);
+  counter-increment: step;
+}
+.onb-steps > li::before {
+  content: counter(step, decimal-leading-zero);
+  position: absolute;
+  top: 29px;
+  left: 0;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  color: var(--faint);
+}
+.onb-steps h2 {
+  margin-bottom: 8px;
+  font-size: 16px;
+}
+.onb-steps p {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--muted);
+}
+.onb-steps p code,
+.onb-muted code {
+  padding: 1px 4px;
+  font-size: 12.5px;
+  color: var(--text);
+  background: var(--input);
+  border-radius: 4px;
+}
+.onb-code {
+  position: relative;
+  margin-top: 12px;
+}
+.onb-code pre {
+  margin: 0;
+  padding: 14px 76px 14px 16px;
+  overflow-x: auto;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--text);
+  background: var(--input);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+.onb-copy {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  padding: 5px 10px;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.onb-copy:hover {
+  color: var(--text);
+}
+.onb-muted {
+  margin-top: 12px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--muted);
+}
+.onb-pair {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 14px;
+}
+.onb-pair-code {
+  padding: 14px 16px;
+  background: var(--input);
+  border: 1px dashed var(--line);
+  border-radius: 9px;
+}
+.onb-pair-code code {
+  display: block;
+  font-size: 17px;
+  letter-spacing: 0.4px;
+  word-break: break-all;
+  user-select: all;
+}
+.onb-pair-code small {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.onb-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.onb-status > div {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 10px;
+  row-gap: 3px;
+  align-items: center;
+}
+.onb-status strong {
+  font-size: 14px;
+}
+.onb-status small {
+  grid-column: 2;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.onb-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--faint);
+}
+.onb-dot.online {
+  background: var(--teal);
+}
+.onb-dot.waiting {
+  background: var(--amber);
+  animation: onb-pulse 1.8s ease-in-out infinite;
+}
+@keyframes onb-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .onb-dot.waiting {
+    animation: none;
+  }
+}
+:root[data-motion="reduce"] .onb-dot.waiting {
+  animation: none;
+}
+.onb-footnote {
+  max-width: 620px;
+  margin-top: 28px;
+}
+
+/* Operator access */
+.operator-main {
+  max-width: 440px;
+  margin: 0 auto;
+  padding: 96px 0;
+}
+.operator-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 32px;
+}
+.operator-form label {
+  font-size: 12px;
+}
+.operator-form .pub-primary {
+  margin-top: 6px;
+}
+
+/* Splash and errors before a session is known */
+.pub-splash {
+  min-height: 100vh;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 16px;
+  color: var(--accent);
+}
+.pub-splash p {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+/* Account menu (public pages and the Studio top bar) */
+.account-menu {
+  position: relative;
+}
+.account-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 10px 3px 3px;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+.account-trigger:hover {
+  background: var(--surface-hover);
+}
+.account-initials {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  font-size: 10.5px;
+  font-weight: 650;
+  color: var(--accent);
+  background: var(--accent-tint);
+  border-radius: 50%;
+}
+.account-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 60;
+  min-width: 248px;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 16px 48px #0000004d;
+}
+.account-summary {
+  padding: 10px 10px 12px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.account-summary strong {
+  display: block;
+  font-size: 13px;
+}
+.account-summary small {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.account-popover button {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 13px;
+  text-align: left;
+  color: var(--text);
+  background: transparent;
+  border-radius: 6px;
+}
+.account-popover button:hover:not(:disabled),
+.account-popover button:focus-visible {
+  background: var(--surface-hover);
+}
+.account-popover button.danger {
+  color: var(--danger);
+}
+.account-dialog {
+  max-width: 480px;
+}
+.account-dialog form {
+  display: grid;
+  gap: 8px;
+  margin-top: 20px;
+}
+.account-dialog label {
+  display: block;
+  font-size: 12px;
+}
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 12px;
+}
+.danger-button {
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--background);
+  background: var(--danger);
+  border: 0;
+  border-radius: 7px;
+}
+.machine-dialog .machine-command {
+  margin: 12px 0;
+  padding: 12px 14px;
+  overflow-x: auto;
+  background: var(--input);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.machine-dialog .machine-command code {
+  display: block;
+  margin: 0;
+  white-space: pre;
+  overflow-wrap: normal;
+}
+.machine-confirm {
+  margin-top: 10px;
+  font-size: 12px !important;
+  color: var(--danger) !important;
+}
+.machine-confirm-actions {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 8px;
+  align-items: center;
+}
+
+@media (max-width: 1240px) {
+  .topbar-right .account-label {
+    display: none;
+  }
+  .topbar-right .account-trigger {
+    padding-right: 3px;
+  }
+}
+@media (max-width: 900px) {
+  .pub-hero {
+    grid-template-columns: 1fr;
+    gap: 48px;
+    padding: 56px 0;
+  }
+  .pub-steps,
+  .pub-columns {
+    grid-template-columns: 1fr;
+    gap: 28px;
+  }
+}
+@media (max-width: 640px) {
+  .pub-page {
+    padding: 0 16px;
+  }
+  .pub-header nav {
+    gap: 10px;
+  }
+  .pub-header nav > a:first-child {
+    display: none;
+  }
+  .pub-section {
+    padding: 52px 0;
+  }
+  .pub-local {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .pub-graph {
+    padding: 12px 12px 10px;
+  }
+  .pub-graph-canvas {
+    aspect-ratio: 4 / 3;
+  }
+  .pub-node {
+    gap: 6px;
+    padding: 6px 8px 6px 6px;
+    font-size: 11px;
+  }
+  .pub-graph figcaption {
+    flex-wrap: wrap;
+    gap: 10px 14px;
+  }
+  .onb-main,
+  .operator-main {
+    padding: 48px 0 72px;
+  }
+  .onb-steps > li {
+    padding-left: 36px;
+  }
+  .account-label,
+  .pub-crumb {
+    display: none;
+  }
+  .onb-code pre {
+    padding-right: 16px;
+  }
+  .onb-copy {
+    position: static;
+    margin-top: 8px;
+  }
+}
+@media (max-width: 420px) {
+  .pub-node small {
+    display: none;
+  }
+}

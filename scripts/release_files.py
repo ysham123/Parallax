@@ -11,7 +11,7 @@ ENTRIES = (
 )
 EXCLUDED_COMPONENTS = {"node_modules", "dist", "__pycache__", ".venv", ".vercel", ".pytest_cache", ".playwright-cli", ".git", "releases", ".DS_Store"}
 PRIVATE_COMPONENTS = {"api-sessions", "artifacts", "sessions", "runs", "environments", ".codex", ".claude", ".grok", ".gemini"}
-PRIVATE_NAMES = {".parallax-owned", "server.json", "connections.json", "credentials.json", "auth.json", "token_cache.json", "models_cache.json", "jetski-standalone-oauth-token"}
+PRIVATE_NAMES = {".parallax-owned", "server.json", "connections.json", "credentials.json", "auth.json", "token_cache.json", "models_cache.json", "jetski-standalone-oauth-token", "worker-connection.json", "runtime.json"}
 PRIVATE_SUFFIXES = {".sqlite3", ".sqlite", ".db", ".log", ".pem", ".key"}
 
 

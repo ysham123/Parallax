@@ -1,6 +1,11 @@
 let executor: string | null = null;
+let unauthorized: (() => void) | null = null;
 export function setApiExecutor(value: string | null) {
   executor = value;
+}
+/** Hosted Studio returns to its signed-out state when any request reports an ended session. */
+export function onUnauthorized(listener: (() => void) | null) {
+  unauthorized = listener;
 }
 export function apiUrl(path: string): string {
   return executor
@@ -31,11 +36,14 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     } catch {
       /* Keep plain diagnostic text. */
     }
-    if (response.status === 401 || response.status === 403) {
-      message =
-        import.meta.env.MODE === "cloud"
-          ? "Studio access was denied. Reload to sign in again, or ask the workspace owner to check the deployment settings."
-          : "This Studio session has expired. Reopen Studio from the Parallax plugin to reconnect.";
+    if (response.status === 401) {
+      if (import.meta.env.MODE === "cloud") {
+        message = "Your session has ended. Sign in again to continue.";
+        unauthorized?.();
+      } else {
+        message =
+          "This Studio session has expired. Reopen Studio from the Parallax plugin to reconnect.";
+      }
     }
     throw new Error(message);
   }

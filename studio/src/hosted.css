@@ -289,7 +289,7 @@
   max-height: 88vh;
   overflow: auto;
   padding: 28px;
-  background: var(--surface, var(--bg));
+  background: var(--surface);
   color: var(--text);
   border: 1px solid var(--line);
   border-radius: 16px;
@@ -349,7 +349,7 @@
   padding-top: 16px;
 }
 .pair-code {
-  background: var(--bg);
+  background: var(--input);
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 12px;

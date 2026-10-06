@@ -28,4 +28,8 @@
 - Versioned additive contracts and SQLite tables, retained 1.0 receipts and legacy Claude compatibility.
 - Python service, typed React and mixed-project fake-agent acceptance fixtures; prepared matched single-Codex alpha protocol.
 
+- Hosted accounts: GitHub sign-in (OAuth with PKCE and a browser-bound state), a private personal workspace per account, revocable server-side sessions, account deletion, and a public entry page with first-machine onboarding.
+- Server-enforced workspace boundary: personal workspaces reach only their own machines, pairing codes, relayed requests, mirrored evidence, and event replay; the hosted engine, its CLI sign-ins, and project clones stay with the operator workspace.
+- Durable limits for accounts, sign-in, pairing, machines, queued requests, and retained evidence; bounded request bodies including chunked uploads; additive migration of existing machines into the operator workspace.
+
 Publication, remote CI, live API inference and the five-developer study remain separate validation gates.

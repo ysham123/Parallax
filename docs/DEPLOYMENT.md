@@ -1,8 +1,8 @@
 # Vercel and Railway
 
-The recommended default for Parallax users is local execution: existing CLI sign-ins, project files, development environments, snapshots, and integration stay on their computer. Vercel hosts the public entry page. It opens Studio through the installed plugin. The website does not connect to localhost in the background or upload its launch token.
+The recommended default for Parallax users is local execution: existing CLI sign-ins, project files, development environments, snapshots, and integration stay on their computer. Vercel serves Studio. Without a runtime it serves an entry page that opens Studio through the installed plugin; it never connects to localhost in the background or uploads a launch token.
 
-An optional dedicated-team deployment serves Studio on Vercel and the runtime on Railway. This is a shared operator workspace, not a public multi-user SaaS: everyone with its access key can see the team's runs, manage connections, and operate projects. Use a separate service and volume for each trusted team. Local executor pairing is available for approved project roots. User accounts, tenant isolation, and remote per-run workers need a separate implementation before opening this mode to unrelated customers.
+With a hosted runtime, the Vercel site becomes a public product entry with individual accounts. Anyone can sign in with GitHub and receive a private personal workspace. A personal workspace runs agents only on machines its owner pairs; it cannot use the hosted runtime's own execution engine, CLI sign-ins, or project clones. The deployment operator keeps a separate operator workspace, opened by configured GitHub accounts or the deployment access key, which retains hosted execution and the machines paired before accounts existed. See [Accounts and workspaces](#accounts-and-workspaces).
 
 ## Vercel
 
@@ -16,7 +16,7 @@ For a dedicated Railway-backed Studio, set this **build environment variable** o
 PARALLAX_RUNTIME_URL=https://YOUR-RUNTIME.up.railway.app
 ```
 
-Only a public HTTPS origin is accepted. The build selects the hosted sign-in screen and proxies `/api/*` to Railway. Fetch calls, cookie authentication, SSE events, and downloadable patches/receipts remain on the Vercel origin. Do not put the workspace access key or provider credentials in Vercel variables or any `VITE_*` variable. The workspace access key is entered at sign-in and exchanged for a Secure, HttpOnly, SameSite=Strict cookie. Reloading reconnects using that cookie. No key is saved in browser storage.
+Only a public HTTPS origin is accepted. The build selects the public entry, GitHub sign-in, and workspace Studio, and proxies `/api/*` to Railway. Fetch calls, cookie authentication, SSE events, and downloadable patches/receipts remain on the Vercel origin. Do not put the operator access key, GitHub client secret, or provider credentials in Vercel variables or any `VITE_*` variable. Every sign-in, whether through GitHub or the operator access key at `/operator`, is exchanged for an opaque Secure, HttpOnly, SameSite=Strict session cookie backed by a server-side session record. Reloading reconnects using that cookie, and signing out deletes the record. No key or token is saved in browser storage.
 
 The build uses [Vercel's Build Output API](https://vercel.com/docs/build-output-api/configuration) and [external rewrites](https://vercel.com/docs/routing/rewrites). End-to-end cookie forwarding and SSE should be checked on the actual Vercel/Railway domains before inviting a team. Preview domains must be added individually to Railway's origin/host configuration; no wildcard origins are accepted. Never point an untrusted preview build at a production runtime.
 
@@ -31,15 +31,57 @@ Set these Railway service variables:
 | `PARALLAX_ACCESS_TOKEN` | A random secret of at least 32 characters, up to 512 |
 | `PARALLAX_STUDIO_ORIGINS` | Exact Vercel/custom HTTPS origin; comma-separated for explicitly trusted previews |
 | `PARALLAX_ALLOWED_HOSTS` | Railway public hostname and Studio hostname, comma-separated, with no scheme, ports, paths or wildcards |
+| `PARALLAX_PUBLIC_ORIGIN` | Studio origin used for the GitHub callback; required only when several Studio origins are listed |
+| `PARALLAX_GITHUB_CLIENT_ID` | GitHub OAuth App client ID; set together with the secret to enable sign-in |
+| `PARALLAX_GITHUB_CLIENT_SECRET` | GitHub OAuth App client secret |
+| `PARALLAX_OWNER_GITHUB_IDS` | Comma-separated numeric GitHub account IDs that open the operator workspace |
+| `PARALLAX_SIGNUP` | `open` (default), `allowlist`, or `closed` |
+| `PARALLAX_ALLOWED_GITHUB_IDS` | Numeric GitHub IDs admitted when `PARALLAX_SIGNUP=allowlist` |
+| `PARALLAX_MAX_ACCOUNTS` | Account limit, default 100 |
 | `PARALLAX_HOME` | `/data/parallax` (container default) |
 | `PARALLAX_PROJECTS_ROOT` | `/data/projects` (container default) |
 | `PORT` | Railway supplies this automatically |
 
-Generate the access key locally with `python3 -c 'import secrets; print(secrets.token_urlsafe(48))'`. Keep it stable across restarts so sessions reconnect; rotating it invalidates existing sessions. Set provider API keys on Railway as service secrets and configure connections using environment-variable references in Studio. macOS Keychain storage is unavailable in Linux containers.
+The access key and GitHub client secret are read once at startup and removed from the runtime's environment, so provider CLIs, project checks, and Git never inherit them. Generate the access key locally with `python3 -c 'import secrets; print(secrets.token_urlsafe(48))'`. Keep it stable across restarts; rotating it ends every session it opened, while GitHub sessions continue. Set provider API keys on Railway as service secrets and configure connections using environment-variable references in Studio. macOS Keychain storage is unavailable in Linux containers.
 
-The runtime binds `0.0.0.0:$PORT` only through the explicit `python -m parallax.cloud` entry point. Local CLI launch remains authenticated loopback-only. Startup fails when the access key, origins, or allowed hosts are absent or invalid. The Railway healthcheck hostname is allowed only for `/api/health`, per [Railway's healthcheck contract](https://docs.railway.com/deployments/healthchecks). Other requests require a session or bearer token. Cross-origin writes and project paths outside the configured project root, including escaping symlinks, are rejected. Browser sign-in uses a body, never a URL token. A process-local sign-in throttle complements a high-entropy access key; add platform traffic protection for internet exposure.
+The runtime binds `0.0.0.0:$PORT` only through the explicit `python -m parallax.cloud` entry point. Local CLI launch remains authenticated loopback-only. Startup fails when the access key, origins, or allowed hosts are absent or invalid. The Railway healthcheck hostname is allowed only for `/api/health`, per [Railway's healthcheck contract](https://docs.railway.com/deployments/healthchecks). Other requests require a session or bearer token. Cross-origin writes and project paths outside the configured project root, including escaping symlinks, are rejected. Browser sign-in uses a body, never a URL token. Durable sign-in and pairing limits complement a high-entropy access key; add platform traffic protection for internet exposure.
 
 Clone projects under `/data/projects` using Railway's administrative shell and separately provision Git credentials. The service cannot see files or CLI sign-ins on a user's laptop. Work stays on the Railway clone; pushing its results still requires a separate authorized action.
+
+## Accounts and workspaces
+
+### Enable GitHub sign-in
+
+GitHub sign-in uses a GitHub OAuth App with the authorization code flow, PKCE (S256), and a state value bound to the browser that started sign-in. It requests no scopes, so Parallax reads only the public profile and cannot see repositories. The GitHub access token is used once to read the profile and is never stored. One-time setup:
+
+1. In GitHub, open Settings, Developer settings, OAuth Apps, and choose New OAuth App.
+2. Set Homepage URL to the Studio origin, for example `https://parallax-studio-six.vercel.app`.
+3. Set Authorization callback URL to the same origin followed by `/api/auth/github/callback`.
+4. Register the app, then generate a client secret.
+5. Set `PARALLAX_GITHUB_CLIENT_ID` and `PARALLAX_GITHUB_CLIENT_SECRET` on the runtime, add your numeric GitHub ID to `PARALLAX_OWNER_GITHUB_IDS` (`gh api user --jq .id` prints it), and restart the runtime.
+
+`GET /api/auth/config` reports whether sign-in is configured. Until it is, the public entry says so and the operator can still sign in at `/operator`. Startup fails if only one of the client ID and secret is set.
+
+### What each workspace can do
+
+| | Personal workspace | Operator workspace |
+| --- | --- | --- |
+| Opened by | Its GitHub account | Accounts in `PARALLAX_OWNER_GITHUB_IDS`, or the access key |
+| Paired machines | Up to 3, visible only to this workspace | Up to 50, including machines paired before accounts existed |
+| Hosted execution on the runtime | Not available | Available |
+| Runtime CLIs, connections, profiles, project clones | Not reachable | Reachable |
+
+The boundary is enforced on the server. Requests from a personal workspace may use only session, account, and machine routes; every other API route answers 403 with `hosted_execution_unavailable`. Machine, pairing, relay, cached evidence, event replay, and download operations require the caller's workspace, and another workspace's machine is indistinguishable from a missing one (404). Pairing codes carry the workspace that generated them. Worker tokens authenticate only their own queue and evidence, and cannot act as Studio sessions. Removing an ID from `PARALLAX_OWNER_GITHUB_IDS` ends that account's operator access on its next request.
+
+### Limits, retention, and deletion
+
+Limits are stored in SQLite and survive restarts. A personal workspace can hold 3 machines, 3 unused pairing codes, 20 new codes per hour, and 32 unanswered requests per machine, with 16 concurrent relayed requests and 8 live event streams. Each machine's mirrored evidence is kept within 96 MiB, pruning the oldest events first; single events above 256 KiB are mirrored as a truncation marker while the complete event stays on the machine. The operator workspace has larger limits. New accounts are limited to 30 per hour, sign-in flows to 600 per 10 minutes, worker pairing attempts to 120 per minute, and operator access-key attempts to 20 per minute. Request bodies are bounded before routing, including chunked bodies: 2 MiB for Studio routes and 8 MiB plus framing for worker messages. When free disk space falls below 512 MiB, personal machines stop mirroring new evidence until space is available; their local runs continue.
+
+Relayed commands are retained for one day. Disconnecting a machine revokes it and deletes its mirrored evidence from the runtime. Deleting an account removes its workspace, machines, pairing codes, mirrored evidence, and sessions; GitHub keeps its own record of the authorization until the user revokes it there. Hosted data is visible to whoever administers the runtime and its volume; describe this to users and back the volume up as private data.
+
+### Migrating an existing deployment
+
+The migration is additive and runs at startup. Machine and pairing rows that predate workspaces become part of the operator workspace, so existing workers keep their tokens and reconnect without pairing again. Evidence accounting is recomputed from stored rows. Sessions from before this release are not accepted; sign in again with GitHub or at `/operator`.
 
 ## Execution readiness
 
@@ -85,4 +127,4 @@ After deployment, verify `/api/health`, sign-in, refresh/reconnect, sign-out, mo
 
 Hosted Studio can control an explicitly paired local worker through an outbound HTTPS relay. Select **Machines** to pair, then choose its name in the **Execution machine** menu. Native sign-ins, project worktrees, checks, and verified integration stay on the chosen machine; the hosted workspace receives run evidence for graph inspection and replay. This bypasses the Railway native Codex compatibility problem by moving execution to a compatible machine, without disabling any sandbox gate. See [local worker setup, scope, and recovery](LOCAL-WORKERS.md).
 
-This remains a private operator workspace. Pairing is approval for anyone with Studio access to operate the exact project roots declared on that worker; it is not customer tenant isolation. A sleeping Mac cannot execute work, and connection revocation reaches an offline worker only after it reconnects.
+Pairing approves the workspace that generated the code to operate the exact project roots declared on that worker. In a personal workspace that is only its account; in the operator workspace it is everyone with operator access. A sleeping Mac cannot execute work, and connection revocation reaches an offline worker only after it reconnects.

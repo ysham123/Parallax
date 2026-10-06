@@ -16,3 +16,7 @@ releases/
 .vercel/
 .env*
 project-link.json
+
+# Hosted runtime and worker credentials
+worker-connection.json
+runtime.json

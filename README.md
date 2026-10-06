@@ -120,7 +120,7 @@ The original CLI arguments and JSON result fields remain available, including `-
 
 ## Vercel and Railway
 
-The repository includes a Vercel build and a Railway Docker service. Vercel defaults to a public entry page for the local plugin. Set `PARALLAX_RUNTIME_URL` on Vercel to use an optional dedicated Railway-backed Studio with secure session sign-in, same-origin API routing, and persistent run storage. See [deployment setup and execution limits](docs/DEPLOYMENT.md). Local agents are the recommended default; the hosted runtime is for one trusted team, and is not a multi-tenant service.
+The repository includes a Vercel build and a Railway runtime. Without a runtime, Vercel serves an entry page for the local plugin. Set `PARALLAX_RUNTIME_URL` on Vercel to serve the hosted product: a public entry, GitHub sign-in, and a private personal workspace per account that runs agents on machines its owner pairs. The deployment operator keeps a separate workspace with hosted execution. See [accounts, limits, and deployment setup](docs/DEPLOYMENT.md) and [paired machines](docs/LOCAL-WORKERS.md). Shared team workspaces and hosted execution for personal workspaces are not available yet.
 
 ## Develop and verify
 

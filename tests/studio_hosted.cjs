@@ -13,6 +13,7 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), "parallax-hosted-"));
       [
         path.join(root, "studio/node_modules/typescript/lib/tsc.js"),
         "src/hosted-link.ts",
+        "src/session.ts",
         "--target",
         "ES2022",
         "--module",
@@ -40,6 +41,59 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), "parallax-hosted-"));
       "http://localhost/?token=a&token=b",
     ])
       assert.throws(() => localStudioUrl(value));
+    const session = require(path.join(temp, "session.js"));
+    assert.equal(session.signInError("?auth_error=denied"), "denied");
+    for (const value of ["", "?auth_error=", "?auth_error=<script>", "?auth_error=__proto__", "?other=denied"])
+      assert.equal(session.signInError(value), null);
+    assert.match(session.signInErrorMessage("unknown"), /did not confirm/);
+    assert.match(session.signInErrorMessage("__proto__"), /did not confirm/);
+    assert.match(session.signInErrorMessage("toString"), /did not confirm/);
+    assert.notEqual(session.executorKey("a"), session.executorKey("b"));
+    const machines = [
+      { id: "m1", name: "One", online: false, platform: "darwin", workspaces: ["/p"], last_seen: 0 },
+      { id: "m2", name: "Two", online: true, platform: "linux", workspaces: ["/q"], last_seen: 0 },
+    ];
+    // Personal workspaces never select the hosted runtime, even from a stale or tampered choice.
+    assert.equal(session.chooseMachine([], "railway", false), null);
+    assert.equal(session.chooseMachine(machines, "railway", false), "m2");
+    assert.equal(session.chooseMachine(machines, "m1", false), "m1");
+    assert.equal(session.chooseMachine(machines, "someone-elses-machine", false), "m2");
+    assert.equal(session.chooseMachine([machines[0]], null, false), "m1");
+    assert.equal(session.chooseMachine([], null, true), "railway");
+    assert.equal(session.chooseMachine(machines, "railway", true), "railway");
+    const commands = session.workerCommands("https://studio.example.com");
+    assert.match(commands.start, /--url https:\/\/studio\.example\.com /);
+    assert.match(commands.install, /github\.com\/ysham123\/Parallax\.git/);
+    assert.doesNotMatch(commands.start + commands.install, /token|code|key/i);
+    const stored = new Map([
+      ["parallax-executor:w1", "m1"],
+      ["parallax-executor:w2", "m2"],
+      ["parallax-executor", "legacy"],
+      ["parallax-theme", "light"],
+    ]);
+    global.window = {
+      localStorage: {
+        get length() { return stored.size; },
+        key: (index) => [...stored.keys()][index] ?? null,
+        getItem: (key) => stored.get(key) ?? null,
+        setItem: (key, value) => stored.set(key, String(value)),
+        removeItem: (key) => stored.delete(key),
+      },
+    };
+    session.writeStored(session.executorKey("w3"), "m3");
+    assert.equal(session.readStored(session.executorKey("w3")), "m3");
+    session.forgetMachines();
+    assert.deepEqual([...stored.keys()], ["parallax-theme"]);
+    global.window = { get localStorage() { throw new Error("blocked"); } };
+    assert.equal(session.readStored("x"), null);
+    session.writeStored("x", "y");
+    session.forgetMachines();
+    delete global.window;
+    assert.equal(
+      session.initials({ account: { login: "ada", name: "Ada Lovelace", avatar_url: null } }),
+      "AL",
+    );
+    assert.equal(session.initials({ account: null }), "OP");
     const { outputConfig, runtimeOrigin } = await import(
       pathToFileURL(path.join(root, "scripts/vercel_config.mjs"))
     );
@@ -73,7 +127,7 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), "parallax-hosted-"));
       "https://localhost",
     ])
       assert.throws(() => runtimeOrigin(origin));
-    console.log("Hosted URL validation and Vercel routing checks passed.");
+    console.log("Hosted URL validation, session helpers, and Vercel routing checks passed.");
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });
   }

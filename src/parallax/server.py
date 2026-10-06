@@ -7,6 +7,7 @@ import os
 import re
 import secrets
 import time
+from collections import Counter
 from urllib.parse import urlencode
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -21,6 +22,63 @@ from .connections import ConnectionInput
 from .store import Store
 from .receipt import get_receipt
 from .deployment import Deployment
+from .accounts import (Accounts, Principal, SignInRefused, operator_principal, SESSION_COOKIE, FLOW_COOKIE,
+                       FLOW_COOKIE_PATH, OWNER_WORKSPACE)
+
+# Paths a workspace without hosted execution may use. Everything else under /api
+# reaches the hosted runtime's own engine, CLI sign-ins, and project clones.
+WORKSPACE_ROUTES = re.compile(r"/api/(?:session|account|executors|executors/pair|executors/[^/]+|executors/[^/]+/proxy/.*)")
+HOSTED_BODY_LIMIT = 2 * 1024 * 1024
+
+
+class BodyLimit:
+    """Buffer request bodies up to a bound before routing, including chunked bodies."""
+
+    def __init__(self, app, limit_for):
+        self.app = app
+        self.limit_for = limit_for
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        limit = self.limit_for(scope["path"])
+        declared = [value for key, value in scope.get("headers", []) if key.lower() == b"content-length"]
+        if declared:
+            try:
+                size = int(declared[0])
+            except ValueError:
+                return await self._reject(send, 400, "Invalid content length")
+            if len(declared) > 1 or size < 0:
+                return await self._reject(send, 400, "Invalid content length")
+            if size > limit:
+                return await self._reject(send, 413, "Request body exceeds the limit")
+        body, more = bytearray(), True
+        while more:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return
+            body += message.get("body", b"")
+            if len(body) > limit:
+                return await self._reject(send, 413, "Request body exceeds the limit")
+            more = message.get("more_body", False)
+        delivered = False
+
+        async def replay():
+            nonlocal delivered
+            if not delivered:
+                delivered = True
+                return {"type": "http.request", "body": bytes(body), "more_body": False}
+            return await receive()
+
+        await self.app(scope, replay, send)
+
+    @staticmethod
+    async def _reject(send, status, detail):
+        payload = json.dumps({"detail": detail}).encode()
+        await send({"type": "http.response.start", "status": status,
+                    "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(payload)).encode()),
+                                (b"cache-control", b"no-store"), (b"connection", b"close")]})
+        await send({"type": "http.response.body", "body": payload})
 
 class AssessmentRequest(ProjectProfile):
     participants: list[Participant] = Field(default_factory=list)
@@ -50,24 +108,26 @@ class WorkerSync(BaseModel):
     runs: list[RunResult] = Field(default_factory=list, max_length=100)
     events: list[RunEvent] = Field(default_factory=list, max_length=500)
 
-def create_app(store:Store|None=None, registry=None, *, token:str|None=None, workspace:str|None=None, deployment:Deployment|None=None, allowed_workspaces:tuple[Path,...]|None=None):
+def create_app(store:Store|None=None, registry=None, *, token:str|None=None, workspace:str|None=None, deployment:Deployment|None=None, allowed_workspaces:tuple[Path,...]|None=None, http_transport=None):
     store=store or Store()
     engine=Engine(store,registry)
     token=token or secrets.token_urlsafe(32)
     if deployment and not hmac.compare_digest(token,deployment.token):
         raise ValueError("Hosted access token does not match deployment configuration")
+    accounts=Accounts(store,deployment,transport=http_transport) if deployment else None
     def check_workspace(value):
         if deployment: deployment.check_workspace(value)
         if allowed_workspaces is not None and Path(value).expanduser().resolve() not in allowed_workspaces:
             raise ValueError("This project was not approved on the execution machine")
-    def set_session(response):
-        session=secrets.token_urlsafe(32)+"."+str(int(time.time()))
-        session+="."+hmac.new(token.encode(),session.encode(),"sha256").hexdigest()
-        response.set_cookie("parallax_session",session,httponly=True,secure=bool(deployment),samesite="strict",max_age=86400)
+    def set_session(response,value=None,lifetime=86400):
+        # Local Studio: a signed cookie derived from the launch token. Hosted: an opaque server-side session.
+        if value is None:
+            value=secrets.token_urlsafe(32)+"."+str(int(time.time()))
+            value+="."+hmac.new(token.encode(),value.encode(),"sha256").hexdigest()
+        response.set_cookie(SESSION_COOKIE,value,httponly=True,secure=bool(deployment),samesite="strict",max_age=lifetime)
         response.headers["Referrer-Policy"]="no-referrer"
         response.headers["Cache-Control"]="no-store"
         return response
-    attempts=[]
     def session_valid(value):
         try:
             identifier,stamp,signature=value.split(".")
@@ -83,33 +143,40 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
         yield
         await engine.shutdown()
     app=FastAPI(title="Parallax",version="1.1.0",lifespan=lifespan,docs_url=None,redoc_url=None,openapi_url=None)
-    app.state.engine=engine;app.state.token=token;app.state.store=store
-    from .executors import ExecutorHub, MAX_MESSAGE
+    app.state.engine=engine;app.state.token=token;app.state.store=store;app.state.accounts=accounts
+    from .executors import ExecutorHub, MAX_MESSAGE, limits_for
     hub = ExecutorHub(store) if deployment else None
     app.state.executors = hub
+    relay_inflight, event_streams = Counter(), Counter()
+    def body_limit(path):
+        if path.startswith("/api/worker/") or "/proxy/" in path or not deployment:
+            return MAX_MESSAGE + 65536
+        return HOSTED_BODY_LIMIT
+    app.add_middleware(BodyLimit, limit_for=body_limit)
+    def principal_of(request) -> Principal:
+        return request.state.principal
 
     @app.middleware("http")
     async def guard(request:Request,call_next):
+        path=request.url.path
         host=request.headers.get("host","").split(":")[0]
         allowed_hosts=deployment.hosts|{"127.0.0.1","localhost"} if deployment else {"127.0.0.1","localhost","testserver"}
-        if deployment and host=="healthcheck.railway.app" and request.url.path=="/api/health":
+        if deployment and host=="healthcheck.railway.app" and path=="/api/health":
             return await call_next(request)
         if host.lower() not in allowed_hosts:
             return JSONResponse({"detail":"Host is not allowed" if deployment else "Loopback Host required"},status_code=403)
         origin=request.headers.get("origin")
         allowed_origins=deployment.origins if deployment else {f"{request.url.scheme}://{request.headers.get('host')}"}
-        if origin and origin not in allowed_origins:
+        # The OAuth callback is a top-level navigation from GitHub; its state and browser binding protect it.
+        callback=bool(deployment) and path=="/api/auth/github/callback" and request.method=="GET"
+        if origin and origin not in allowed_origins and not callback:
             return JSONResponse({"detail":"Cross-origin requests are not allowed"},status_code=403)
-        if request.url.path=="/api/health":
+        if path=="/api/health":
             return await call_next(request)
-        if hub and request.url.path.startswith("/api/worker/"):
+        if hub and path.startswith("/api/worker/"):
             if origin:
                 return JSONResponse({"detail":"Worker protocol requires an outbound CLI connection"},status_code=403)
-            try: size=int(request.headers.get("content-length", "0"))
-            except ValueError: return JSONResponse({"detail":"Invalid content length"},status_code=400)
-            if size > MAX_MESSAGE:
-                return JSONResponse({"detail":"Worker message exceeds limit"},status_code=413)
-            if request.url.path == "/api/worker/connect" and request.method == "POST":
+            if path == "/api/worker/connect" and request.method == "POST":
                 return await call_next(request)
             try:
                 request.state.worker = hub.authenticate(request.headers.get("authorization", "").removeprefix("Bearer "))
@@ -117,19 +184,31 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
                 return JSONResponse({"detail":exc.detail},status_code=exc.status_code)
             return await call_next(request)
         bearer=request.headers.get("authorization","").removeprefix("Bearer ")
-        authorized=session_valid(request.cookies.get("parallax_session")) or (bool(bearer) and hmac.compare_digest(bearer.encode(),token.encode()))
         if deployment and request.method not in {"GET","HEAD","OPTIONS"} and not bearer and origin not in allowed_origins:
             return JSONResponse({"detail":"Studio Origin required"},status_code=403)
-        if deployment and request.url.path=="/api/session" and request.method=="POST":
+        if deployment and (callback or (path=="/api/auth/config" and request.method=="GET")
+                           or (path in {"/api/session","/api/auth/github/start"} and request.method=="POST")):
             return await call_next(request)
-        presented=request.query_params.get("token","")
-        if not deployment and request.url.path=="/" and presented and hmac.compare_digest(presented,token):
-            selected=request.query_params.get("workspace","")
-            destination="/?"+urlencode({"workspace":selected}) if selected and len(selected)<=4096 else "/"
-            response=RedirectResponse(destination,status_code=303)
-            return set_session(response)
-        if not authorized:
-            return JSONResponse({"detail":"Open Studio from Parallax to establish a local session"},status_code=401)
+        principal=None
+        if deployment:
+            if bearer and hmac.compare_digest(bearer.encode(),token.encode()):
+                principal=operator_principal()
+            elif not bearer:
+                principal=accounts.principal(request.cookies.get(SESSION_COOKIE))
+        else:
+            presented=request.query_params.get("token","")
+            if path=="/" and presented and hmac.compare_digest(presented,token):
+                selected=request.query_params.get("workspace","")
+                destination="/?"+urlencode({"workspace":selected}) if selected and len(selected)<=4096 else "/"
+                return set_session(RedirectResponse(destination,status_code=303))
+            if session_valid(request.cookies.get(SESSION_COOKIE)) or (bool(bearer) and hmac.compare_digest(bearer.encode(),token.encode())):
+                principal=Principal("local",OWNER_WORKSPACE,True,"Local workspace")
+        if principal is None:
+            return JSONResponse({"detail":"Sign in to continue" if deployment else "Open Studio from Parallax to establish a local session"},status_code=401)
+        if deployment and not principal.hosted_execution and path.startswith("/api/") and not WORKSPACE_ROUTES.fullmatch(path):
+            return JSONResponse({"detail":"This workspace runs agents on machines you connect. Choose a connected machine in Studio.",
+                                 "code":"hosted_execution_unavailable"},status_code=403)
+        request.state.principal=principal
         response=await call_next(request)
         response.headers["X-Content-Type-Options"]="nosniff"
         response.headers["Referrer-Policy"]="no-referrer"
@@ -151,35 +230,70 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
     async def context(): return {"workspace":workspace or os.environ.get("PARALLAX_WORKSPACE","")}
     @app.post("/api/session")
     async def sign_in(body:SessionInput):
+        """Operator access key. Opens only the operator workspace."""
         if not deployment: raise HTTPException(404)
-        stamp=time.monotonic()
-        attempts[:]=[value for value in attempts if stamp-value<60]
-        if len(attempts)>=20: raise HTTPException(429,"Too many sign-in attempts. Try again in one minute.")
-        attempts.append(stamp)
+        if not accounts.operator_sign_in_allowed(): raise HTTPException(429,"Too many sign-in attempts. Try again in one minute.")
         if not hmac.compare_digest(body.token.encode(),token.encode()): raise HTTPException(401,"Invalid access key")
-        return set_session(JSONResponse({"ok":True}))
+        value,lifetime=accounts.create_session("operator",OWNER_WORKSPACE)
+        return set_session(JSONResponse({"ok":True}),value,lifetime)
     @app.get("/api/session")
-    async def session(): return {"ok":True,"mode":"hosted" if deployment else "local"}
+    async def session(request:Request): return principal_of(request).public()
     @app.delete("/api/session")
-    async def sign_out():
+    async def sign_out(request:Request):
+        if accounts: accounts.end_session(principal_of(request).session)
         response=JSONResponse({"ok":True})
-        response.delete_cookie("parallax_session",secure=bool(deployment),httponly=True,samesite="strict")
+        response.delete_cookie(SESSION_COOKIE,secure=bool(deployment),httponly=True,samesite="strict")
+        return response
+    @app.get("/api/auth/config")
+    async def auth_config():
+        if not deployment: raise HTTPException(404)
+        return {"github":bool(deployment.github_redirect),"signup":deployment.signup}
+    @app.post("/api/auth/github/start")
+    async def github_start():
+        if not deployment: raise HTTPException(404)
+        try: url,binding=accounts.begin_github()
+        except SignInRefused as refused:
+            return JSONResponse({"detail":refused.code},status_code=429 if refused.code=="busy" else 503,headers={"Cache-Control":"no-store"})
+        response=JSONResponse({"url":url},headers={"Cache-Control":"no-store"})
+        response.set_cookie(FLOW_COOKIE,binding,httponly=True,secure=True,samesite="lax",max_age=600,path=FLOW_COOKIE_PATH)
+        return response
+    @app.get("/api/auth/github/callback")
+    async def github_callback(request:Request):
+        if not deployment: raise HTTPException(404)
+        query=request.query_params
+        try:
+            value,lifetime=await accounts.finish_github(state=query.get("state",""),code=query.get("code",""),
+                binding=request.cookies.get(FLOW_COOKIE,""),error=query.get("error"))
+        except SignInRefused as refused:
+            response=RedirectResponse("/?"+urlencode({"auth_error":refused.code}),status_code=303)
+            response.headers["Referrer-Policy"]="no-referrer";response.headers["Cache-Control"]="no-store"
+        else:
+            response=set_session(RedirectResponse("/",status_code=303),value,lifetime)
+        response.delete_cookie(FLOW_COOKIE,path=FLOW_COOKIE_PATH,secure=True,httponly=True,samesite="lax")
+        return response
+    @app.delete("/api/account")
+    async def delete_account(request:Request):
+        if not deployment: raise HTTPException(404)
+        try: accounts.delete_account(principal_of(request),hub)
+        except PermissionError as refused: raise HTTPException(409,str(refused))
+        response=JSONResponse({"ok":True})
+        response.delete_cookie(SESSION_COOKIE,secure=True,httponly=True,samesite="strict")
         return response
     @app.get("/api/deployment")
     async def deployment_status():
         from .assessment import execution_capability
         return {"mode":"hosted" if deployment else "local","execution":execution_capability()}
     @app.get("/api/executors")
-    async def executors():
-        return hub.workers() if hub else []
+    async def executors(request:Request):
+        return hub.workers(principal_of(request).workspace) if hub else []
     @app.post("/api/executors/pair")
-    async def pair_worker():
+    async def pair_worker(request:Request):
         if not hub: raise HTTPException(404)
-        return hub.pair()
+        return hub.pair(principal_of(request).workspace)
     @app.delete("/api/executors/{identifier}")
-    async def revoke_worker(identifier:str):
+    async def revoke_worker(identifier:str,request:Request):
         if not hub: raise HTTPException(404)
-        return hub.revoke(identifier)
+        return hub.revoke(identifier,principal_of(request).workspace)
     @app.post("/api/worker/connect")
     async def connect_worker(body:WorkerConnect):
         if not hub: raise HTTPException(404)
@@ -201,25 +315,37 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
     @app.api_route("/api/executors/{identifier}/proxy/{path:path}", methods=["GET","POST","PUT","DELETE"])
     async def worker_proxy(identifier:str,path:str,request:Request):
         if not hub: raise HTTPException(404)
-        hub.worker(identifier)
+        scope=principal_of(request).workspace
+        limits=limits_for(scope)
+        hub.worker(identifier,scope)
         if request.method=="GET" and re.fullmatch(r"runs/[a-f0-9-]{36}/events",path):
             try: cursor=max(0,int(request.query_params.get("cursor","0")),int(request.headers.get("last-event-id","0")))
             except ValueError: raise HTTPException(400,"Invalid event cursor")
+            if event_streams[scope]>=limits.event_streams:
+                raise HTTPException(429,"Too many live event streams are open for this workspace. Close another Studio tab and retry.")
             async def replay():
+                # Counted from the first iteration: an unstarted generator never reaches its finally block.
+                event_streams[scope]+=1
                 position=cursor
-                while not await request.is_disconnected():
-                    hub.worker(identifier)
-                    for event in hub.events(identifier,path.split('/')[1],position):
-                        position=event["sequence"]
-                        yield f"id: {position}\ndata: {json.dumps(event)}\n\n"
-                    yield ": keepalive\n\n"
-                    await asyncio.sleep(1)
+                try:
+                    while not await request.is_disconnected():
+                        for event in hub.events(identifier,path.split('/')[1],position,scope):
+                            position=event["sequence"]
+                            yield f"id: {position}\ndata: {json.dumps(event)}\n\n"
+                        yield ": keepalive\n\n"
+                        await asyncio.sleep(1)
+                finally:
+                    event_streams[scope]-=1
             return StreamingResponse(replay(),media_type="text/event-stream",headers={"X-Accel-Buffering":"no"})
         raw=await request.body()
         if len(raw)>MAX_MESSAGE: raise HTTPException(413,"Worker request exceeds limit")
         try: body=json.loads(raw) if raw else None
         except ValueError: raise HTTPException(400,"Invalid JSON body")
-        reply=await hub.request(identifier,request.method,"/api/"+path,str(request.query_params),body)
+        if relay_inflight[scope]>=limits.relay_requests:
+            raise HTTPException(429,"Too many requests are waiting on this workspace's machines. Retry shortly.")
+        relay_inflight[scope]+=1
+        try: reply=await hub.request(identifier,request.method,"/api/"+path,str(request.query_params),body,workspace=scope)
+        finally: relay_inflight[scope]-=1
         headers={"X-Parallax-Worker":identifier,"X-Parallax-Offline":"true" if reply.get("offline") else "false"}
         if path.endswith('/patch'):
             headers["Content-Disposition"]='attachment; filename=parallax.patch'

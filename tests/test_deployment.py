@@ -93,11 +93,13 @@ class DeploymentTests(unittest.TestCase):
         from parallax.providers import ProviderRegistry
         registry=ProviderRegistry(home=Path(self.temp.name))
         registry._help["codex"]="--config --sandbox"
-        with patch.dict(os.environ,{"PARALLAX_ACCESS_TOKEN":self.token}):
+        with patch.dict(os.environ,{"PARALLAX_ACCESS_TOKEN":self.token,"PARALLAX_GITHUB_CLIENT_SECRET":"github-secret-value-0123456789"}):
             _,_,env,_=registry._command("codex","codex",self.projects,"Review",{"model":"model","effort":"high"},"consult",None,60,None,self.projects,{})
             self.assertNotIn("PARALLAX_ACCESS_TOKEN",env)
+            self.assertNotIn("PARALLAX_GITHUB_CLIENT_SECRET",env)
             with patch("parallax.providers._capture",new_callable=AsyncMock) as capture:
                 asyncio.run(registry._metadata("codex",["--version"]))
                 self.assertNotIn("PARALLAX_ACCESS_TOKEN",capture.call_args.kwargs["env"])
+                self.assertNotIn("PARALLAX_GITHUB_CLIENT_SECRET",capture.call_args.kwargs["env"])
 
 if __name__ == "__main__": unittest.main()

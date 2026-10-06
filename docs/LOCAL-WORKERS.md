@@ -1,22 +1,24 @@
 # Hosted Studio with a local coding worker
 
-Keep Studio on Vercel and the authenticated relay on Railway. Pair a Mac or compatible Linux machine to run the complete Parallax engine locally with its existing CLI sign-ins. The worker makes outbound HTTPS requests; it does not open a listener, expose SSH, mount files remotely, or copy provider credentials to Railway.
+Keep Studio on Vercel and the authenticated relay on Railway. Pair a Mac or compatible Linux machine to run the complete Parallax engine locally with its existing CLI sign-ins. The worker makes outbound HTTPS requests; it does not open a listener, expose SSH, mount files remotely, or copy provider credentials to Railway. Every machine belongs to exactly one workspace: the one whose pairing code it used.
 
 ## Connect
 
-Install this repository and its pinned Python dependencies on the worker machine. Open hosted Studio, choose **Machines**, and generate a pairing code. It expires after five minutes and can be consumed once.
+Sign in to hosted Studio. A new account opens on **Connect a machine**; later, use **Machines** in the top bar. Generate a pairing code. It expires after five minutes and can be consumed once.
 
-Run:
+On the machine, clone this repository and start a worker. The launcher prepares a private Python environment with the hash-locked dependencies on first use:
 
 ~~~sh
-parallax worker --url https://YOUR-STUDIO.vercel.app --workspace /absolute/path/to/project --name "My Mac"
+git clone https://github.com/ysham123/Parallax.git
+cd Parallax
+python3 scripts/parallax.py worker --url https://YOUR-STUDIO.vercel.app --workspace /absolute/path/to/project --name "My Mac"
 ~~~
 
 Paste the code into the hidden terminal prompt. Repeated --workspace flags approve additional exact project roots. A private --pair-file can be used for operator automation; do not put codes or access keys in arguments or URLs. A separate state directory is created under Parallax's state folder with a mode-0600 scoped connection file. Use --state for another private directory outside every project. A state directory has one process owner. Changing its relay or approved project list requires new state and pairing.
 
 Choose the machine from Studio's **Execution machine** menu. Models, efforts, project assessment, profiles, history, checks, reviews, receipts, and integration refer to that selected machine. There is no automatic fallback to Railway or another machine.
 
-Anyone with access to this private operator Studio can run tasks in the approved projects. Do not pair an unrelated customer's machine to the same workspace. This is not a multi-tenant account system.
+Only the workspace that paired a machine can see or operate it. In a personal workspace that is its GitHub account alone. In the operator workspace it is everyone with operator access, so pair only machines the operator controls there. Machines paired before accounts existed belong to the operator workspace.
 
 ## Execution and evidence
 
@@ -36,6 +38,6 @@ Requests are durable and have unique identifiers. The local dispatch journal ret
 
 Stopping the worker interrupts active processes through the existing engine and preserves recovery state. Restart with the same state and approved projects to reconnect. Interrupted runs need deliberate Resume and reconciliation; no automatic integration or redispatch happens on restart.
 
-**Disconnect** in Machines revokes the scoped token. A connected worker observes revocation and stops its engine. An offline worker learns of revocation when it reconnects, so revocation cannot instantly cancel offline work. Stop the local process directly when immediate cancellation is needed.
+**Disconnect** in Machines revokes the scoped token and deletes that machine's mirrored evidence from the hosted workspace; history on the machine itself is unaffected. A connected worker observes revocation and stops its engine. Deleting an account disconnects all of its machines the same way. An offline worker learns of revocation when it reconnects, so revocation cannot instantly cancel offline work. Stop the local process directly when immediate cancellation is needed.
 
 Run the worker in a terminal for now. Login-time installation, automatic boot, and an always-awake cloud worker are not configured by pairing.

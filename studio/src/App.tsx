@@ -1105,6 +1105,7 @@ function ReviewContent({ run, tab }: { run: RunResult; tab: ReviewTab }) {
 export default function App({
   execution,
   executionControls,
+  accountControl,
 }: {
   execution?: {
     name: string;
@@ -1114,6 +1115,7 @@ export default function App({
     paired?: boolean;
   };
   executionControls?: ReactNode;
+  accountControl?: ReactNode;
 } = {}) {
   const hostedWorkspace = import.meta.env.MODE === "cloud";
   const [tab, setTab] = useState<Tab>("run");
@@ -1830,6 +1832,7 @@ export default function App({
                   ? "On Railway"
                   : "On your machine"}
             </span>
+            {accountControl}
           </div>
         </header>
         <main id="main" className="main-content" ref={mainRef} tabIndex={-1}>

@@ -17,7 +17,7 @@ parallax = "parallax.cli:main"
 test = ["httpx==0.28.1"]
 
 [tool.hatch.build]
-exclude = ["**/node_modules/**", "**/__pycache__/**", "**/.playwright-cli/**", "**/.venv/**", "**/.pytest_cache/**", "**/.git/**", "**/.DS_Store", "studio/dist/**", "releases/**", "**/*.pyc", "**/*.pyo", "**/.env", "**/.env.*", "**/*.sqlite3", "**/*.sqlite3-wal", "**/*.sqlite3-shm", "**/*.sqlite", "**/*.db", "**/*.db-wal", "**/*.db-shm", "**/*.log", "**/*.pem", "**/*.key", "**/.parallax-owned", "**/api-sessions/**", "**/artifacts/**", "**/sessions/**", "**/runs/**", "**/environments/**", "**/.codex/**", "**/.claude/**", "**/.grok/**", "**/.gemini/**", "**/server.json", "**/connections.json", "**/credentials.json", "**/auth.json", "**/token_cache.json", "**/models_cache.json", "**/jetski-standalone-oauth-token"]
+exclude = ["**/node_modules/**", "**/__pycache__/**", "**/.playwright-cli/**", "**/.venv/**", "**/.pytest_cache/**", "**/.git/**", "**/.DS_Store", "studio/dist/**", "releases/**", "**/*.pyc", "**/*.pyo", "**/.env", "**/.env.*", "**/*.sqlite3", "**/*.sqlite3-wal", "**/*.sqlite3-shm", "**/*.sqlite", "**/*.db", "**/*.db-wal", "**/*.db-shm", "**/*.log", "**/*.pem", "**/*.key", "**/.parallax-owned", "**/api-sessions/**", "**/artifacts/**", "**/sessions/**", "**/runs/**", "**/environments/**", "**/.codex/**", "**/.claude/**", "**/.grok/**", "**/.gemini/**", "**/server.json", "**/connections.json", "**/credentials.json", "**/auth.json", "**/token_cache.json", "**/models_cache.json", "**/jetski-standalone-oauth-token", "**/worker-connection.json", "**/runtime.json"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/parallax"]
