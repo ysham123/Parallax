@@ -24,6 +24,7 @@ export type Provider = {
   version?: string | null;
   authenticated?: boolean | null;
   status: string;
+  error?: string | null;
   capabilities?: Record<string, unknown>;
   models?: Model[];
   default_model?: string | null;
