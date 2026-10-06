@@ -1,8 +1,8 @@
 # Constellation architecture
 
-The developer's question is an outcome: what to build, which project to change, and which constraints to preserve. Team setup gives that outcome a coordinator, worker connections, review roles, model/effort selections, and bounded execution limits. Studio keeps these choices separate from the graph produced during execution.
+The developer's question is an outcome: what to build, which project to change, and which constraints to preserve. New run setup gives that outcome a coordinator, worker connections, review roles, model/effort selections, and bounded execution limits. Studio keeps these choices separate from the graph produced during execution.
 
-The execution graph represents tasks and dependencies. A task inspector exposes assigned ownership, acceptance criteria, attempts, reviewer findings, and check evidence. The activity trace represents observed events: provider sessions, tool calls, coordinator actions, permissions, retries, and verification. It does not visualize private model reasoning. The graph can be explored and its layout moved; changing visual positions does not change dependencies or an active run.
+The Workspace opens on project work. Its agent graph represents configured coordinator, implementation and reviewer sessions, with edges derived from recorded dispatch and review associations. The task graph represents tasks, dependencies, repairs, independent reviews and combined checks. A task inspector exposes assigned ownership, acceptance criteria, attempts, reviewer findings, and check evidence. The activity trace represents observed events: provider sessions, tool calls, coordinator actions, permissions, retries, and verification. It does not visualize private model reasoning. Both graphs can be panned and zoomed; selection does not reset the viewport or change dependencies. An accessible list reaches the same inspector. Narrow panels use focus-contained history and inspection drawers.
 
 ## Runtime decisions
 

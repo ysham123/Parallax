@@ -7,7 +7,7 @@ import {
 } from "react";
 import { api, messageOf } from "./api";
 import { ProviderMark } from "./Brand";
-import { TaskGraph } from "./TaskGraph";
+import { RunWorkspace } from "./RunWorkspace";
 import { Connections as ConnectionsPanel } from "./Connections";
 import { ProjectReadiness } from "./ProjectReadiness";
 import { Recovery } from "./Recovery";
@@ -284,118 +284,6 @@ function Empty({
       </span>
       <h3>{title}</h3>
       <p>{children}</p>
-    </div>
-  );
-}
-
-function Orbit({
-  providers,
-  connections,
-  members,
-  compact = false,
-}: {
-  providers: Provider[];
-  connections: Connection[];
-  members: Participant[];
-  compact?: boolean;
-}) {
-  return (
-    <div className={`orbit-scene ${compact ? "compact" : ""}`}>
-      <div className="orbit-grid" />
-      <svg className="orbital-lines" viewBox="0 0 450 340" aria-hidden="true">
-        <defs>
-          <linearGradient id="orbit-gradient" x1="0" y1="0" x2="1" y2="1">
-            <stop stopColor="#a59afc" stopOpacity=".52" />
-            <stop offset="1" stopColor="#4acfc0" stopOpacity=".16" />
-          </linearGradient>
-        </defs>
-        <ellipse
-          cx="225"
-          cy="170"
-          rx="164"
-          ry="106"
-          fill="none"
-          stroke="url(#orbit-gradient)"
-          transform="rotate(-24 225 170)"
-        />
-        <ellipse
-          cx="225"
-          cy="170"
-          rx="164"
-          ry="106"
-          fill="none"
-          stroke="url(#orbit-gradient)"
-          transform="rotate(34 225 170)"
-        />
-        <circle
-          cx="225"
-          cy="170"
-          r="75"
-          fill="none"
-          stroke="currentColor"
-          opacity=".055"
-        />
-        <path
-          d="M111 85 225 170 353 107M128 262 225 170 326 261"
-          stroke="currentColor"
-          opacity=".09"
-          strokeDasharray="3 6"
-          fill="none"
-        />
-        <circle cx="73" cy="182" r="2" fill="#7b6ccc" />
-        <circle cx="354" cy="207" r="2" fill="#4aa797" />
-        <circle cx="244" cy="52" r="2" fill="#7b6ccc" />
-      </svg>
-      <div className="orbit-center">
-        <Icon name="orbit" size={45} />
-        <span>PARALLAX</span>
-        <small>ONE SHARED GOAL</small>
-      </div>
-      {members.slice(0, 6).map((member, i, shown) => {
-        const provider = connectionProvider(member, providers, connections);
-        const id = member.provider;
-        const angle = ((-135 + (360 * i) / shown.length) * Math.PI) / 180;
-        const position =
-          shown.length === 4
-            ? undefined
-            : {
-                left: `${50 + 34 * Math.cos(angle)}%`,
-                top: `${50 + 34 * Math.sin(angle)}%`,
-              };
-        return (
-          <div
-            key={`${member.connection_id || id}-${i}`}
-            className={`orbit-node node-${i} selected ${shown.length > 4 ? "dense" : ""}`}
-            style={position}
-          >
-            <div className="orbit-node-icon">
-              <ProviderMark
-                provider={
-                  id === "antigravity" && member.transport === "api"
-                    ? "gemini"
-                    : id
-                }
-                size={42}
-              />
-              <i
-                className={available(provider) ? "online-dot" : "offline-dot"}
-              />
-            </div>
-            <strong title={provider?.label || LABELS[id] || id}>
-              {provider?.label || LABELS[id] || id}
-            </strong>
-            <span>
-              {i === 0 ? "Coordinator" : human(member.role)}
-              {member.transport === "api" ? " · API" : ""}
-            </span>
-          </div>
-        );
-      })}
-      {members.length > 6 && (
-        <span className="orbit-overflow">
-          +{members.length - 6} more in the team below
-        </span>
-      )}
     </div>
   );
 }
@@ -757,31 +645,14 @@ function CheckEditor({
   );
 }
 
-function Dag({
-  tasks,
-  selected,
-  onSelect,
-}: {
-  tasks: Data[];
-  selected: string | null;
-  onSelect: (id: string) => void;
-}) {
-  return tasks.length ? (
-    <TaskGraph tasks={tasks} selected={selected} onSelect={onSelect} />
-  ) : (
-    <Empty icon="team" title="The task map starts with a plan">
-      The coordinator’s tasks and dependencies will appear here as the run
-      progresses.
-    </Empty>
-  );
-}
-
 function TaskDetail({
   task,
+  tasks = [],
   onClose,
   onSelect,
 }: {
   task: Data;
+  tasks?: Data[];
   onClose: () => void;
   onSelect: (id: string) => void;
 }) {
@@ -839,6 +710,24 @@ function TaskDetail({
           </span>
         )}
       </div>
+      {Array.isArray(task.dependencies) && task.dependencies.length > 0 && (
+        <div className="work-task-dependencies">
+          <h3>Required dependencies</h3>
+          {task.dependencies.map((id) => {
+            const dependency = tasks.find((item) => text(item.id) === text(id));
+            return (
+              <button
+                className="work-assignment"
+                key={text(id)}
+                onClick={() => onSelect(text(id))}
+              >
+                <span>{text(dependency?.title, text(id))}</span>
+                <Status value={text(dependency?.status, "not reported")} />
+              </button>
+            );
+          })}
+        </div>
+      )}
       {Array.isArray(task.acceptance) && task.acceptance.length > 0 && (
         <div className="task-acceptance">
           <span className="eyebrow">ACCEPTANCE CRITERIA</span>
@@ -1110,9 +999,19 @@ function ReviewContent({ run, tab }: { run: RunResult; tab: ReviewTab }) {
                     }
                   />
                 </div>
-                {text(review.summary || review.response || review.text) && (
+                {text(
+                  review.summary ||
+                    review.answer ||
+                    review.response ||
+                    review.text,
+                ) && (
                   <p className="review-prose">
-                    {text(review.summary || review.response || review.text)}
+                    {text(
+                      review.summary ||
+                        review.answer ||
+                        review.response ||
+                        review.text,
+                    )}
                   </p>
                 )}
                 {Boolean(review.error) && (
@@ -1180,17 +1079,17 @@ function ReviewContent({ run, tab }: { run: RunResult; tab: ReviewTab }) {
 }
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>("team");
+  const [tab, setTab] = useState<Tab>("run");
   const [reviewTab, setReviewTab] = useState<ReviewTab>("findings");
   const [providers, setProviders] = useState<Provider[]>([]);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [connectionsOpen, setConnectionsOpen] = useState(false);
+  const [workspaceOverlay, setWorkspaceOverlay] = useState(false);
   const closeConnections = useCallback(() => setConnectionsOpen(false), []);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [runs, setRuns] = useState<RunResult[]>([]);
   const [run, setRun] = useState<RunResult | null>(null);
   const [events, setEvents] = useState<RunEvent[]>([]);
-  const [allActivity, setAllActivity] = useState(false);
   const [spec, setSpec] = useState<RunSpec>(() => ({
     ...structuredClone(INITIAL_SPEC),
     workspace: new URLSearchParams(location.search).get("workspace") || "",
@@ -1226,7 +1125,12 @@ export default function App() {
   }, [motion]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.altKey && ["1", "2", "3"].includes(event.key)) {
+      if (
+        !connectionsOpen &&
+        !workspaceOverlay &&
+        event.altKey &&
+        ["1", "2", "3"].includes(event.key)
+      ) {
         event.preventDefault();
         setTab((["team", "run", "review"] as Tab[])[Number(event.key) - 1]);
         mainRef.current?.focus();
@@ -1238,7 +1142,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [connectionsOpen, workspaceOverlay]);
 
   const toast = useCallback((message: string) => {
     setNotice(message);
@@ -1253,65 +1157,98 @@ export default function App() {
     ]);
   }, []);
 
+  const [historyLoading, setHistoryLoading] = useState(true);
   const load = useCallback(async () => {
     setLoading(true);
+    setHistoryLoading(true);
     setError("");
+    const labels = [
+      "Providers",
+      "Profiles",
+      "Runs",
+      "Workspace",
+      "Connections",
+    ];
     const results = await Promise.allSettled([
-      api<Provider[]>("/providers"),
-      api<Profile[]>("/profiles"),
-      api<RunResult[]>("/runs"),
-      api<{ workspace: string }>("/context"),
-      api<Connection[]>("/connections"),
-    ]);
-    const failures: string[] = [];
-    if (results[0].status === "fulfilled") {
-      const list = results[0].value.map((p) => ({
-        ...p,
-        id: p.provider || p.id,
-      }));
-      setProviders(list);
-      setConnected(true);
-      await Promise.all(
-        list
-          .filter((p) => !p.models?.length)
-          .map(async (provider) => {
-            try {
-              const catalog = await api<Model[] | { models: Model[] }>(
-                `/models/${providerId(provider)}`,
-              );
-              const models = Array.isArray(catalog) ? catalog : catalog.models;
-              setProviders((previous) =>
-                previous.map((p) =>
-                  providerId(p) === providerId(provider)
-                    ? { ...p, models: models || [] }
-                    : p,
+      api<Provider[]>("/providers").then(async (providers) => {
+        const list = providers.map((p) => ({ ...p, id: p.provider || p.id }));
+        setProviders(list);
+        await Promise.all(
+          list
+            .filter((p) => !p.models?.length)
+            .map(async (provider) => {
+              try {
+                const catalog = await api<Model[] | { models: Model[] }>(
+                  `/models/${providerId(provider)}`,
+                );
+                const models = Array.isArray(catalog)
+                  ? catalog
+                  : catalog.models;
+                setProviders((previous) =>
+                  previous.map((p) =>
+                    providerId(p) === providerId(provider)
+                      ? { ...p, models: models || [] }
+                      : p,
+                  ),
+                );
+              } catch {
+                /* Diagnostics remain available while catalogs are unavailable. */
+              }
+            }),
+        );
+      }),
+      api<Profile[]>("/profiles").then(setProfiles),
+      api<RunResult[]>("/runs")
+        .then(async (history) => {
+          setConnected(true);
+          setRuns(history);
+          if (history.length && !activeId.current) {
+            const linked = new URLSearchParams(location.search).get(
+              "workspace",
+            );
+            const pool = linked
+              ? history.filter((item) => item.spec.workspace === linked)
+              : history;
+            const preferred =
+              pool.find(
+                (item) =>
+                  !isFinished(item.status) &&
+                  !["needs_attention", "interrupted", "paused"].includes(
+                    item.status,
+                  ),
+              ) ||
+              pool.find((item) =>
+                ["needs_attention", "interrupted", "paused"].includes(
+                  item.status,
+                ),
+              ) ||
+              pool[0];
+            if (preferred)
+              updateRun(
+                await api<RunResult>(
+                  `/runs/${encodeURIComponent(preferred.run_id)}`,
                 ),
               );
-            } catch {
-              /* Provider diagnostics remain available in the card. */
-            }
-          }),
-      );
-    } else {
-      setConnected(false);
-      failures.push(messageOf(results[0].reason));
-    }
-    if (results[1].status === "fulfilled") setProfiles(results[1].value);
-    else failures.push(`Profiles: ${messageOf(results[1].reason)}`);
-    if (results[2].status === "fulfilled") setRuns(results[2].value);
-    else failures.push(`Runs: ${messageOf(results[2].reason)}`);
-    if (results[3].status === "fulfilled") {
-      const workspace = results[3].value.workspace;
-      setSpec((previous) => ({
-        ...previous,
-        workspace: previous.workspace || workspace,
-      }));
-    } else failures.push(`Workspace: ${messageOf(results[3].reason)}`);
-    if (results[4].status === "fulfilled") setConnections(results[4].value);
-    else failures.push(`Connections: ${messageOf(results[4].reason)}`);
+          }
+        })
+        .finally(() => setHistoryLoading(false)),
+      api<{ workspace: string }>("/context").then(({ workspace }) =>
+        setSpec((previous) => ({
+          ...previous,
+          workspace: previous.workspace || workspace,
+        })),
+      ),
+      api<Connection[]>("/connections").then(setConnections),
+    ]);
+    const failures = results.flatMap((result, index) =>
+      result.status === "rejected"
+        ? [`${labels[index]}: ${messageOf(result.reason)}`]
+        : [],
+    );
+    if (results[2].status === "rejected") setConnected(false);
     if (failures.length) setError([...new Set(failures)].join(" "));
     setLoading(false);
-  }, []);
+  }, [updateRun]);
 
   useEffect(() => {
     void load();
@@ -1601,19 +1538,12 @@ export default function App() {
 
   const readyCount = providers.filter(available).length;
   const savedProfile = profiles.some((p) => p.name === spec.profile);
-  const task = run?.tasks.find((item) => text(item.id) === selectedTask);
-  const tokens = run?.usage.total_tokens ?? run?.usage.tokens;
-  const usageReportCount = Array.isArray(run?.usage.reports)
-    ? run.usage.reports.length
-    : undefined;
-  const activeRun = run && !isFinished(run.status);
+  const activeRun =
+    run && !isFinished(run.status) && run.status !== "needs_attention";
   const runTitle = requestTitle(run?.spec.prompt || "");
-  const visibleEvents = allActivity
-    ? events
-    : events.filter((event) => event.kind !== "provider");
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell studio-workspace tab-${tab}`}>
       <a className="skip-link" href="#main">
         Skip to content
       </a>
@@ -1624,13 +1554,16 @@ export default function App() {
           onClose={closeConnections}
         />
       )}
-      <aside className="sidebar" inert={connectionsOpen || undefined}>
+      <aside
+        className="sidebar"
+        inert={connectionsOpen || workspaceOverlay || undefined}
+      >
         <a
-          href="#team"
+          href="#run"
           className="brand"
           onClick={(e) => {
             e.preventDefault();
-            setTab("team");
+            setTab("run");
           }}
           aria-label="Parallax Studio home"
         >
@@ -1645,8 +1578,8 @@ export default function App() {
         <nav aria-label="Studio navigation">
           {(
             [
-              { id: "team", name: "Team", icon: "team", key: "1" },
-              { id: "run", name: "Run", icon: "run", key: "2" },
+              { id: "run", name: "Workspace", icon: "run", key: "2" },
+              { id: "team", name: "New run", icon: "plus", key: "1" },
               { id: "review", name: "Review", icon: "review", key: "3" },
             ] as { id: Tab; name: string; icon: IconName; key: string }[]
           ).map((item) => (
@@ -1655,6 +1588,8 @@ export default function App() {
               className={`nav-item ${tab === item.id ? "selected" : ""}`}
               onClick={() => setTab(item.id)}
               aria-current={tab === item.id ? "page" : undefined}
+              title={item.name}
+              aria-label={item.name}
               aria-keyshortcuts={`Alt+${item.key}`}
             >
               <Icon name={item.icon} size={19} />
@@ -1727,30 +1662,45 @@ export default function App() {
               <Icon name={theme === "dark" ? "sun" : "moon"} size={17} />
             </button>
             <button
-              className={`motion-button ${motion === "reduce" ? "enabled" : ""}`}
+              className={`icon-button motion-button ${motion === "reduce" ? "enabled" : ""}`}
               aria-pressed={motion === "reduce"}
               title="Reduce motion"
+              aria-label="Reduce motion"
               onClick={() =>
                 setMotion(motion === "reduce" ? "system" : "reduce")
               }
             >
-              Reduce motion
+              <Icon name="pause" size={17} />
             </button>
             <span>v1.1</span>
           </div>
         </div>
       </aside>
       <div className="main-shell" inert={connectionsOpen || undefined}>
-        <header className="topbar">
+        <header className="topbar" inert={workspaceOverlay || undefined}>
           <div className="breadcrumb">
-            <span>Workspace</span>
+            <span>
+              {shortPath(
+                (tab === "run" || tab === "review") && run
+                  ? run.spec.workspace
+                  : spec.workspace,
+              )}
+            </span>
             <Icon name="chevron" size={13} />
-            <strong>Studio</strong>
+            <strong>
+              {tab === "run" ? "Runs" : tab === "team" ? "New run" : "Review"}
+            </strong>
           </div>
           <div className="topbar-right">
+            <button
+              className="work-button"
+              onClick={() => setConnectionsOpen(true)}
+            >
+              Connections
+            </button>
             <span className={`connection ${connected ? "connected" : ""}`}>
               <i />
-              {loading
+              {historyLoading
                 ? "Connecting"
                 : connected
                   ? "Local connection"
@@ -1779,15 +1729,11 @@ export default function App() {
             <>
               <div className="page-heading">
                 <div>
-                  <span className="eyebrow">
-                    A SHARED GOAL. DIFFERENT PERSPECTIVES.
-                  </span>
-                  <h1>
-                    Assemble your team<span className="title-dot">.</span>
-                  </h1>
+                  <span className="eyebrow">PROJECT WORKFLOW</span>
+                  <h1>New run</h1>
                   <p>
-                    Build with your chosen agents. Integrate after independent
-                    review and project checks.
+                    Describe the outcome. Choose a saved team or adjust its
+                    settings.
                   </p>
                 </div>
                 <span className="heading-tag">
@@ -1795,33 +1741,11 @@ export default function App() {
                 </span>
               </div>
               <div className="team-intro">
-                <section
-                  className="orbit-panel"
-                  aria-label="Selected team overview"
-                >
-                  <div className="orbit-panel-top">
-                    <span className="eyebrow">YOUR CONSTELLATION</span>
-                    <span className="small-live">
-                      <i />
-                      {spec.team.length + 1} selected
-                    </span>
-                  </div>
-                  <Orbit
-                    providers={providers}
-                    connections={connections}
-                    members={[spec.coordinator, ...spec.team]}
-                  />
-                  <div className="orbit-panel-bottom">
-                    <span>One coordinator</span>
-                    <span>Independent perspectives</span>
-                    <span>Shared context</span>
-                  </div>
-                </section>
                 <section className="mission-panel">
                   <div className="section-heading">
                     <div>
-                      <span className="eyebrow">THE MISSION</span>
-                      <h2>What are we working on?</h2>
+                      <span className="eyebrow">TASK</span>
+                      <h2>What should the team deliver?</h2>
                     </div>
                     <Icon name="arrow" size={22} />
                   </div>
@@ -2211,373 +2135,58 @@ export default function App() {
             </>
           )}
           {tab === "run" && (
-            <>
-              <div className="page-heading">
-                <div>
-                  <span className="eyebrow">FOLLOW THE WORK</span>
-                  <h1>
-                    Mission control<span className="title-dot">.</span>
-                  </h1>
-                  <p>Tasks, dependencies, and decisions as they happen.</p>
-                </div>
-                <button
-                  className="secondary-button"
-                  onClick={() => setTab("team")}
-                >
-                  <Icon name="plus" size={16} /> New run
-                </button>
-              </div>
-              <div className="run-layout">
-                <aside className="run-history">
-                  <div className="section-heading">
-                    <h2>
-                      Runs <span className="count">{runs.length}</span>
-                    </h2>
-                    <button
-                      className="icon-button"
-                      onClick={() => void load()}
-                      disabled={loading}
-                      aria-label="Refresh runs"
-                    >
-                      <Icon name="refresh" size={15} />
-                    </button>
-                  </div>
-                  {runs.length ? (
-                    runs.map((item) => (
-                      <button
-                        key={item.run_id}
-                        className={`history-item ${run?.run_id === item.run_id ? "selected" : ""}`}
-                        onClick={() => void chooseRun(item.run_id)}
-                        disabled={busy === "open"}
-                        aria-label={`Open ${human(item.status)} run: ${requestTitle(item.spec.prompt)}, ${item.run_id.slice(0, 8)}`}
-                      >
-                        <div>
-                          <span>{human(item.spec.mode)}</span>
-                          <Status value={item.status} />
-                        </div>
-                        <strong>{requestTitle(item.spec.prompt)}</strong>
-                        <small>
-                          {LABELS[item.spec.coordinator.provider] ||
-                            item.spec.coordinator.provider}{" "}
-                          coordinates · {item.spec.team.length} participants
-                        </small>
-                        <code>{item.run_id.slice(0, 12)}</code>
-                      </button>
-                    ))
-                  ) : (
-                    <div className="history-empty">
-                      Your runs will appear here.
-                    </div>
-                  )}
-                </aside>
-                <div className="run-main">
-                  {run ? (
-                    <>
-                      <section className="active-run-panel">
-                        <div className="active-run-heading">
-                          <div>
-                            <div className="run-title-meta">
-                              <span className="eyebrow">
-                                {human(run.spec.mode)} RUN
-                              </span>
-                              <Status value={run.status} />
-                            </div>
-                            <h2>{runTitle}</h2>
-                            <p>
-                              {run.summary ||
-                                "The runtime has not reported a summary yet."}
-                            </p>
-                            <details className="request-disclosure">
-                              <summary>Full task request</summary>
-                              <p>{run.spec.prompt}</p>
-                            </details>
-                          </div>
-                          <div className="run-actions">
-                            {activeRun && (
-                              <>
-                                <button
-                                  className="icon-button bordered"
-                                  onClick={() =>
-                                    void action(
-                                      isPaused(run.status) ? "resume" : "pause",
-                                    )
-                                  }
-                                  disabled={!!busy}
-                                  aria-label={
-                                    isPaused(run.status)
-                                      ? "Resume run"
-                                      : "Pause run"
-                                  }
-                                  title={
-                                    isPaused(run.status)
-                                      ? "Resume run"
-                                      : "Pause run"
-                                  }
-                                >
-                                  <Icon
-                                    name={
-                                      isPaused(run.status) ? "play" : "pause"
-                                    }
-                                    size={16}
-                                  />
-                                </button>
-                                <button
-                                  className="icon-button bordered cancel-button"
-                                  onClick={() => void action("cancel")}
-                                  disabled={!!busy}
-                                  aria-label="Cancel run"
-                                  title="Cancel run"
-                                >
-                                  <Icon name="stop" size={16} />
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                        <div className="run-metrics">
-                          <div>
-                            <span>Coordinator</span>
-                            <strong>
-                              <ProviderMark
-                                provider={run.spec.coordinator.provider}
-                                size={20}
-                              />
-                              {(run.spec.coordinator.transport === "api"
-                                ? connections.find(
-                                    (c) =>
-                                      c.id ===
-                                      run.spec.coordinator.connection_id,
-                                  )?.name
-                                : undefined) ||
-                                LABELS[run.spec.coordinator.provider] ||
-                                run.spec.coordinator.provider}
-                            </strong>
-                          </div>
-                          <div>
-                            <span>Tasks</span>
-                            <strong>
-                              {
-                                run.tasks.filter((t) =>
-                                  /complete|success|accepted|resolved/.test(
-                                    text(t.status),
-                                  ),
-                                ).length
-                              }
-                              <small> / {run.tasks.length}</small>
-                            </strong>
-                          </div>
-                          <div>
-                            <span>
-                              {typeof tokens === "number"
-                                ? "Tokens reported"
-                                : "Usage reports"}
-                            </span>
-                            <strong>
-                              {typeof tokens === "number"
-                                ? tokens.toLocaleString()
-                                : (usageReportCount ?? "—")}
-                            </strong>
-                          </div>
-                          <div>
-                            <span>Events loaded</span>
-                            <strong>
-                              {events.length}
-                              <small
-                                className={`stream-state ${streamStatus === "live" ? "live" : ""}`}
-                              >
-                                {human(streamStatus)}
-                              </small>
-                            </strong>
-                          </div>
-                        </div>
-                      </section>
-                      <Recovery
-                        run={run}
-                        onUpdate={updateRun}
-                        onConfigure={() => {
-                          setSpec({
-                            ...structuredClone(run.spec),
-                            schema_version: "1.1",
-                          });
-                          setTab("team");
-                        }}
-                      />
-                      <section className="task-map-panel">
-                        <div className="section-heading">
-                          <h2>Task map</h2>
-                          <span className="map-key">
-                            <i />
-                            Dependencies
-                          </span>
-                        </div>
-                        <div
-                          className={`task-map-composition ${task ? "inspector-open" : ""}`}
-                        >
-                          <div className="task-map-visual">
-                            <Dag
-                              tasks={run.tasks}
-                              selected={selectedTask}
-                              onSelect={setSelectedTask}
-                            />
-                          </div>
-                          {task && (
-                            <TaskDetail
-                              task={task}
-                              onSelect={setSelectedTask}
-                              onClose={() => setSelectedTask(null)}
-                            />
-                          )}
-                        </div>
-                      </section>
-                      {activeRun && (
-                        <section className="steer-panel">
-                          <label htmlFor="steering">
-                            Guide the coordinator
-                          </label>
-                          <div>
-                            <input
-                              id="steering"
-                              value={steering}
-                              onChange={(e) => setSteering(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter" && steering.trim())
-                                  void steer();
-                              }}
-                              placeholder="Add context or redirect the next decision…"
-                            />
-                            <button
-                              className="secondary-button"
-                              onClick={() => void steer()}
-                              disabled={!!busy || !steering.trim()}
-                            >
-                              <Icon name="arrow" size={16} /> Send
-                            </button>
-                          </div>
-                        </section>
-                      )}
-                      <section className="event-panel">
-                        <div className="section-heading">
-                          <h2>Activity</h2>
-                          <span className="small-live">
-                            <i />
-                            {streamStatus === "live"
-                              ? "Live event stream"
-                              : human(streamStatus)}
-                          </span>
-                        </div>
-                        <div
-                          className="activity-filters"
-                          aria-label="Activity view"
-                        >
-                          <button
-                            aria-pressed={!allActivity}
-                            className={!allActivity ? "selected" : ""}
-                            onClick={() => setAllActivity(false)}
-                          >
-                            Decisions & milestones
-                          </button>
-                          <button
-                            aria-pressed={allActivity}
-                            className={allActivity ? "selected" : ""}
-                            onClick={() => setAllActivity(true)}
-                          >
-                            All events <span>{events.length}</span>
-                          </button>
-                        </div>
-                        {visibleEvents.length ? (
-                          <ol className="event-list">
-                            {[...visibleEvents].reverse().map((event) => (
-                              <li key={event.sequence}>
-                                <span
-                                  className={`event-dot ${/error|fail|denied/.test(event.kind) ? "error" : /complete|pass|integrat/.test(event.kind) ? "success" : ""}`}
-                                />
-                                <div>
-                                  <div className="event-title">
-                                    <strong>{human(event.kind)}</strong>
-                                    {event.task_id && (
-                                      <code>{event.task_id}</code>
-                                    )}
-                                    <time dateTime={event.timestamp}>
-                                      {new Date(
-                                        event.timestamp,
-                                      ).toLocaleTimeString([], {
-                                        hour: "2-digit",
-                                        minute: "2-digit",
-                                        second: "2-digit",
-                                      })}
-                                    </time>
-                                  </div>
-                                  <p>
-                                    {text(
-                                      event.data.summary ||
-                                        event.data.message ||
-                                        event.data.title ||
-                                        event.data.reason ||
-                                        event.data.status,
-                                      "",
-                                    )}
-                                  </p>
-                                  <details>
-                                    <summary>Event #{event.sequence}</summary>
-                                    <pre className="raw-data">
-                                      {json(event.data)}
-                                    </pre>
-                                  </details>
-                                </div>
-                              </li>
-                            ))}
-                          </ol>
-                        ) : (
-                          <Empty
-                            icon="clock"
-                            title={
-                              events.length
-                                ? "No milestones in the loaded activity"
-                                : "Waiting for recorded activity"
-                            }
-                          >
-                            Only events returned by the runtime appear here.
-                          </Empty>
-                        )}
-                      </section>
-                      <button
-                        className="review-result-button"
-                        onClick={() => setTab("review")}
-                      >
-                        <div>
-                          <Icon name="review" size={23} />
-                          <span>
-                            <strong>
-                              {run.status === "completed"
-                                ? "Inspect the verification record"
-                                : "Review this run"}
-                            </strong>
-                            <small>
-                              Findings, changes, validation, and effective
-                              settings
-                            </small>
-                          </span>
-                        </div>
-                        <Icon name="arrow" size={20} />
-                      </button>
-                    </>
-                  ) : (
-                    <section className="panel run-placeholder">
-                      <Empty icon="run" title="Start a team run">
-                        Start a run from Team, or select an existing run to
-                        follow its progress.
-                      </Empty>
-                      <button
-                        className="primary-button"
-                        onClick={() => setTab("team")}
-                      >
-                        Assemble a team <Icon name="arrow" size={17} />
-                      </button>
-                    </section>
-                  )}
-                </div>
-              </div>
-            </>
+            <RunWorkspace
+              run={run}
+              runs={runs}
+              events={events}
+              loading={historyLoading}
+              busy={busy}
+              streamStatus={streamStatus}
+              selected={selectedTask}
+              onOverlayChange={setWorkspaceOverlay}
+              onSelect={setSelectedTask}
+              onChoose={(id) => void chooseRun(id)}
+              onNew={() => setTab("team")}
+              onReload={() => void load()}
+              onReview={(section) => {
+                if (section) setReviewTab(section);
+                setTab("review");
+                if (section)
+                  requestAnimationFrame(() => {
+                    const panel = document.getElementById(`review-${section}`);
+                    panel?.scrollIntoView({ block: "nearest" });
+                    panel?.focus();
+                  });
+              }}
+              onAction={(kind) => void action(kind)}
+              steering={steering}
+              onSteering={setSteering}
+              onSteer={() => void steer()}
+              recovery={
+                run &&
+                ["needs_attention", "interrupted"].includes(run.status) ? (
+                  <Recovery
+                    run={run}
+                    onUpdate={updateRun}
+                    onConfigure={() => {
+                      setSpec({
+                        ...structuredClone(run.spec),
+                        schema_version: "1.1",
+                      });
+                      setTab("team");
+                    }}
+                  />
+                ) : null
+              }
+              renderTask={(task) => (
+                <TaskDetail
+                  task={task}
+                  tasks={run?.tasks}
+                  onSelect={setSelectedTask}
+                  onClose={() => setSelectedTask(null)}
+                />
+              )}
+            />
           )}
           {tab === "review" && (
             <>
@@ -2621,9 +2230,30 @@ export default function App() {
                     </div>
                     <Status value={run.status} />
                   </section>
-                  <Verification run={run} />
-                  <Baseline run={run} />
-                  <AlphaFeedback run={run} />
+                  <div className="review-evidence-stack">
+                    <details className="review-evidence-disclosure">
+                      <summary>
+                        <span>Verification record</span>
+                        <small>
+                          {run.artifacts.integration_applied
+                            ? "Integration applied"
+                            : "Recorded gates and artifacts"}
+                        </small>
+                      </summary>
+                      <Verification run={run} />
+                    </details>
+                    <details className="review-evidence-disclosure">
+                      <summary>
+                        <span>Baseline and final checks</span>
+                        <small>
+                          {run.checks.length
+                            ? `${run.checks.filter((check) => check.ok === true).length}/${run.checks.length} final checks passed`
+                            : "No final checks recorded"}
+                        </small>
+                      </summary>
+                      <Baseline run={run} />
+                    </details>
+                  </div>
                   <div
                     className="review-tabs"
                     role="tablist"
@@ -2699,6 +2329,7 @@ export default function App() {
                   <section
                     className="review-body"
                     role="tabpanel"
+                    tabIndex={-1}
                     id={`review-${reviewTab}`}
                     aria-labelledby={`tab-${reviewTab}`}
                   >
@@ -2715,9 +2346,10 @@ export default function App() {
                       className="text-button"
                       onClick={() => setTab("run")}
                     >
-                      Back to mission control <Icon name="arrow" size={15} />
+                      Back to workspace <Icon name="arrow" size={15} />
                     </button>
                   </div>
+                  <AlphaFeedback run={run} />
                 </>
               ) : (
                 <section className="panel review-placeholder">

@@ -8,6 +8,8 @@ The final 1.1 suite completed **142 cases on Python 3.13** in 97.8 seconds, with
 
 [Studio delivery QA](delivery-studio-qa-1.1.md) records readiness, project profiles, keyboard task inspection, responsive check comparisons and contextual conflict recovery. [Installed 1.1 runtime](installation-1.1.json) records all 24 MCP operations, current and legacy receipts, a held-SSE shutdown in 3.2 seconds, same-port restart, existing-cookie reconnection and preserved requested workspace. Source and installed cache matched byte for byte.
 
+[Graph-first Studio QA](studio-workspace-qa-1.1.md) records the Workspace redesign, real run inspection, responsive keyboard behavior and 59 portable graph/activity assertions. This UI update does not rerun or increase the earlier 142 runtime-case count.
+
 ## Retained 1.0 evidence
 
 Validated locally on macOS, 2026-10-06. The configured GitHub CI matrix targets Ubuntu and macOS with Python 3.10/3.13; it has not run remotely for this unpublished branch.

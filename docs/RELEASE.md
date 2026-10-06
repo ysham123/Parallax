@@ -4,7 +4,7 @@ Prepared locally for review. No GitHub release, tag, push, or deployment has bee
 
 Parallax turns an outcome into a reviewed, checked project patch from your Codex conversation. Choose Codex, Claude Code, Grok Build or Antigravity, assign the coordinator and roles, and select models and supported effort. Use existing CLI sign-ins or optional API connections.
 
-Studio includes Team, Run and Review; reusable presets; official provider marks; an accessible task graph with dependencies and repair history; streaming activity; checkpoint steering; and pause, stop and resume. Dark and light themes, reduced motion, keyboard controls and a responsive layout are included.
+Studio opens on a graph-first Workspace, with New run and Review; reusable presets; official provider marks; separate agent and task graphs with assignment inspection, dependencies, evidence and repair history; streaming activity; checkpoint steering; and pause, stop and resume. Dark and light themes, reduced motion, keyboard controls and a responsive layout are included.
 
 Workers use private snapshots of the effective working tree. Independent reviews and actual combined project checks gate integration. Staged work and unrelated edits are preserved, or the run stops with its patch and workspaces available. A downloadable verification record identifies the patch, settings and gate outcomes without exposing prompts or raw provider sessions. It is evidence, not a correctness guarantee.
 

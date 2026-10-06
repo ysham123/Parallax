@@ -44,7 +44,7 @@ The checked-in 1.1 developer alpha is prepared locally before publication. Until
 
 ## Studio
 
-**Team** assesses project readiness, package roots and required checks, saves reusable project setup, and selects connections, providers, models, effort, roles, checks, and limits. Connection details open in a drawer so setup stays focused. Save configurations as reusable presets. **Run** shows an interactive task graph with pan, zoom, fit, and a task inspector, plus agent activity, checkpoint steering, and live status. **Review** compares baseline and final checks and brings together the verification record, diff, independent findings, check output, effective settings, and reported usage. Download the record as JSON and the patch separately. Unknown evidence stays unknown; the record is not a correctness guarantee or a signed attestation.
+**Workspace** opens on your active or recent project run. Its agent graph shows the coordinator, implementers and reviewers; select an agent to inspect its assignments, requested and effective settings, provider sessions, files and observed activity. Switch to **Task graph** for dependencies, repairs, independent reviews and combined checks, or use the keyboard-accessible **List**. Run history filters by project and status, with checkpoint steering and pause, stop and resume controls beside the work. **New run** handles project readiness, saved profiles, connections, models, effort and limits. **Review** brings together baseline and final checks, the verification record, combined diff, findings and reported usage. Download the record and patch separately. Unknown evidence stays unknown; the record is not a correctness guarantee or a signed attestation.
 
 - **Review** runs independent assessments and synthesizes disagreements.
 - **Build** divides work into scoped tasks, reviews each change, verifies the combined result, and integrates it.
@@ -100,7 +100,7 @@ Studio binds only to loopback. Its launch URL exchanges a local token for an Htt
 
 ## API connections and remote endpoints
 
-Open Connections in Team, choose the provider, and enter an API key or environment-variable name. Test the connection to discover account models without starting inference. Select a model explicitly. Maintained and user-declared effort capabilities are labeled; unsupported or unverified selections fail explicitly. Custom endpoints require HTTPS, except loopback services. Your chosen endpoint receives the relevant project content.
+Open Connections from the top bar, choose the provider, and enter an API key or environment-variable name. Test the connection to discover account models without starting inference. Select a model explicitly. Maintained and user-declared effort capabilities are labeled; unsupported or unverified selections fail explicitly. Custom endpoints require HTTPS, except loopback services. Your chosen endpoint receives the relevant project content.
 
 API workers have runtime-owned file tools and a bounded tool loop, with file ownership, command restrictions, private session journals, and cancellation. Read-only roles receive no write or command tools. API command execution currently requires the macOS sandbox. API activity streams at request/tool/message boundaries; native CLIs retain their native stream events. Live API inference needs separately configured credentials and is not established by fake endpoint tests.
 
