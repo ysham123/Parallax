@@ -50,3 +50,22 @@ jobs:
         working-directory: studio
       - name: Packaged assets match the source build
         run: git diff --exit-code -- src/parallax/static
+      - name: Hosted entry and Vercel routing tests
+        run: npm run test:hosted
+        working-directory: studio
+      - name: Build default Vercel entry
+        run: node scripts/build_vercel.mjs
+      - name: Build Railway-backed Studio
+        run: node scripts/build_vercel.mjs
+        env:
+          PARALLAX_RUNTIME_URL: https://runtime.example.com
+      - name: Hosted builds preserve packaged assets
+        run: git diff --exit-code -- src/parallax/static
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Railway image
+        run: docker build -t parallax-runtime .
+      - name: Container health and authenticated access smoke test
+        run: python scripts/smoke_container.py

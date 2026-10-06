@@ -1,0 +1,12 @@
+.git
+.venv
+.vercel
+.playwright-cli
+studio/node_modules
+studio/dist
+releases
+**/__pycache__
+**/*.pyc
+**/.env*
+**/*.sqlite*
+**/*.log

@@ -18,7 +18,9 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     }
     if (response.status === 401 || response.status === 403) {
       message =
-        "This Studio session has expired. Reopen Studio from the Parallax plugin to reconnect.";
+        import.meta.env.MODE === "cloud"
+          ? "Studio access was denied. Reload to sign in again, or ask the workspace owner to check the deployment settings."
+          : "This Studio session has expired. Reopen Studio from the Parallax plugin to reconnect.";
     }
     throw new Error(message);
   }

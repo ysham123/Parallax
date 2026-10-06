@@ -118,6 +118,10 @@ python3 scripts/claude_bridge.py --workspace /path/to/project --mode consult --p
 
 The original CLI arguments and JSON result fields remain available, including `--resume`, `--timeout`, and explicitly delegated `--mode edit`. This compatibility path is independent of the autonomous team workflow.
 
+## Vercel and Railway
+
+The repository includes a Vercel build and a Railway Docker service. Vercel defaults to a public entry page for the local plugin. Set `PARALLAX_RUNTIME_URL` on Vercel to use an optional dedicated Railway-backed Studio with secure session sign-in, same-origin API routing, and persistent run storage. See [deployment setup and execution limits](docs/DEPLOYMENT.md). Local agents are the recommended default; the hosted runtime is for one trusted team, and is not a multi-tenant service.
+
 ## Develop and verify
 
 ```sh
