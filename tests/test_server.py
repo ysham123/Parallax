@@ -1,15 +1,20 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 from fastapi.testclient import TestClient
 from parallax.server import create_app
 from parallax.store import Store
-from parallax.cli import mcp_tools
+from parallax.cli import mcp_tools, invoke
 
 class Registry:
-    async def discover(self): return [{"provider":"codex","authenticated":True,"models":[]}]
+    async def discover(self, *, refresh=False):
+        self.refreshed=refresh
+        return [{"provider":"codex","authenticated":True,"models":[]}]
     def validate(self,p): return {}
-    async def catalog(self,p): return {"provider":p,"models":[]}
+    async def catalog(self,p, *, refresh=False):
+        self.refreshed=refresh
+        return {"provider":p,"models":[]}
 
 class ServerTests(unittest.TestCase):
     def setUp(self):
@@ -28,6 +33,23 @@ class ServerTests(unittest.TestCase):
         headers={"Authorization":"Bearer private-token"}
         self.assertEqual(self.client.get("/api/providers",headers={**headers,"Origin":"https://attacker.example"}).status_code,403)
         self.assertEqual(self.client.get("/api/providers",headers={**headers,"Host":"attacker.example"}).status_code,403)
+    def test_explicit_model_refresh_reaches_registry(self):
+        headers={"Authorization":"Bearer private-token"}
+        registry=self.client.app.state.engine.registry
+        for path in ("/api/providers", "/api/models/codex"):
+            self.assertEqual(self.client.get(path+"?refresh=true",headers=headers).status_code,200)
+            self.assertTrue(registry.refreshed)
+            self.assertEqual(self.client.get(path,headers=headers).status_code,200)
+            self.assertFalse(registry.refreshed)
+    def test_cli_and_mcp_expose_explicit_refresh(self):
+        with patch("parallax.cli.service",return_value={}), patch("parallax.cli._request") as request:
+            invoke("doctor",{"refresh":True})
+            self.assertEqual(request.call_args.args[2],"/api/providers?refresh=true")
+            invoke("models",{"provider":"codex","refresh":True})
+            self.assertEqual(request.call_args.args[2],"/api/models/codex?refresh=True")
+        for name in ("parallax_doctor","parallax_models"):
+            tool=next(t for t in mcp_tools() if t["name"]==name)
+            self.assertEqual(tool["inputSchema"]["properties"]["refresh"]["type"],"boolean")
     def test_profiles_share_contract_and_event_cursor_replays(self):
         headers={"Authorization":"Bearer private-token"}
         spec={"workspace":"/project","prompt":"A request"}

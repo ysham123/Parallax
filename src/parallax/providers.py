@@ -18,6 +18,10 @@ import sys
 import tempfile
 import time
 import uuid
+try:
+    import tomllib
+except ImportError:
+    import tomli as tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable
@@ -336,6 +340,7 @@ def _catalog_models(rows: list[dict], provider: str) -> list[dict]:
             elif "claude" in model_id:
                 efforts, default = ["low", "medium", "high", "xhigh", "max"], "high"
         models.append({"id": model_id, "name": model_id, "label": label,
+                       "is_default": row.get("isDefault") is True or row.get("is_default") is True,
                        "efforts": [e for e in efforts if isinstance(e, str)],
                        "default_effort": default, "context_window": row.get("context_window"),
                        "effort_selection": "model_variant" if provider == "antigravity" and suffix else "flag"})
@@ -347,6 +352,7 @@ class ProviderRegistry:
                  cache_seconds: int = 60, max_output: int = MAX_OUTPUT) -> None:
         self.binaries = {**BINARIES, **(binaries or {})}
         self.home = Path(home) if home is not None else Path.home()
+        self.codex_home = Path(os.environ.get("CODEX_HOME") or self.home / ".codex").expanduser()
         self.cache_seconds = cache_seconds
         self.max_output = max_output
         self._catalogs: dict[str, dict] = {}
@@ -354,8 +360,8 @@ class ProviderRegistry:
         self._times: dict[str, float] = {}
         self._locks = {name: asyncio.Lock() for name in PROVIDERS}
 
-    async def discover(self) -> list[dict]:
-        return list(await asyncio.gather(*(self.catalog(provider) for provider in PROVIDERS)))
+    async def discover(self, *, refresh: bool = False) -> list[dict]:
+        return list(await asyncio.gather(*(self.catalog(provider, refresh=refresh) for provider in PROVIDERS)))
 
     async def _metadata(self, executable: str, args: list[str], *, timeout: int = 20) -> Captured:
         env = os.environ.copy()
@@ -364,8 +370,8 @@ class ProviderRegistry:
                               max_output=self.max_output)
 
     def _cache_file(self, provider: str) -> dict:
-        folder = ".codex" if provider == "codex" else ".grok"
-        path = self.home / folder / "models_cache.json"
+        folder = self.codex_home if provider == "codex" else self.home / ".grok"
+        path = folder / "models_cache.json"
         try:
             if path.stat().st_size > self.max_output:
                 return {}
@@ -374,11 +380,47 @@ class ProviderRegistry:
         except OSError:
             return {}
 
-    async def catalog(self, provider: str) -> dict:
+    def _codex_default(self, info: dict) -> None:
+        """Resolve the CLI selection without modifying or exposing user config."""
+        path = self.codex_home / "config.toml"
+        config = {}
+        info["default_model_source"] = "native catalog default"
+        info["default_model_error"] = None
+        try:
+            if path.exists():
+                if path.stat().st_size > self.max_output:
+                    raise ValueError("Configuration exceeds the discovery size limit")
+                config = tomllib.loads(path.read_text())
+            model = config.get("model")
+            profile = config.get("profile")
+            source = "Codex configuration"
+            if profile is not None:
+                profiles = config.get("profiles", {})
+                if not isinstance(profile, str) or not profile.strip() or not isinstance(profiles, dict) or not isinstance(profiles.get(profile), dict):
+                    raise ValueError("Configured Codex profile is unavailable")
+                settings = profiles[profile]
+                if "model" in settings:
+                    model = settings["model"]
+                    source = "Codex profile " + profile
+            if model is not None and (not isinstance(model, str) or not model.strip()):
+                raise ValueError("Configured Codex model must be a nonempty string")
+            if model:
+                info["default_model"] = model
+                info["default_model_source"] = source
+                if not any(m["id"] == model for m in info["models"]):
+                    info["default_model_error"] = "Configured Codex default is absent from the discovered catalog. Select an available model explicitly or update your CLI configuration."
+            else:
+                info["default_model"] = next((m["id"] for m in info["models"] if m.get("is_default")), None)
+        except (OSError, ValueError):
+            info["default_model"] = None
+            info["default_model_source"] = "Codex configuration"
+            info["default_model_error"] = "Cannot resolve the configured Codex default. Select a model explicitly or repair your CLI configuration."
+
+    async def catalog(self, provider: str, *, refresh: bool = False) -> dict:
         if provider not in PROVIDERS:
             raise ValueError(f"Unknown provider: {provider}")
         async with self._locks[provider]:
-            if provider in self._catalogs and time.monotonic() - self._times[provider] < self.cache_seconds:
+            if not refresh and provider in self._catalogs and time.monotonic() - self._times[provider] < self.cache_seconds:
                 return self._catalogs[provider]
             executable = shutil.which(self.binaries[provider])
             info = {"provider": provider, "id": provider, "name": provider, "label": LABELS[provider],
@@ -408,6 +450,7 @@ class ProviderRegistry:
                         rows = _model_rows(_json(bundled.stdout))
                         info["catalog_source"] = "bundled CLI catalog; account access unverified"
                     info["models"] = _catalog_models(rows, provider)
+                    self._codex_default(info)
                 elif provider == "claude":
                     auth = await self._metadata(executable, ["auth", "status"])
                     payload = _json(auth.stdout)
@@ -440,7 +483,7 @@ class ProviderRegistry:
                     info["authenticated"] = catalog.exit_code == 0 and bool(rows)
                     info["catalog_source"] = "native account model catalog; effort variants derived from model IDs"
                     info["default_model"] = next((m["id"] for m in info["models"] if m["id"].endswith("-high") and m["id"].startswith("gemini-")), None)
-                if not info["default_model"] and info["models"]:
+                if not info["default_model"] and info["models"] and not info.get("default_model_error"):
                     info["default_model"] = info["models"][0]["id"]
                 info["capabilities"] = {"headless": True, "streaming": True, "resume": True,
                     "structured_output": True, "effort": True, "consult": True, "edit": True,
@@ -465,6 +508,8 @@ class ProviderRegistry:
             raise ValueError(f"Discover {provider} before validating settings")
         if catalog["status"] != "ready":
             raise ValueError(f"{LABELS[provider]} is unavailable: {catalog.get('error')}")
+        if not participant.model and catalog.get("default_model_error"):
+            raise ValueError(catalog["default_model_error"])
         model = participant.model or catalog["default_model"]
         choice = next((m for m in catalog["models"] if m["id"] == model), None)
         if not choice:

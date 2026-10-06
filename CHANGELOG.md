@@ -23,6 +23,7 @@
 - Contextual recovery and repair briefs carrying actual failed checks and independent findings.
 - Studio readiness, check comparison, recovery and opt-in aggregate feedback export.
 - Graph-first Workspace with project run history, separate agent and task views, recorded assignment inspection, scoped activity and responsive keyboard drawers.
+- Refreshable native model catalogs in Team settings, configured Codex defaults and profile support, with explicit errors for unavailable defaults and preserved saved selections.
 - Versioned additive contracts and SQLite tables, retained 1.0 receipts and legacy Claude compatibility.
 - Python service, typed React and mixed-project fake-agent acceptance fixtures; prepared matched single-Codex alpha protocol.
 

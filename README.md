@@ -98,6 +98,8 @@ python3 scripts/parallax.py cancel RUN_ID
 
 Studio binds only to loopback. Its launch URL exchanges a local token for an HttpOnly session cookie, removes the token from the URL, and rejects cross-origin requests. Native sign-ins remain with their CLIs. API secrets are stored in macOS Keychain or referenced by environment variable; they never appear in run specs, profiles, SQLite metadata, or browser local storage. Linux supports environment references. Protect local history as project data. `PARALLAX_HOME` selects an alternate state directory for testing.
 
+Use **Refresh models** in Team settings after updating or signing in to a CLI. Studio also rereads catalogs when you return to Team or bring the page back into view. Native Codex discovery reads its model catalog and the configured default from `CODEX_HOME/config.toml` (normally `~/.codex/config.toml`), including the configured profile. An unavailable default produces an error; refreshing never replaces explicit saved model or effort selections. Catalog and default sources appear beside the model controls.
+
 ## API connections and remote endpoints
 
 Open Connections from the top bar, choose the provider, and enter an API key or environment-variable name. Test the connection to discover account models without starting inference. Select a model explicitly. Maintained and user-declared effort capabilities are labeled; unsupported or unverified selections fail explicitly. Custom endpoints require HTTPS, except loopback services. Your chosen endpoint receives the relevant project content.

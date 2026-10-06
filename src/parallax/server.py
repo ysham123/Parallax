@@ -92,10 +92,12 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
     @app.get("/api/context")
     async def context(): return {"workspace":workspace or os.environ.get("PARALLAX_WORKSPACE","")}
     @app.get("/api/providers")
-    async def providers(): return await engine.registry.discover()
+    async def providers(refresh:bool=False):
+        return await engine.registry.discover(refresh=True) if refresh else await engine.registry.discover()
     @app.get("/api/models/{provider}")
-    async def models(provider:str,transport:str="cli",connection_id:str|None=None):
-        if transport=="cli": return await engine.registry.catalog(provider)
+    async def models(provider:str,transport:str="cli",connection_id:str|None=None,refresh:bool=False):
+        if transport=="cli":
+            return await engine.registry.catalog(provider,refresh=True) if refresh else await engine.registry.catalog(provider)
         return await engine.registry.catalog(provider,transport=transport,connection_id=connection_id)
     @app.get("/api/connections")
     async def connections(): return await engine.registry.connections()

@@ -183,9 +183,11 @@ class ConnectionRegistry:
         except (httpx.HTTPError,ValueError,ApiFailure): return {"ok":False,"status":"discovery_failed","message":"Cannot discover models from this endpoint; configured settings were preserved"}
         finally:
             if owned: await client.aclose()
-    async def discover(self): return await self.native.discover()
-    async def catalog(self, provider, *, transport="cli", connection_id=None):
-        if transport == "cli": return await self.native.catalog(provider)
+    async def discover(self, *, refresh=False):
+        return await self.native.discover(refresh=True) if refresh else await self.native.discover()
+    async def catalog(self, provider, *, transport="cli", connection_id=None, refresh=False):
+        if transport == "cli":
+            return await self.native.catalog(provider,refresh=True) if refresh else await self.native.catalog(provider)
         config=self.connection(connection_id or provider+"-api")
         if config["provider"]!=provider: raise ValueError("Connection provider does not match")
         return {"provider":provider,"models":config["models"],"default_model":config["default_model"],"source":config["source"],"transport":"api","connection_id":config["id"]}

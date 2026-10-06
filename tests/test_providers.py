@@ -98,6 +98,9 @@ class ProvidersTest(unittest.IsolatedAsyncioTestCase):
         self.root = Path(self.temp.name)
         self.home = self.root / 'home'
         self.home.mkdir()
+        codex_environment = patch.dict(os.environ, {'CODEX_HOME': str(self.home / '.codex')})
+        codex_environment.start()
+        self.addCleanup(codex_environment.stop)
         self.workspace = self.root / 'workspace'
         self.workspace.mkdir()
         (self.workspace / '.parallax-owned').write_text('fixture')
@@ -360,3 +363,164 @@ class ProvidersTest(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result['ok'])
         self.assertEqual(original.read_text(),'original = true\n')
         self.assertIn('restored',result['error']['message'])
+
+
+class CodexCatalogRegressionTests(unittest.IsolatedAsyncioTestCase):
+    """Catalog/default regressions use executable metadata fixtures, never inference."""
+    asyncSetUp = ProvidersTest.asyncSetUp
+    asyncTearDown = ProvidersTest.asyncTearDown
+
+    def configured(self, content, folder=None):
+        folder = folder or self.home / '.codex'
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / 'config.toml').write_text(content)
+
+    def catalog_registry(self, *, native_failure=False):
+        identifiers = ['gpt-5.6-sol', 'gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-sol',
+                       'gpt-6-luna', 'gpt-5.6-terra', 'gpt-5.6-luna']
+        self.catalog_rows = [
+            {'slug': identifier, 'display_name': identifier, 'visibility': 'list',
+             'supported_reasoning_levels': [{'effort': effort} for effort in
+                 (['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] if identifier == 'gpt-6.1-sol' else ['low', 'high'])],
+             'default_reasoning_level': 'high'} for identifier in identifiers
+        ]
+        self.catalog_rows += [
+            {'slug': 'hidden-internal', 'visibility': 'hide'},
+            {'slug': 'hidden-account-model', 'hidden': True},
+        ]
+        self.catalog_reads = 0
+        registry = UnwrappedRegistry(self.binaries, home=self.home)
+        original_metadata = registry._metadata
+
+        async def metadata(executable, args, *, timeout=20):
+            if Path(executable).name == 'codex' and args == ['debug', 'models']:
+                self.catalog_reads += 1
+                return Captured(2, '', 'catalog unavailable', []) if native_failure else Captured(0, json.dumps({'models': self.catalog_rows}), '', [])
+            return await original_metadata(executable, args, timeout=timeout)
+
+        registry._metadata = metadata
+        return registry
+
+    async def test_configured_model_overrides_first_catalog_model(self):
+        self.configured('model = "gpt-6.1-sol"\nmodel_reasoning_effort = "ultra"\n')
+        registry = self.catalog_registry()
+        info = await registry.catalog('codex')
+        self.assertEqual(info['default_model'], 'gpt-6.1-sol')
+        self.assertEqual(info['default_model_source'], 'Codex configuration')
+        self.assertIsNone(info['default_model_error'])
+        self.assertEqual(registry.validate(Participant(provider='codex'))['model'], 'gpt-6.1-sol')
+
+    async def test_active_profile_model_overrides_global_selection(self):
+        self.configured('model = "gpt-5.6-sol"\nprofile = "quality"\n[profiles.quality]\nmodel = "gpt-6.1-sol"\n')
+        info = await self.catalog_registry().catalog('codex')
+        self.assertEqual(info['default_model'], 'gpt-6.1-sol')
+        self.assertEqual(info['default_model_source'], 'Codex profile quality')
+
+    async def test_profile_without_model_inherits_global_selection(self):
+        self.configured('model = "gpt-6.1-sol"\nprofile = "quality"\n[profiles.quality]\nmodel_reasoning_effort = "ultra"\n')
+        info = await self.catalog_registry().catalog('codex')
+        self.assertEqual(info['default_model'], 'gpt-6.1-sol')
+        self.assertIsNone(info['default_model_error'])
+
+    async def test_codex_home_controls_config_and_cached_catalog(self):
+        self.configured('model = "wrong-home-model"\n')
+        custom = self.root / 'custom-codex-home'
+        self.configured('model = "gpt-6.1-sol"\n', custom)
+        with patch.dict(os.environ, {'CODEX_HOME': str(custom)}):
+            registry = self.catalog_registry(native_failure=True)
+            (custom / 'models_cache.json').write_text(json.dumps({'client_version': 'fixture', 'fetched_at': 'fixture-time', 'models': self.catalog_rows, 'api_key': 'fixture-private-key'}))
+            info = await registry.catalog('codex')
+        self.assertEqual(registry.codex_home, custom)
+        self.assertEqual(info['default_model'], 'gpt-6.1-sol')
+        self.assertEqual(len(info['models']), 7)
+        self.assertIn('cached native catalog', info['catalog_source'])
+        self.assertNotIn('fixture-private-key', json.dumps(info))
+
+    async def test_unavailable_configured_default_requires_explicit_selection(self):
+        self.configured('model = "unavailable-configured-model"\n')
+        registry = self.catalog_registry()
+        info = await registry.catalog('codex')
+        self.assertEqual(info['status'], 'ready')
+        self.assertEqual(info['default_model'], 'unavailable-configured-model')
+        self.assertTrue(info['default_model_error'])
+        with self.assertRaises(ValueError):
+            registry.validate(Participant(provider='codex'))
+        self.assertEqual(registry.validate(Participant(provider='codex', model='gpt-6.1-sol', effort='ultra'))['model'], 'gpt-6.1-sol')
+
+    async def test_invalid_configuration_never_substitutes_catalog_default(self):
+        registry = self.catalog_registry()
+        for content in ('model = "unterminated', 'model = ""\n', 'model = 42\n',
+                        'profile = "missing"\n', 'profile = false\n', 'profile = 0\n',
+                        'profile = []\n', 'profile = ""\n'):
+            with self.subTest(content=content):
+                self.configured(content)
+                info = await registry.catalog('codex', refresh=True)
+                self.assertEqual(info['status'], 'ready')
+                self.assertIsNone(info['default_model'])
+                self.assertTrue(info['default_model_error'])
+                with self.assertRaises(ValueError):
+                    registry.validate(Participant(provider='codex'))
+                self.assertEqual(registry.validate(Participant(provider='codex', model='gpt-6.1-sol'))['model'], 'gpt-6.1-sol')
+
+    async def test_visible_native_models_keep_per_model_effort_menus(self):
+        registry = self.catalog_registry()
+        info = await registry.catalog('codex')
+        models = {model['id']: model for model in info['models']}
+        self.assertEqual(set(models), {'gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'})
+        self.assertEqual(models['gpt-6.1-sol']['efforts'], ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'])
+        self.assertEqual(models['gpt-6.1-sol']['default_effort'], 'high')
+        self.assertEqual(models['gpt-5.6-luna']['efforts'], ['low', 'high'])
+        with self.assertRaisesRegex(ValueError, 'unsupported'):
+            registry.validate(Participant(provider='codex', model='gpt-5.6-luna', effort='ultra'))
+
+    async def test_native_default_marker_is_used_without_configuration(self):
+        registry = self.catalog_registry()
+        self.catalog_rows[1]['isDefault'] = True
+        info = await registry.catalog('codex')
+        self.assertEqual(info['default_model'], 'gpt-6.1-sol')
+        self.assertEqual(info['default_model_source'], 'native catalog default')
+
+    async def test_catalog_expiration_refreshes_observed_models(self):
+        registry = self.catalog_registry()
+        await registry.catalog('codex')
+        self.catalog_rows.append({'slug': 'new-account-model', 'supported_reasoning_levels': [{'effort': 'high'}]})
+        cached = await registry.catalog('codex')
+        self.assertNotIn('new-account-model', [model['id'] for model in cached['models']])
+        self.assertEqual(self.catalog_reads, 1)
+        registry._times['codex'] -= registry.cache_seconds + 1
+        refreshed = await registry.catalog('codex')
+        self.assertIn('new-account-model', [model['id'] for model in refreshed['models']])
+        self.assertEqual(self.catalog_reads, 2)
+
+    async def test_explicit_refresh_rereads_configuration_and_preserves_model_selection(self):
+        self.configured('model = "gpt-5.6-sol"\n')
+        registry = self.catalog_registry()
+        await registry.catalog('codex')
+        selected = Participant(provider='codex', model='gpt-5.6-sol', effort='high')
+        self.configured('model = "gpt-6.1-sol"\n')
+        self.assertEqual((await registry.catalog('codex'))['default_model'], 'gpt-5.6-sol')
+        info = await registry.catalog('codex', refresh=True)
+        self.assertEqual(info['default_model'], 'gpt-6.1-sol')
+        self.assertEqual(self.catalog_reads, 2)
+        self.assertEqual(registry.validate(selected)['model'], 'gpt-5.6-sol')
+        self.assertEqual(selected.model, 'gpt-5.6-sol')
+
+    async def test_discovery_refresh_bypasses_cached_provider_catalogs(self):
+        registry = self.catalog_registry()
+        await registry.discover()
+        self.catalog_rows.append({'slug': 'new-account-model'})
+        await registry.discover()
+        self.assertEqual(self.catalog_reads, 1)
+        info = next(info for info in await registry.discover(refresh=True) if info['provider'] == 'codex')
+        self.assertEqual(self.catalog_reads, 2)
+        self.assertIn('new-account-model', [model['id'] for model in info['models']])
+
+    async def test_refresh_rejects_disappeared_explicit_model_without_substitution(self):
+        registry = self.catalog_registry()
+        await registry.catalog('codex')
+        selected = Participant(provider='codex', model='gpt-5.6-sol', effort='high')
+        self.catalog_rows = [row for row in self.catalog_rows if row.get('slug') != selected.model]
+        await registry.catalog('codex', refresh=True)
+        with self.assertRaisesRegex(ValueError, 'not in'):
+            registry.validate(selected)
+        self.assertEqual(selected.model, 'gpt-5.6-sol')

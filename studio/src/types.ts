@@ -28,6 +28,8 @@ export type Provider = {
   models?: Model[];
   default_model?: string | null;
   catalog_source?: string;
+  default_model_source?: string | null;
+  default_model_error?: string | null;
 };
 export type CheckSpec = {
   name: string;
@@ -73,6 +75,7 @@ export function connectionProvider(
         status: c.status,
         models: (c.models || []).map((m) => ({ ...m, label: m.label || m.id })),
         default_model: c.default_model,
+        default_model_source: "saved connection",
         catalog_source: c.source,
         version: "API connection",
       }

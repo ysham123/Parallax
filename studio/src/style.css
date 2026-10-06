@@ -1012,6 +1012,35 @@ nav {
   padding-top: 12px;
   gap: 8px;
 }
+.model-catalog-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 10px 0;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.coordinator-card .model-catalog-meta {
+  grid-column: 2 / -1;
+  margin: 10px 0 0;
+}
+.coordinator-card > .inline-error {
+  grid-column: 1 / -1;
+}
+.model-refresh-feedback {
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted);
+  margin: -8px 0 16px;
+}
+.model-refresh-feedback:empty {
+  display: none;
+}
+.model-refresh-feedback.error {
+  color: var(--danger);
+}
 .participant-meta > span:last-child {
   color: var(--faint);
   font-size: 8px;
@@ -4481,10 +4510,9 @@ nav {
   margin: 6px 8px 6px 0;
 }
 .check-editor {
-  grid-template-columns: minmax(110px, 0.8fr) minmax(220px, 2fr) minmax(
-      90px,
-      0.65fr
-    ) 90px 32px;
+  grid-template-columns:
+    minmax(110px, 0.8fr) minmax(220px, 2fr) minmax(90px, 0.65fr)
+    90px 32px;
 }
 @media (max-width: 760px) {
   .project-profile-grid {

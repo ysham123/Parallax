@@ -83,9 +83,9 @@ def serve(workspace):
 
 def invoke(name,args):
     endpoint=service(args.get("workspace"))
-    if name=="doctor": return _request(endpoint,"GET","/api/providers")
+    if name=="doctor": return _request(endpoint,"GET","/api/providers"+("?refresh=true" if args.get("refresh") else ""))
     if name=="models":
-        query=urllib.parse.urlencode({k:args[k] for k in ("transport","connection_id") if args.get(k)})
+        query=urllib.parse.urlencode({k:args[k] for k in ("transport","connection_id","refresh") if args.get(k)})
         return _request(endpoint,"GET","/api/models/"+urllib.parse.quote(args["provider"],safe="")+("?"+query if query else ""))
     if name=="connections": return _request(endpoint,"GET","/api/connections")
     if name=="save_connection": return _request(endpoint,"PUT","/api/connections/"+urllib.parse.quote(args["id"],safe=""),args["config"])
@@ -142,8 +142,8 @@ def mcp_tools():
         ("record_feedback","Opt in to local bounded alpha metrics. No automatic sharing.",nested_schema("feedback",AlphaFeedback,{"run_id":text},["run_id","feedback"])),
         ("record_baseline_feedback","Record local single-Codex comparison metrics without a Parallax run or source data.",nested_schema("feedback",AlphaFeedback,{},["feedback"])),
         ("export_feedback","Export opt-in aggregate alpha metrics without prompts, code, paths or sessions.",_schema()),
-        ("doctor","Inspect local provider executables, login state and capabilities.",_schema()),
-        ("models","Discover a CLI or API model and effort catalog.",_schema({"provider":text,"transport":{"type":"string","enum":["cli","api"]},"connection_id":text},["provider"])),
+        ("doctor","Inspect local provider executables, login state and capabilities.",_schema({"refresh":{"type":"boolean","description":"Bypass the cached native diagnostics."}})),
+        ("models","Discover a CLI or API model and effort catalog.",_schema({"provider":text,"transport":{"type":"string","enum":["cli","api"]},"connection_id":text,"refresh":{"type":"boolean","description":"Refresh a native CLI catalog; API discovery uses test_connection."}},["provider"])),
         ("connections","Inspect CLI and API connections without exposing credentials.",_schema()),
         ("test_connection","Authenticate and discover account models without inference.",_schema({"id":text},["id"])),
         ("profiles","List saved team profiles.",_schema()),
@@ -190,7 +190,8 @@ def main():
     parser=argparse.ArgumentParser(description="Parallax Constellation local coding teams")
     parser.add_argument("--version",action="version",version="Parallax 1.1.0 Constellation")
     sub=parser.add_subparsers(dest="command",required=True)
-    sub.add_parser("doctor");models=sub.add_parser("models");models.add_argument("provider");models.add_argument("--transport",choices=["cli","api"],default="cli");models.add_argument("--connection-id")
+    doctor=sub.add_parser("doctor");doctor.add_argument("--refresh",action="store_true")
+    models=sub.add_parser("models");models.add_argument("provider");models.add_argument("--transport",choices=["cli","api"],default="cli");models.add_argument("--connection-id");models.add_argument("--refresh",action="store_true")
     sub.add_parser("connections")
     connect=sub.add_parser("connect");connect.add_argument("id");connect.add_argument("--spec",type=Path,required=True)
     for name in ("test-connection","delete-connection"):

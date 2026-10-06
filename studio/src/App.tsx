@@ -22,7 +22,6 @@ import {
   PROVIDERS,
   type CheckSpec,
   type Data,
-  type Model,
   type Participant,
   type Profile,
   type Provider,
@@ -288,6 +287,24 @@ function Empty({
   );
 }
 
+function selectedModel(participant: Participant, provider?: Provider) {
+  return provider?.models?.find(
+    (model) => model.id === (participant.model || provider.default_model),
+  );
+}
+
+function modelSelectionError(participant: Participant, provider?: Provider) {
+  if (!provider) return "The connection's model catalog is unavailable.";
+  if (!participant.model && provider.default_model_error)
+    return provider.default_model_error;
+  if (selectedModel(participant, provider)) return "";
+  if (participant.model)
+    return `Saved model ${participant.model} is unavailable in this catalog. Refresh models or select an available model.`;
+  return provider.default_model
+    ? `Configured default ${provider.default_model} is unavailable in this catalog. Refresh models or select an available model.`
+    : "The configured default could not be discovered. Refresh models or select an explicit model.";
+}
+
 function ParticipantEditor({
   participant,
   providers,
@@ -315,10 +332,8 @@ function ParticipantEditor({
         )?.name || `${LABELS[participant.provider] || participant.provider} API`
       : LABELS[participant.provider] || participant.provider;
   const models = provider?.models || [];
-  const model =
-    models.find(
-      (m) => m.id === (participant.model || provider?.default_model),
-    ) || (!participant.model ? models[0] : undefined);
+  const model = selectedModel(participant, provider);
+  const modelError = modelSelectionError(participant, provider);
   const efforts = model?.efforts || [];
   const selectedConnection =
     participant.transport === "api"
@@ -334,9 +349,7 @@ function ParticipantEditor({
     if (value.startsWith("cli:")) {
       const id = value.slice(4);
       const next = providers.find((p) => providerId(p) === id);
-      const m =
-        next?.models?.find((m) => m.id === next.default_model) ||
-        next?.models?.[0];
+      const m = next?.models?.find((m) => m.id === next.default_model);
       onChange({
         ...participant,
         provider: id,
@@ -350,9 +363,9 @@ function ParticipantEditor({
     } else {
       const connection = connections.find((c) => c.id === value.slice(4));
       if (!connection) return;
-      const m =
-        connection.models?.find((m) => m.id === connection.default_model) ||
-        connection.models?.[0];
+      const m = connection.models?.find(
+        (m) => m.id === connection.default_model,
+      );
       onChange({
         ...participant,
         provider: connection.provider,
@@ -366,9 +379,7 @@ function ParticipantEditor({
     }
   }
   function changeModel(id: string) {
-    const next =
-      models.find((m) => m.id === (id || provider?.default_model)) ||
-      (!id ? models[0] : undefined);
+    const next = models.find((m) => m.id === (id || provider?.default_model));
     onChange({
       ...participant,
       model: id || null,
@@ -450,18 +461,19 @@ function ParticipantEditor({
           Model
           <select
             aria-label={coordinator ? "Coordinator model" : `${name} model`}
+            aria-invalid={(!checking && !!modelError) || undefined}
             value={participant.model || ""}
             onChange={(e) => changeModel(e.target.value)}
           >
             <option value="">
               {provider?.default_model
-                ? `${participant.transport === "api" ? "Connection" : "CLI"} default · ${models.find((m) => m.id === provider.default_model)?.label || provider.default_model}`
-                : `${participant.transport === "api" ? "Connection" : "CLI"} default`}
+                ? `${participant.transport === "api" ? "Connection" : "CLI"} default · ${models.find((m) => m.id === provider.default_model)?.label || provider.default_model}${!models.some((m) => m.id === provider.default_model) || provider.default_model_error ? " · unavailable" : ""}`
+                : `${participant.transport === "api" ? "Connection" : "CLI"} default${checking ? " · checking" : " · unavailable"}`}
             </option>
             {participant.model &&
               !models.some((m) => m.id === participant.model) && (
                 <option value={participant.model}>
-                  {participant.model} · saved selection
+                  {participant.model} · saved selection · unavailable
                 </option>
               )}
             {models.map((m) => (
@@ -523,6 +535,18 @@ function ParticipantEditor({
           </label>
         )}
       </div>
+      <div className="model-catalog-meta">
+        <span>Models: {provider?.catalog_source || "Source not reported"}</span>
+        <span>
+          Default:{" "}
+          {provider?.default_model_source ||
+            (provider ? "Native CLI / catalog" : "Not discovered")}
+        </span>
+        {participant.model && provider?.default_model_error && (
+          <span>{provider.default_model_error}</span>
+        )}
+      </div>
+      {!checking && modelError && <p className="inline-error">{modelError}</p>}
       <div className="participant-meta">
         <Status
           value={
@@ -1095,6 +1119,9 @@ export default function App() {
     workspace: new URLSearchParams(location.search).get("workspace") || "",
   }));
   const [loading, setLoading] = useState(true);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState("");
+  const [catalogNote, setCatalogNote] = useState("");
   const [connected, setConnected] = useState(false);
   const [streamStatus, setStreamStatus] = useState("idle");
   const [busy, setBusy] = useState("");
@@ -1114,6 +1141,74 @@ export default function App() {
   const debounce = useRef<number | undefined>(undefined);
   const mainRef = useRef<HTMLElement>(null);
   const toastTimer = useRef<number | undefined>(undefined);
+  const mounted = useRef(true);
+  const lifecycle = useRef(0);
+  const providerRequest = useRef<{
+    promise: Promise<void>;
+    controller: AbortController;
+    force: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    lifecycle.current += 1;
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      lifecycle.current += 1;
+      providerRequest.current?.controller.abort();
+      providerRequest.current = null;
+    };
+  }, []);
+
+  const refreshProviders = useCallback(function refreshProviders(
+    force = false,
+  ): Promise<void> {
+    const current = providerRequest.current;
+    if (current) {
+      if (!force || current.force) return current.promise;
+      return current.promise
+        .catch(() => undefined)
+        .then(() => {
+          if (mounted.current) return refreshProviders(true);
+        });
+    }
+    if (!mounted.current) return Promise.resolve();
+    const controller = new AbortController();
+    setCatalogLoading(true);
+    setCatalogError("");
+    setCatalogNote("");
+    const promise = api<Provider[]>(
+      force ? "/providers?refresh=true" : "/providers",
+      {
+        signal: controller.signal,
+      },
+    )
+      .then((providers) => {
+        if (!mounted.current || controller.signal.aborted) return;
+        const list = providers.map((provider) => ({
+          ...provider,
+          id: provider.provider || provider.id,
+        }));
+        setProviders(list);
+        if (force)
+          setCatalogNote(
+            `${list.reduce((count, provider) => count + (provider.models?.length || 0), 0)} models reported across ${list.length} local CLIs.`,
+          );
+      })
+      .catch((failure) => {
+        if (mounted.current && !controller.signal.aborted)
+          setCatalogError(`Model refresh failed: ${messageOf(failure)}`);
+        throw failure;
+      })
+      .finally(() => {
+        if (providerRequest.current?.controller === controller) {
+          providerRequest.current = null;
+          if (mounted.current) setCatalogLoading(false);
+        }
+      });
+    providerRequest.current = { promise, controller, force };
+    return promise;
+  }, []);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -1158,101 +1253,100 @@ export default function App() {
   }, []);
 
   const [historyLoading, setHistoryLoading] = useState(true);
-  const load = useCallback(async () => {
-    setLoading(true);
-    setHistoryLoading(true);
-    setError("");
-    const labels = [
-      "Providers",
-      "Profiles",
-      "Runs",
-      "Workspace",
-      "Connections",
-    ];
-    const results = await Promise.allSettled([
-      api<Provider[]>("/providers").then(async (providers) => {
-        const list = providers.map((p) => ({ ...p, id: p.provider || p.id }));
-        setProviders(list);
-        await Promise.all(
-          list
-            .filter((p) => !p.models?.length)
-            .map(async (provider) => {
-              try {
-                const catalog = await api<Model[] | { models: Model[] }>(
-                  `/models/${providerId(provider)}`,
-                );
-                const models = Array.isArray(catalog)
-                  ? catalog
-                  : catalog.models;
-                setProviders((previous) =>
-                  previous.map((p) =>
-                    providerId(p) === providerId(provider)
-                      ? { ...p, models: models || [] }
-                      : p,
-                  ),
-                );
-              } catch {
-                /* Diagnostics remain available while catalogs are unavailable. */
-              }
-            }),
-        );
-      }),
-      api<Profile[]>("/profiles").then(setProfiles),
-      api<RunResult[]>("/runs")
-        .then(async (history) => {
-          setConnected(true);
-          setRuns(history);
-          if (history.length && !activeId.current) {
-            const linked = new URLSearchParams(location.search).get(
-              "workspace",
-            );
-            const pool = linked
-              ? history.filter((item) => item.spec.workspace === linked)
-              : history;
-            const preferred =
-              pool.find(
-                (item) =>
-                  !isFinished(item.status) &&
-                  !["needs_attention", "interrupted", "paused"].includes(
+  const load = useCallback(
+    async (forceProviders = false) => {
+      const generation = lifecycle.current;
+      const current = () => mounted.current && lifecycle.current === generation;
+      setLoading(true);
+      setHistoryLoading(true);
+      setError("");
+      const labels = [
+        "Providers",
+        "Profiles",
+        "Runs",
+        "Workspace",
+        "Connections",
+      ];
+      const results = await Promise.allSettled([
+        refreshProviders(forceProviders),
+        api<Profile[]>("/profiles").then((profiles) => {
+          if (current()) setProfiles(profiles);
+        }),
+        api<RunResult[]>("/runs")
+          .then(async (history) => {
+            if (!current()) return;
+            setConnected(true);
+            setRuns(history);
+            if (history.length && !activeId.current) {
+              const linked = new URLSearchParams(location.search).get(
+                "workspace",
+              );
+              const pool = linked
+                ? history.filter((item) => item.spec.workspace === linked)
+                : history;
+              const preferred =
+                pool.find(
+                  (item) =>
+                    !isFinished(item.status) &&
+                    !["needs_attention", "interrupted", "paused"].includes(
+                      item.status,
+                    ),
+                ) ||
+                pool.find((item) =>
+                  ["needs_attention", "interrupted", "paused"].includes(
                     item.status,
                   ),
-              ) ||
-              pool.find((item) =>
-                ["needs_attention", "interrupted", "paused"].includes(
-                  item.status,
-                ),
-              ) ||
-              pool[0];
-            if (preferred)
-              updateRun(
-                await api<RunResult>(
+                ) ||
+                pool[0];
+              if (preferred) {
+                const result = await api<RunResult>(
                   `/runs/${encodeURIComponent(preferred.run_id)}`,
-                ),
-              );
-          }
-        })
-        .finally(() => setHistoryLoading(false)),
-      api<{ workspace: string }>("/context").then(({ workspace }) =>
-        setSpec((previous) => ({
-          ...previous,
-          workspace: previous.workspace || workspace,
-        })),
-      ),
-      api<Connection[]>("/connections").then(setConnections),
-    ]);
-    const failures = results.flatMap((result, index) =>
-      result.status === "rejected"
-        ? [`${labels[index]}: ${messageOf(result.reason)}`]
-        : [],
-    );
-    if (results[2].status === "rejected") setConnected(false);
-    if (failures.length) setError([...new Set(failures)].join(" "));
-    setLoading(false);
-  }, [updateRun]);
+                );
+                if (current()) updateRun(result);
+              }
+            }
+          })
+          .finally(() => {
+            if (current()) setHistoryLoading(false);
+          }),
+        api<{ workspace: string }>("/context").then(({ workspace }) => {
+          if (current())
+            setSpec((previous) => ({
+              ...previous,
+              workspace: previous.workspace || workspace,
+            }));
+        }),
+        api<Connection[]>("/connections").then((connections) => {
+          if (current()) setConnections(connections);
+        }),
+      ]);
+      if (!current()) return;
+      const failures = results.flatMap((result, index) =>
+        result.status === "rejected"
+          ? [`${labels[index]}: ${messageOf(result.reason)}`]
+          : [],
+      );
+      if (results[2].status === "rejected") setConnected(false);
+      if (failures.length) setError([...new Set(failures)].join(" "));
+      setLoading(false);
+    },
+    [updateRun, refreshProviders],
+  );
 
   useEffect(() => {
     void load();
   }, [load]);
+  useEffect(() => {
+    if (tab === "team") void refreshProviders().catch(() => undefined);
+  }, [tab, refreshProviders]);
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible")
+        void refreshProviders().catch(() => undefined);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [refreshProviders]);
   useEffect(() => {
     if (!run?.run_id) return;
     activeId.current = run.run_id;
@@ -1325,6 +1419,20 @@ export default function App() {
     }
   }
 
+  function participantValidationError() {
+    if (loading || catalogLoading) return "Wait for model discovery to finish.";
+    for (const participant of [spec.coordinator, ...spec.team]) {
+      const provider = connectionProvider(participant, providers, connections);
+      const modelError = modelSelectionError(participant, provider);
+      if (modelError)
+        return `${provider?.label || LABELS[participant.provider] || participant.provider}: ${modelError}`;
+      const model = selectedModel(participant, provider);
+      if (participant.effort && !model?.efforts?.includes(participant.effort))
+        return "Choose a supported effort for each selected model.";
+    }
+    return "";
+  }
+
   async function start() {
     setError("");
     if (
@@ -1379,26 +1487,9 @@ export default function App() {
       );
       return;
     }
-    const invalidEfforts = [spec.coordinator, ...spec.team].filter(
-      (participant) => {
-        const provider = connectionProvider(
-          participant,
-          providers,
-          connections,
-        );
-        const model =
-          provider?.models?.find(
-            (m) => m.id === (participant.model || provider.default_model),
-          ) || (!participant.model ? provider?.models?.[0] : undefined);
-        return (
-          participant.effort &&
-          (!model?.efforts?.length ||
-            !model.efforts.includes(participant.effort))
-        );
-      },
-    );
-    if (invalidEfforts.length) {
-      setError("Choose a supported effort for each selected model.");
+    const selectionError = participantValidationError();
+    if (selectionError) {
+      setError(selectionError);
       return;
     }
     if (
@@ -1480,6 +1571,11 @@ export default function App() {
   }
 
   async function saveProfile() {
+    const selectionError = participantValidationError();
+    if (selectionError) {
+      setError(selectionError);
+      return;
+    }
     if (
       mainRef.current?.querySelector('.check-editor input[aria-invalid="true"]')
     ) {
@@ -1621,8 +1717,8 @@ export default function App() {
           })}
           <button
             className="text-button refresh-providers"
-            onClick={() => void load()}
-            disabled={loading}
+            onClick={() => void load(true)}
+            disabled={loading || catalogLoading}
           >
             <Icon name="refresh" size={13} className={loading ? "spin" : ""} />
             {loading ? "Checking providers…" : "Refresh connections"}
@@ -1842,6 +1938,21 @@ export default function App() {
                   </p>
                 </div>
                 <div className="profile-controls">
+                  <button
+                    className="secondary-button small"
+                    onClick={() =>
+                      void refreshProviders(true).catch(() => undefined)
+                    }
+                    disabled={catalogLoading}
+                    aria-busy={catalogLoading}
+                  >
+                    <Icon
+                      name="refresh"
+                      size={14}
+                      className={catalogLoading ? "spin" : ""}
+                    />
+                    {catalogLoading ? "Refreshing models…" : "Refresh models"}
+                  </button>
                   <label className="sr-only" htmlFor="profile-select">
                     Saved profile
                   </label>
@@ -1877,7 +1988,7 @@ export default function App() {
                   <button
                     className="icon-button bordered"
                     onClick={() => void saveProfile()}
-                    disabled={!!busy}
+                    disabled={!!busy || loading || catalogLoading}
                     title="Save profile"
                     aria-label="Save profile"
                   >
@@ -1896,8 +2007,16 @@ export default function App() {
                   )}
                 </div>
               </div>
+              <div
+                className={`model-refresh-feedback ${catalogError ? "error" : ""}`}
+                aria-live="polite"
+              >
+                {catalogLoading
+                  ? "Discovering local CLI model catalogs…"
+                  : catalogError || catalogNote}
+              </div>
               <ParticipantEditor
-                checking={loading}
+                checking={loading || catalogLoading}
                 connections={connections}
                 participant={spec.coordinator}
                 providers={providers}
@@ -1907,7 +2026,7 @@ export default function App() {
               <div className="team-grid">
                 {spec.team.map((participant, i) => (
                   <ParticipantEditor
-                    checking={loading}
+                    checking={loading || catalogLoading}
                     connections={connections}
                     key={i}
                     participant={participant}
@@ -2124,7 +2243,7 @@ export default function App() {
                 <button
                   className="primary-button start-button"
                   onClick={() => void start()}
-                  disabled={!connected || !!busy || loading}
+                  disabled={!connected || !!busy || loading || catalogLoading}
                 >
                   <span>
                     {busy === "start" ? "Starting…" : "Start team run"}
