@@ -15,6 +15,7 @@ from .models import CheckEvidence, CoordinatorAction, Participant, RunResult, Ru
 from .store import Store
 from .assessment import assess_project, execution_capability, package_directory
 from .recovery import classify, recovery_options
+from .context import PROMPT_LIMIT, REQUEST_LIMIT, Packet
 
 TERMINAL = {"completed", "failed", "cancelled", "needs_attention"}
 
@@ -326,6 +327,11 @@ class Engine:
         if not workspace.is_dir():
             raise ValueError("Workspace does not exist")
         spec.workspace = str(workspace)
+        # Every role packet carries the full request, so it must leave room for the rest of the packet.
+        if spec.mode != "review" and len(spec.prompt) > REQUEST_LIMIT:
+            raise ValueError(f"Build and Compare requests are limited to {REQUEST_LIMIT:,} characters")
+        if spec.mode == "review" and len(spec.prompt) > PROMPT_LIMIT - 9000:
+            raise ValueError(f"Review requests are limited to {PROMPT_LIMIT - 9000:,} characters")
         await self.validate_settings(spec)
         assessment = None
         if spec.mode != "review":
@@ -428,11 +434,22 @@ class Engine:
         self.store.save(result)
         self.store.event(run_id,"task",updates,task_id)
 
-    async def _provider(self, run_id: str, participant: Participant, workspace: Path, prompt: str,
-                        *, mode="consult", task_id=None, schema=None, session_id=None, attempt=None) -> dict:
+    async def _provider(self, run_id: str, participant: Participant, workspace: Path, prompt,
+                        *, mode="consult", task_id=None, schema=None, session_id=None, attempt=None,
+                        role=None, timeout=None, quiet=False) -> dict:
         spec = RunSpec.model_validate(self.store.get(run_id)["spec"])
         tagged = {"attempt": attempt} if attempt is not None else {}
+        manifest = None
+        if isinstance(prompt, Packet):
+            # Record what this agent is given (section names, sizes, hashes; never content) before it runs.
+            manifest = prompt.manifest()
+            role = role or manifest["role"]
+            prompt = prompt.render()
+            self.store.event(run_id, "context", {**manifest, "provider": participant.provider, "mode": mode,
+                                                 "fresh_session": session_id is None, **tagged}, task_id)
         async def emit(event):
+            if quiet and not (str(event.get("type", "")).startswith("parallax.") or event.get("type") == "api.session"):
+                return  # Quiet calls keep only process and session bookkeeping, never streamed text.
             self.store.event(run_id,"provider",{**event,"provider":participant.provider,"workspace":str(workspace),"mode":mode,
                 "transport":participant.transport,"connection_id":participant.connection_id,**tagged},task_id)
         extra={}
@@ -444,14 +461,17 @@ class Engine:
                 extra["allowed_files"]=task["files"] if task else []
         outcome = await self.registry.run(participant.provider, workspace=workspace, prompt=prompt,
             model=participant.model,effort=participant.effort,mode=mode,session_id=session_id,
-            timeout=spec.limits.attempt_seconds,schema=schema,on_event=emit,cancel_event=self.cancel_flags[run_id],**extra)
+            timeout=timeout or spec.limits.attempt_seconds,schema=schema,on_event=emit,cancel_event=self.cancel_flags[run_id],**extra)
         result = self.store.get(run_id)
         result["sessions"].append({"provider":participant.provider,"task_id":task_id,"transport":participant.transport,"connection_id":participant.connection_id,"mode":mode,
             "workspace":str(workspace),"session_id":outcome.get("session_id"),
-            "requested_settings":outcome.get("requested_settings",{}),"effective_settings":outcome.get("effective_settings",{}),**tagged})
+            "requested_settings":outcome.get("requested_settings",{}),"effective_settings":outcome.get("effective_settings",{}),**tagged,
+            **({"role":role} if role else {}),
+            **({"context_sha256":manifest["sha256"],"context_chars":manifest["chars"]} if manifest else {})})
         usage = outcome.get("usage") or {}
         if usage:
-            result["usage"].setdefault("reports",[]).append({"provider":participant.provider,"task_id":task_id,**usage})
+            result["usage"].setdefault("reports",[]).append({"provider":participant.provider,"task_id":task_id,**usage,
+                **({"role":role} if role else {}),**({"context_sha256":manifest["sha256"]} if manifest else {})})
         self.store.save(result)
         return outcome
 

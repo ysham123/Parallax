@@ -130,5 +130,17 @@ class EngineFixesTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(engine._resume_session(run_id, "fix", target, member, "edit", attempt=3))
 
 
+class RequestLimitTests(unittest.IsolatedAsyncioTestCase):
+    asyncSetUp = test_engine.EngineTests.asyncSetUp
+    spec = test_engine.EngineTests.spec
+
+    async def test_oversized_build_requests_are_rejected_before_any_run(self):
+        spec = self.spec(); spec.prompt = "x" * 150_001
+        engine = Engine(self.store, FakeRegistry())
+        with self.assertRaisesRegex(ValueError, "150,000"):
+            await engine.start(spec)
+        self.assertEqual(self.store.runs(), [])
+
+
 if __name__ == "__main__":
     unittest.main()
