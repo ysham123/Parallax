@@ -59,6 +59,13 @@ class Engine:
             db.execute("UPDATE actions SET result=? WHERE run_id=? AND id=?",
                        (json.dumps(saved), run_id, action_id))
 
+    def _normalize_tasks(self, run_id: str):
+        """No job for this run is alive here, so a task saved as running was interrupted."""
+        result = self.store.get(run_id)
+        if any(task["status"] == "running" for task in result["tasks"]):
+            self._interrupt_tasks(result)
+            self.store.save(result)
+
     def _reconcile_actions(self, run_id: str):
         """Recognize durable effects; interrupted actions require a new decision."""
         result = self.store.get(run_id)
@@ -208,8 +215,11 @@ class Engine:
 
     @staticmethod
     def _bound_session(result: dict, task_id: str, workspace: Path, participant: Participant,
-                       mode: str) -> dict | None:
+                       mode: str, *, attempt: int | None = None) -> dict | None:
         for session in reversed(result["sessions"]):
+            # Repairs share a checkout, so only the same attempt's conversation may be continued.
+            if attempt is not None and session.get("attempt", 1) != attempt:
+                continue
             if (session.get("task_id") == task_id and session.get("provider") == participant.provider
                     and Path(session.get("workspace", "")).resolve() == workspace.resolve()
                     and session.get("transport", "cli") == participant.transport
@@ -230,8 +240,8 @@ class Engine:
         return participant.model_copy(update=settings)
 
     def _resume_session(self, run_id: str, task_id: str, workspace: Path,
-                        participant: Participant, mode: str) -> dict | None:
-        completed = self._bound_session(self.store.get(run_id), task_id, workspace, participant, mode)
+                        participant: Participant, mode: str, *, attempt: int | None = None) -> dict | None:
+        completed = self._bound_session(self.store.get(run_id), task_id, workspace, participant, mode, attempt=attempt)
         if completed is not None:
             return completed
         with self.store.connect() as db:
@@ -239,6 +249,8 @@ class Engine:
                 "SELECT data FROM events WHERE run_id=? AND kind='provider' AND task_id=? ORDER BY sequence DESC",
                 (run_id, task_id))]
         for event in events:
+            if attempt is not None and event.get("attempt", 1) != attempt:
+                continue
             if (event.get("provider") != participant.provider or event.get("mode") != mode
                     or event.get("transport", "cli") != participant.transport
                     or event.get("connection_id") != participant.connection_id
@@ -417,11 +429,12 @@ class Engine:
         self.store.event(run_id,"task",updates,task_id)
 
     async def _provider(self, run_id: str, participant: Participant, workspace: Path, prompt: str,
-                        *, mode="consult", task_id=None, schema=None, session_id=None) -> dict:
+                        *, mode="consult", task_id=None, schema=None, session_id=None, attempt=None) -> dict:
         spec = RunSpec.model_validate(self.store.get(run_id)["spec"])
+        tagged = {"attempt": attempt} if attempt is not None else {}
         async def emit(event):
             self.store.event(run_id,"provider",{**event,"provider":participant.provider,"workspace":str(workspace),"mode":mode,
-                "transport":participant.transport,"connection_id":participant.connection_id},task_id)
+                "transport":participant.transport,"connection_id":participant.connection_id,**tagged},task_id)
         extra={}
         from .connections import ConnectionRegistry
         if isinstance(self.registry,ConnectionRegistry):
@@ -435,7 +448,7 @@ class Engine:
         result = self.store.get(run_id)
         result["sessions"].append({"provider":participant.provider,"task_id":task_id,"transport":participant.transport,"connection_id":participant.connection_id,"mode":mode,
             "workspace":str(workspace),"session_id":outcome.get("session_id"),
-            "requested_settings":outcome.get("requested_settings",{}),"effective_settings":outcome.get("effective_settings",{})})
+            "requested_settings":outcome.get("requested_settings",{}),"effective_settings":outcome.get("effective_settings",{}),**tagged})
         usage = outcome.get("usage") or {}
         if usage:
             result["usage"].setdefault("reports",[]).append({"provider":participant.provider,"task_id":task_id,**usage})
@@ -452,6 +465,7 @@ class Engine:
         try:
             run_dir.mkdir(parents=True,exist_ok=True)
             manager = WorkspaceManager(Path(spec.workspace),run_dir)
+            self._normalize_tasks(run_id)
             self._reconcile_actions(run_id)
             await self._reconcile_processes(run_id)
             self._status(run_id,"planning")
@@ -696,7 +710,15 @@ class Engine:
                         self._task_update(run_id,task["id"],status="completed",result=outcome)
                     else:
                         merged=await self._workspace_call(manager.merge, Path(outcome["workspace"]))
-                        self._task_update(run_id,task["id"],status="completed" if merged["ok"] else "failed",result={**outcome,"merge":merged})
+                        if merged["ok"]:
+                            self._task_update(run_id,task["id"],status="completed",result={**outcome,"merge":merged})
+                        else:
+                            # A conflicting attempt must not be reused: the next dispatch counts against the
+                            # repair budget and starts from the current integration candidate.
+                            saved=next(t for t in self.store.get(run_id)["tasks"] if t["id"]==task["id"])
+                            self._task_update(run_id,task["id"],status="failed",
+                                result={**outcome,"ok":False,"error":"Merge conflict with the integration candidate: "+str(merged.get("error") or "")[:1000],"merge":merged},
+                                active_attempt={**(saved.get("active_attempt") or {}),"state":"merge_failed","resume_safe":False})
                 result=self.store.get(run_id)
                 result["diff"]=manager.diff()
                 result["artifacts"].pop("validated_fingerprint",None)
@@ -771,6 +793,11 @@ class Engine:
         if reuse:
             if Path(previous["workspace"]).resolve() != target.resolve():
                 raise ValueError("Saved attempt workspace does not match its owned checkout")
+            if (task["status"] == "interrupted" and previous.get("state") == "failed"
+                    and task.get("result", {}).get("ok") is False):
+                # The attempt already finished and failed before the crash; report it instead of re-running it.
+                self._task_update(run_id, task["id"], status="running", active_attempt=previous)
+                return task["result"]
             if (previous.get("state") == "reviewed" and task.get("result", {}).get("ok")
                     and previous.get("reviewed_fingerprint") == manager.fingerprint(target)):
                 self._task_update(run_id, task["id"], status="running", active_attempt=previous)
@@ -834,12 +861,12 @@ class Engine:
         active["reviewed_fingerprint"] = manager.fingerprint(target)
         return finish({**collected,"ok":True,"workspace":str(target),"review":review,"provider_result":outcome}, "reviewed")
 
-    async def _assess_patch(self,run_id,reviewer,target,request,task,task_id):
+    async def _assess_patch(self,run_id,reviewer,target,request,task,task_id,*,evidence=None,patch=None):
         from .workspaces import fingerprint
         before=fingerprint(target)
         schema={"type":"object","properties":{"approved":{"type":"boolean"},"findings":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}},"required":["approved","findings","summary"],"additionalProperties":False}
         requirements={k:v for k,v in task.items() if k in {"id","title","prompt","files","acceptance","dependencies","diff"}}
-        outcome=await self._provider(run_id,reviewer,target,"Independently review the current implementation against the requirements. Inspect source, check failure modes, and report concrete findings. Approve only if the requirements appear satisfied. Do not change files.\n"+json.dumps({"request":request,"task":requirements,"check_evidence":[{"name":c.get("name"),"ok":c.get("ok"),"output":c.get("output","")[-4000:]} for c in self.store.get(run_id)["checks"]]}),task_id="review-"+task_id,schema=schema)
+        outcome=await self._provider(run_id,reviewer,target,"Independently review the current implementation against the requirements. Inspect source, check failure modes, and report concrete findings. Approve only if the requirements appear satisfied. Do not change files.\n"+json.dumps({"request":request,"task":requirements,"check_evidence":[{"name":c.get("name"),"ok":c.get("ok"),"output":c.get("output","")[-4000:]} for c in (evidence if evidence is not None else self.store.get(run_id)["checks"])]}),task_id="review-"+task_id,schema=schema)
         try:
             structured=outcome.get("structured_output") or json.loads(outcome.get("answer") or "{}")
         except ValueError:
@@ -1022,7 +1049,7 @@ class Engine:
         candidates=[p for p in spec.team if p.role=="reviewer"]+[spec.coordinator,*spec.team]
         reviewer=next((p for p in candidates if p.provider not in contributors),None)
         if reviewer is None: raise ValueError("Combined verification needs a provider that did not implement this candidate")
-        review=await self._assess_patch(run_id,reviewer,manager.integration_path,spec.prompt,{"title":"Combined integration","diff":before[-80000:]},"integration")
+        review=await self._assess_patch(run_id,reviewer,manager.integration_path,spec.prompt,{"title":"Combined integration","diff":before[-80000:]},"integration",evidence=evidence)
         if not review["ok"]: raise ValueError("Combined integration review failed")
         result=self.store.get(run_id)
         result["checks"]=evidence
