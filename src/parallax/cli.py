@@ -12,6 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from . import __version__
 from .models import RunSpec, ProjectProfile
 from .store import Store, state_directory
 
@@ -31,14 +32,14 @@ def service(workspace:str|None=None):
     descriptor=home/"server.json"
     try:
         endpoint=json.loads(descriptor.read_text())
-        if _request(endpoint,"GET","/api/health")["version"]=="1.1.0": return endpoint
+        if _request(endpoint,"GET","/api/health")["version"]==__version__: return endpoint
     except (OSError,ValueError,KeyError,urllib.error.URLError): pass
     import fcntl
     with (home/"launch.lock").open("a") as lock:
         fcntl.flock(lock,fcntl.LOCK_EX)
         try:
             endpoint=json.loads(descriptor.read_text())
-            if _request(endpoint,"GET","/api/health")["version"]=="1.1.0": return endpoint
+            if _request(endpoint,"GET","/api/health")["version"]==__version__: return endpoint
         except (OSError,ValueError,KeyError,urllib.error.URLError): pass
         with (home/"runtime.log").open("a") as log:
             env=os.environ.copy()
@@ -48,7 +49,7 @@ def service(workspace:str|None=None):
             time.sleep(.1)
             try:
                 endpoint=json.loads(descriptor.read_text())
-                if _request(endpoint,"GET","/api/health")["version"]=="1.1.0": return endpoint
+                if _request(endpoint,"GET","/api/health")["version"]==__version__: return endpoint
             except (OSError,ValueError,KeyError,urllib.error.URLError): pass
         raise ValueError(f"Runtime did not start. Inspect {home/'runtime.log'}")
 
@@ -72,7 +73,7 @@ def serve(workspace):
     except OSError: listener.bind(("127.0.0.1",0))
     listener.listen(128)
     port=listener.getsockname()[1]
-    endpoint={"url":f"http://127.0.0.1:{port}","token":token,"pid":os.getpid(),"workspace":workspace,"version":"1.1.0"}
+    endpoint={"url":f"http://127.0.0.1:{port}","token":token,"pid":os.getpid(),"workspace":workspace,"version":__version__}
     temporary=home/"server.json.tmp";temporary.write_text(json.dumps(endpoint));temporary.chmod(0o600);temporary.replace(path)
     try:
         uvicorn.run(create_app(token=token,workspace=workspace),log_level="warning",access_log=False,
@@ -110,7 +111,7 @@ def invoke(name,args):
     if name=="steer": return _request(endpoint,"POST","/api/runs/"+urllib.parse.quote(args["run_id"],safe="")+"/steer",{"message":args["message"]})
     if name=="studio":
         workspace=args.get("workspace") or endpoint["workspace"]
-        return {"url":endpoint["url"]+"/?"+urllib.parse.urlencode({"token":endpoint["token"],"workspace":workspace}),"workspace":workspace,"version":"1.1.0"}
+        return {"url":endpoint["url"]+"/?"+urllib.parse.urlencode({"token":endpoint["token"],"workspace":workspace}),"workspace":workspace,"version":__version__}
     raise ValueError("Unknown operation")
 
 def _schema(properties=None,required=None):
@@ -169,7 +170,7 @@ def mcp():
             if "id" not in request: continue
             method=request.get("method");params=request.get("params",{})
             if method=="initialize":
-                result={"protocolVersion":params.get("protocolVersion","2024-11-05"),"capabilities":{"tools":{}},"serverInfo":{"name":"parallax","version":"1.1.0"}}
+                result={"protocolVersion":params.get("protocolVersion","2024-11-05"),"capabilities":{"tools":{}},"serverInfo":{"name":"parallax","version":__version__}}
             elif method=="ping": result={}
             elif method=="tools/list": result={"tools":mcp_tools()}
             elif method=="tools/call":
@@ -188,7 +189,7 @@ def mcp():
 
 def main():
     parser=argparse.ArgumentParser(description="Parallax Constellation local coding teams")
-    parser.add_argument("--version",action="version",version="Parallax 1.1.0 Constellation")
+    parser.add_argument("--version",action="version",version="Parallax "+__version__)
     sub=parser.add_subparsers(dest="command",required=True)
     doctor=sub.add_parser("doctor");doctor.add_argument("--refresh",action="store_true")
     models=sub.add_parser("models");models.add_argument("provider");models.add_argument("--transport",choices=["cli","api"],default="cli");models.add_argument("--connection-id");models.add_argument("--refresh",action="store_true")

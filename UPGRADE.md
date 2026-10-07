@@ -28,3 +28,13 @@ Back up the enabled personal source and replace it with the validated 1.1 bundle
 Pause or finish active work before restarting the local runtime. The runtime descriptor retains its port and authentication token; cookies and event replay reconnect after restart. SQLite adds project_profiles and feedback tables without dropping 1.0 runs, team profiles, sessions or events. Old final receipts are retained unchanged. A resumed legacy run with no configured checks must obtain a meaningful baseline from its original snapshot or remain Needs attention.
 
 Project setup is now checked before Build and Compare. Add node_modules/ and generated compiler outputs to .gitignore. Commit an npm lockfile or supply supported Python requirements. Linux users need functioning bubblewrap with user namespaces; unprotected command execution no longer falls back silently. See [real-project delivery](docs/DELIVERY.md) and the [alpha protocol](docs/ALPHA.md).
+
+## 1.1 to 1.2
+
+**Claude Code.** Install the new plugin with `/plugin marketplace add ysham123/Parallax` and `/plugin install parallax@parallax`, then start a new session. It shares state, profiles and run history with the Codex plugin and the CLI.
+
+**Codex.** Run `codex plugin marketplace upgrade codex-claude-team` and `codex plugin add codex-claude-team@codex-claude-team`, then start a new chat. The marketplace now points to `ysham123/Parallax`; GitHub redirects the old repository name, so existing installations keep updating. The install ID is unchanged.
+
+**Local runtime.** Finish or pause active runs before upgrading. The launcher prepares a new private environment for 1.2.0 and starts a fresh local Studio server the next time it is needed; runs, profiles, connections and receipts are kept. Project memory starts empty and fills as runs finish. Set `PARALLAX_MEMORY=off` to disable it.
+
+**Hosted deployments.** Back up the Railway volume, then follow [Migrating an existing deployment](docs/DEPLOYMENT.md#migrating-an-existing-deployment). Existing hosted sessions end, so sign in again. Update paired workers to 1.2 alongside the runtime so evidence declined while storage is low is resent instead of skipped.

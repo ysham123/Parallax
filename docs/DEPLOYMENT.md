@@ -83,6 +83,17 @@ A relayed command is deleted as soon as Studio receives its answer; answers nobo
 
 The migration runs at startup and only adds tables and indexes (and columns on its own new tables), so the previous release can run against the same database if you roll back. Operator machines keep working across a rollback. Personal machines and pairing codes are invisible to the previous release: it sees those machines as revoked and refuses their tokens, so their workers stop with an authorization error. After rolling forward again, users restart their workers; their saved connections are still valid, so no new pairing is needed. Machines and pairing codes that predate workspaces belong to the operator workspace, so existing workers keep their tokens and reconnect without pairing again. Evidence accounting is recomputed from stored rows. Back up the volume before upgrading anyway. Sessions from before this release are not accepted; sign in again with GitHub or at `/operator`.
 
+### Public launch checklist
+
+Merging to `main` rebuilds the Vercel site only. The runtime changes when you update and restart it, so the public site keeps working against the previous runtime until then. The public entry then says GitHub sign-in is not configured yet, and the operator signs in at `/operator`.
+
+1. Back up the runtime volume or VM state directory.
+2. Create the GitHub OAuth App ([Enable GitHub sign-in](#enable-github-sign-in)).
+3. Set `PARALLAX_GITHUB_CLIENT_ID`, `PARALLAX_GITHUB_CLIENT_SECRET`, `PARALLAX_OWNER_GITHUB_IDS` and, while testing, `PARALLAX_SIGNUP=allowlist` with your own ID in `PARALLAX_ALLOWED_GITHUB_IDS`. Set `PARALLAX_PUBLIC_ORIGIN` if more than one Studio origin is listed.
+4. Update the runtime source to the release, reinstall `requirements.lock` with `--require-hashes`, and restart `python -m parallax.cloud`.
+5. Check that `/api/health` reports the release version and `/api/auth/config` reports GitHub sign-in. Then sign in with GitHub, pair a machine from a personal workspace, run a Review on it, and confirm that the operator workspace still opens.
+6. Switch `PARALLAX_SIGNUP` to `open`, or keep the allowlist, and restart.
+
 ## Execution readiness
 
 The base image contains Python, Node/npm, Git, bubblewrap, and socat. It does **not** install or authenticate any provider CLI. Install tested native CLI versions in a custom image if needed. Provider status and model discovery must pass on that container before starting a team.

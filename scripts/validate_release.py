@@ -12,14 +12,14 @@ root=Path(__file__).resolve().parents[1]
 errors=[]
 def check(condition,message):
     if not condition: errors.append(message)
+VERSION=re.search(r'__version__ = "([^"]+)"',(root/"src/parallax/__init__.py").read_text()).group(1)
 versions=[]
 manifests={}
-for name in ("plugin.json",".codex-plugin/plugin.json","studio/package.json"):
+for name in ("plugin.json",".codex-plugin/plugin.json",".claude-plugin/plugin.json","studio/package.json"):
     doc=json.loads((root/name).read_text());manifests[name]=doc;versions.append(doc["version"])
-    if "plugin" in name: check(doc["name"]=="codex-claude-team",name+" changes the installation ID")
-check(len(set(versions))==1 and versions[0]=="1.1.0","Manifest versions differ")
-check('version = "1.1.0"' in (root/"pyproject.toml").read_text(),"Python package version differs")
-check('__version__ = "1.1.0"' in (root/"src/parallax/__init__.py").read_text(),"Runtime version differs")
+    if name in ("plugin.json",".codex-plugin/plugin.json"): check(doc["name"]=="codex-claude-team",name+" changes the installation ID")
+check(len(set(versions))==1 and versions[0]==VERSION,"Manifest versions differ from the runtime version")
+check(f'version = "{VERSION}"' in (root/"pyproject.toml").read_text(),"Python package version differs")
 portable=manifests["plugin.json"]
 compatibility=manifests[".codex-plugin/plugin.json"]
 check(portable.get("$schema")=="https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","Portable plugin schema differs")
@@ -73,7 +73,19 @@ entries=marketplace.get("plugins",[])
 check(marketplace.get("name")=="codex-claude-team","Marketplace identity differs")
 check(len(entries)==1 and entries[0].get("name")=="codex-claude-team","Marketplace plugin identity differs")
 if len(entries)==1:
-    check(entries[0].get("source")=={"source":"url","url":"https://github.com/ysham123/codex-claude-team.git"},"Repository marketplace source differs")
+    check(entries[0].get("source")=={"source":"url","url":"https://github.com/ysham123/Parallax.git"},"Repository marketplace source differs")
+# Claude Code plugin: same runtime, its own skills, launcher resolved from the installed plugin root.
+claude=manifests[".claude-plugin/plugin.json"]
+check(claude.get("name")=="parallax","Claude Code plugin identity differs")
+check(claude.get("mcpServers")=={"parallax":{"command":"${CLAUDE_PLUGIN_ROOT}/scripts/launch.sh","args":["mcp"]}},"Claude Code MCP entry point differs")
+claude_market=json.loads((root/".claude-plugin/marketplace.json").read_text())
+claude_entries=claude_market.get("plugins",[])
+check(claude_market.get("name")=="parallax" and len(claude_entries)==1 and claude_entries[0].get("name")=="parallax" and claude_entries[0].get("source")=="./","Claude Code marketplace identity differs")
+claude_skills=claude_entries[0].get("skills",[]) if claude_entries else []
+check(bool(claude_skills) and all(value.startswith("./claude-code/skills/") for value in claude_skills),"Claude Code skills must be listed explicitly so the Codex skill does not load")
+for value in claude_skills:
+    path=root/value/"SKILL.md"
+    check(path.is_file() and path.read_text().startswith("---\nname: "+Path(value).name+"\n"),"Claude Code skill front matter differs: "+value)
 skill=(root/"skills/codex-claude-team/SKILL.md").read_text()
 check(skill.startswith("---\nname: codex-claude-team\ndescription:"),"Skill front matter differs from install identity")
 check("API" in skill and "Activate when requested" in skill,"Skill boundaries missing")
@@ -107,4 +119,4 @@ for path in files:
         if path.suffix==".json": check_public_identity(json.loads(content),relative)
 if errors:
     print("\n".join(errors),file=sys.stderr);raise SystemExit(1)
-print("Release consistency passed: 1.1.0 manifests, marketplace, portable MCP, legacy wrapper, locks, skill, and Studio assets.")
+print(f"Release consistency passed: {VERSION} manifests, Codex and Claude Code marketplaces, portable MCP, legacy wrapper, locks, skills, and Studio assets.")
