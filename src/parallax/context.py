@@ -199,3 +199,60 @@ def findings(values, limit: int = 8, each: int = 600) -> list[str]:
         text = value if isinstance(value, str) else render_json(value)
         out.append(clip(text, each)[0])
     return out
+
+
+# Evaluators ------------------------------------------------------------------
+
+REVIEW_PREAMBLE = (
+    "Independently review a candidate change against the user request and the original requirements below. "
+    "Inspect the source in this checkout and check failure modes. Do not change files. "
+    "The requirements were written by a coordinating agent, so reject changes the user request does not justify. "
+    "You are not told who implemented this or how; judge only the code and the evidence. "
+    "Approve only if the requirements appear satisfied."
+)
+CONSULT_PREAMBLE = "Give an independent assessment. Do not change files. Ground findings in source and state uncertainty."
+SYNTHESIS_PREAMBLE = (
+    "Synthesize independent assessments. Cite file evidence, explain meaningful disagreements, and distinguish facts "
+    "from uncertainty. Assessments are labeled by letter; their authors are deliberately withheld."
+)
+
+
+def _check_rows(evidence, tail=4000):
+    return [{"name": c.get("name"), "ok": c.get("ok"), "exit_code": c.get("exit_code"),
+             "output": (c.get("output") or "")[-tail:]} for c in evidence or []]
+
+
+def review_packet(request: str, requirements: dict, *, patch: str = "", evidence=None, patch_budget: int = 40000,
+                  task_id: str | None = None) -> Packet:
+    allowed = {key: requirements.get(key) for key in ("id", "title", "prompt", "files", "acceptance", "dependencies")
+               if requirements.get(key) not in (None, [], "")}
+    return Packet("reviewer", REVIEW_PREAMBLE, [
+        Section("Request", request, priority=MANDATORY),
+        Section("Requirements", allowed, 24000, 90),
+        Section("Candidate patch", fit_patch(patch, patch_budget), patch_budget + 2000, 70),
+        Section("Check evidence", _check_rows(evidence), 16000, 60),
+    ], task_id)
+
+
+def consultant_packet(request: str, *, task_id: str) -> Packet:
+    return Packet("consultant", CONSULT_PREAMBLE, [Section("Request", request, priority=MANDATORY)], task_id)
+
+
+def synthesis_packet(request: str, reviews: list[dict]) -> tuple[Packet, dict]:
+    """Blind synthesis: assessments are labeled A, B, C in team order; the runtime keeps the legend."""
+    labels = [chr(ord("A") + i) if i < 26 else f"Z{i}" for i in range(len(reviews))]
+    room = max(1000, PROMPT_LIMIT - len(request) - 8000)
+    each = min(40000, room // max(1, len(reviews)))
+    assessments = []
+    for label, review in zip(labels, reviews):
+        if review.get("ok"):
+            assessments.append({"label": label, "ok": True, "answer": clip(str(review.get("answer") or ""), each)[0]})
+        else:
+            error = review.get("error")
+            code = error.get("code") if isinstance(error, dict) else None
+            assessments.append({"label": label, "ok": False, "error_code": code or "failed"})
+    legend = {label: review.get("provider") for label, review in zip(labels, reviews)}
+    return Packet("synthesizer", SYNTHESIS_PREAMBLE, [
+        Section("Request", request, priority=MANDATORY),
+        Section("Assessments", assessments, room, 90),
+    ], "synthesis"), legend

@@ -15,7 +15,8 @@ from .models import CheckEvidence, CoordinatorAction, Participant, RunResult, Ru
 from .store import Store
 from .assessment import assess_project, execution_capability, package_directory
 from .recovery import classify, recovery_options
-from .context import PROMPT_LIMIT, REQUEST_LIMIT, Packet
+from .context import (PROMPT_LIMIT, REQUEST_LIMIT, Packet, consultant_packet, filter_patch, review_packet,
+                      synthesis_packet)
 
 TERMINAL = {"completed", "failed", "cancelled", "needs_attention"}
 
@@ -570,7 +571,7 @@ class Engine:
                 (target / ".parallax-owned").write_text(run_id)
                 from .workspaces import fingerprint
                 before=fingerprint(target)
-                outcome = await self._provider(run_id,member,target,"Give an independent assessment. Do not change files. Ground findings in source and state uncertainty.\n\n"+spec.prompt,task_id=f"review-{index}")
+                outcome = await self._provider(run_id,member,target,consultant_packet(spec.prompt,task_id=f"review-{index}"),task_id=f"review-{index}",role="consultant")
                 if fingerprint(target)!=before:
                     outcome={**outcome,"ok":False,"error":{"code":"readonly_changed","message":"Consultation changed its isolated workspace"}}
                 return {"provider":member.provider,"ok":outcome.get("ok",False),"answer":outcome.get("answer"),"error":outcome.get("error")}
@@ -581,12 +582,13 @@ class Engine:
         if not any(r["ok"] for r in reviews):
             raise RunProblem("Every independent assessment failed; inspect provider diagnostics")
         await self.checkpoint(run_id)
-        outcome = await self._provider(run_id,spec.coordinator,root,
-            "Synthesize independent assessments. Cite file evidence, explain meaningful disagreements, and distinguish facts from uncertainty.\nRequest: "+spec.prompt+"\nAssessments:\n"+json.dumps(reviews))
+        # Blind synthesis: assessments are lettered; the legend is attached only after the synthesis.
+        packet, legend = synthesis_packet(spec.prompt, reviews)
+        outcome = await self._provider(run_id,spec.coordinator,root,packet,task_id="synthesis",role="synthesizer")
         if not outcome.get("ok"):
             raise RunProblem(str(outcome.get("error")))
         result = self.store.get(run_id)
-        result["summary"] = outcome.get("answer") or ""
+        result["summary"] = (outcome.get("answer") or "") + "\n\nAssessment labels: " + ", ".join(f"{label} = {provider}" for label, provider in legend.items())
         result["status"] = "completed"
         self.store.save(result)
         self.store.event(run_id,"completed",{"summary":result["summary"]})
@@ -772,7 +774,9 @@ class Engine:
                 candidates=[p for p in spec.team if p.role=="reviewer"]+[*spec.team,spec.coordinator]
                 reviewer=next((p for p in candidates if p.provider not in {task["provider"],replacement["provider"]}),None)
                 if reviewer is None: raise ValueError("Resolve needs an independent reviewer")
-                review=await self._assess_patch(run_id,reviewer,manager.integration_path,spec.prompt,task,"resolution-"+task["id"])
+                owned=filter_patch(manager.diff(),lambda path,scopes=task["files"]:any(_owned(path,scope) for scope in scopes))
+                review=await self._assess_patch(run_id,reviewer,manager.integration_path,spec.prompt,task,"resolution-"+task["id"],
+                    evidence=result["checks"],patch=owned)
                 if not review["ok"]: raise ValueError("Replacement does not satisfy the failed task's original requirements")
                 self._task_update(run_id,task["id"],status="resolved",resolved_by=replacement["id"],resolution_review=review)
         elif action.action=="request_integration":
@@ -876,17 +880,19 @@ class Engine:
         if not collected["changed_files"]: return finish({"ok":False,"error":"Implementation produced no changes","workspace":str(target),"provider_result":outcome})
         reviewer=next((p for p in spec.team if p.provider!=member.provider and p.role=="reviewer"),None) or next((p for p in [spec.coordinator,*spec.team] if p.provider!=member.provider),None)
         if reviewer is None: return finish({"ok":False,"error":"No independent reviewer","workspace":str(target)})
-        review=await self._assess_patch(run_id,reviewer,target,spec.prompt,task,task["id"])
+        review=await self._assess_patch(run_id,reviewer,target,spec.prompt,task,task["id"],patch=collected.get("patch") or "")
         if not review["ok"]: return finish({**collected,"ok":False,"error":"Independent review rejected the change","workspace":str(target),"review":review,"provider_result":outcome})
         active["reviewed_fingerprint"] = manager.fingerprint(target)
         return finish({**collected,"ok":True,"workspace":str(target),"review":review,"provider_result":outcome}, "reviewed")
 
-    async def _assess_patch(self,run_id,reviewer,target,request,task,task_id,*,evidence=None,patch=None):
+    async def _assess_patch(self,run_id,reviewer,target,request,task,task_id,*,evidence=None,patch="",patch_budget=40000):
         from .workspaces import fingerprint
         before=fingerprint(target)
         schema={"type":"object","properties":{"approved":{"type":"boolean"},"findings":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}},"required":["approved","findings","summary"],"additionalProperties":False}
-        requirements={k:v for k,v in task.items() if k in {"id","title","prompt","files","acceptance","dependencies","diff"}}
-        outcome=await self._provider(run_id,reviewer,target,"Independently review the current implementation against the requirements. Inspect source, check failure modes, and report concrete findings. Approve only if the requirements appear satisfied. Do not change files.\n"+json.dumps({"request":request,"task":requirements,"check_evidence":[{"name":c.get("name"),"ok":c.get("ok"),"output":c.get("output","")[-4000:]} for c in (evidence if evidence is not None else self.store.get(run_id)["checks"])]}),task_id="review-"+task_id,schema=schema)
+        # The evaluator sees the request, the original requirements, this candidate's patch, and this candidate's
+        # evidence only: never the implementer's identity or narrative, prior reviews, or other candidates.
+        packet=review_packet(request,task,patch=patch,evidence=evidence,patch_budget=patch_budget,task_id="review-"+task_id)
+        outcome=await self._provider(run_id,reviewer,target,packet,task_id="review-"+task_id,schema=schema,role="reviewer")
         try:
             structured=outcome.get("structured_output") or json.loads(outcome.get("answer") or "{}")
         except ValueError:
@@ -1069,7 +1075,8 @@ class Engine:
         candidates=[p for p in spec.team if p.role=="reviewer"]+[spec.coordinator,*spec.team]
         reviewer=next((p for p in candidates if p.provider not in contributors),None)
         if reviewer is None: raise ValueError("Combined verification needs a provider that did not implement this candidate")
-        review=await self._assess_patch(run_id,reviewer,manager.integration_path,spec.prompt,{"title":"Combined integration","diff":before[-80000:]},"integration",evidence=evidence)
+        review=await self._assess_patch(run_id,reviewer,manager.integration_path,spec.prompt,{"title":"Combined integration"},"integration",
+            evidence=evidence,patch=before,patch_budget=60000)
         if not review["ok"]: raise ValueError("Combined integration review failed")
         result=self.store.get(run_id)
         result["checks"]=evidence
