@@ -5,6 +5,7 @@ import fnmatch
 import hashlib
 import json
 import os
+import re
 import shutil
 import signal
 import sys
@@ -19,6 +20,10 @@ from .context import (PROMPT_LIMIT, REQUEST_LIMIT, Packet, consultant_packet, co
                       review_packet, synthesis_packet, worker_packet)
 
 TERMINAL = {"completed", "failed", "cancelled", "needs_attention"}
+TASK_DONE = {"completed", "resolved"}
+INTEGRABLE = {"completed", "resolved", "discarded"}
+VARIANT_LIVE = {"pending", "running", "interrupted"}
+RESERVED_IDS = {"coordinator", "baseline", "integration", "distill", "synthesis"}
 
 class RunProblem(Exception):
     pass
@@ -67,6 +72,9 @@ class Engine:
         if any(task["status"] == "running" for task in result["tasks"]):
             self._interrupt_tasks(result)
             self.store.save(result)
+        for task in result["tasks"]:
+            if task["status"] == "exploring":
+                self._close_round(run_id, task["id"])
 
     def _reconcile_actions(self, run_id: str):
         """Recognize durable effects; interrupted actions require a new decision."""
@@ -81,17 +89,22 @@ class Engine:
             action = saved.get("action", {})
             kind = action.get("action")
             complete = False
+            persisted = {task["id"]: task for task in result["tasks"]}
             if kind == "plan":
-                persisted = {task["id"]: task for task in result["tasks"]}
                 complete = bool(action.get("tasks")) and all(
                     task["id"] in persisted and all(persisted[task["id"]].get(key) == value
                                                    for key, value in task.items())
                     for task in action["tasks"])
             elif kind == "dispatch":
                 ids = action.get("task_ids") or saved.get("task_ids", [])
-                persisted = {task["id"]: task for task in result["tasks"]}
                 complete = bool(ids) and all(identifier in persisted and persisted[identifier]["status"]
-                    in {"completed", "failed"} for identifier in ids)
+                    in {"completed", "failed", "candidate", "discarded"} for identifier in ids)
+            elif kind == "explore":
+                variants = [v.get("id") for v in action.get("variants", [])]
+                complete = bool(variants) and all(v in persisted and persisted[v]["status"] not in VARIANT_LIVE for v in variants)
+            elif kind == "select_variant":
+                parent = persisted.get((action.get("task_ids") or [None])[0]) or {}
+                complete = parent.get("status") == "resolved" and parent.get("resolved_by") == action.get("selected_task")
             elif kind == "request_integration":
                 complete = bool(result["artifacts"].get("integration_applied")
                                 or result["artifacts"].get("verified_only"))
@@ -601,7 +614,12 @@ class Engine:
         all_ids = ids | {t.id for t in tasks}
         graph = {t["id"]:t["dependencies"] for t in existing}
         graph.update({t.id:t.dependencies for t in tasks})
+        variant_ids = {t["id"] for t in existing if t.get("variant_of")}
         for task in tasks:
+            if task.id in RESERVED_IDS:
+                raise ValueError(f"Task id {task.id} is reserved")
+            if set(task.dependencies) & variant_ids:
+                raise ValueError("Tasks cannot depend on an exploration variant; depend on the explored task instead")
             if task.provider not in implementers:
                 raise ValueError(f"{task.provider} is not an enabled implementer")
             if not task.files:
@@ -655,7 +673,7 @@ class Engine:
                 self._coordinator_feedback(run_id, turn, "duplicate_id", action.id, "This action id was already used; the saved result was kept. Use next_id.")
                 continue
             tasks = action.task_ids or [t["id"] for t in self.store.get(run_id)["tasks"]
-                if t["status"] in {"pending", "interrupted"}]
+                if t["status"] in {"pending", "interrupted"} and not t.get("variant_of")]
             self.store.save_action(run_id,action.id,{"state":"issued","action":action.model_dump(), "task_ids":tasks})
             try:
                 await self._action(run_id,spec,manager,action)
@@ -702,9 +720,17 @@ class Engine:
             result["artifacts"].pop("validated_fingerprint",None)
             self.store.save(result)
         elif action.action=="dispatch":
-            ids=action.task_ids or [t["id"] for t in result["tasks"] if t["status"] in {"pending", "interrupted"}]
+            ids=action.task_ids or [t["id"] for t in result["tasks"] if t["status"] in {"pending", "interrupted"} and not t.get("variant_of")]
             selected=[t for t in result["tasks"] if t["id"] in ids]
             if len(selected)!=len(set(ids)) or not selected: raise ValueError("Choose known pending tasks")
+            if any(t.get("variant_of") for t in selected):
+                parents={t.get("variant_of") for t in selected}
+                parent=next((t for t in result["tasks"] if t["id"] in parents),None)
+                if (len(parents)!=1 or not all(t.get("variant_of") for t in selected) or parent is None or parent["status"]!="exploring"
+                        or parent.get("selecting") or any(t["status"] not in {"pending","interrupted"} or t.get("variant_round")!=parent.get("explore_round") for t in selected)):
+                    raise ValueError("Variants can be dispatched only to continue pending or interrupted variants of one task in its current exploration round")
+                await self._run_variants(run_id,spec,manager,parent["id"],[t["id"] for t in selected])
+                return
             done={t["id"] for t in result["tasks"] if t["status"] in {"completed","resolved"}}
             for task in selected:
                 if task["status"] not in {"pending","failed","interrupted"}: raise ValueError("Task is not pending or repairable")
@@ -748,6 +774,11 @@ class Engine:
                 self.store.save(result)
         elif action.action=="inspect_results":
             pass
+        elif action.action=="explore":
+            parent_id,variant_ids=self._prepare_exploration(run_id,spec,action)
+            await self._run_variants(run_id,spec,manager,parent_id,variant_ids)
+        elif action.action=="select_variant":
+            await self._select_variant(run_id,manager,action)
         elif action.action=="validate":
             checks=action.checks or spec.checks or _discover_checks(manager.integration_path)
             if not checks: raise ValueError("No meaningful checks configured. Supply project check argv commands")
@@ -781,7 +812,7 @@ class Engine:
                 if not review["ok"]: raise ValueError("Replacement does not satisfy the failed task's original requirements")
                 self._task_update(run_id,task["id"],status="resolved",resolved_by=replacement["id"],resolution_review=review)
         elif action.action=="request_integration":
-            if any(t["status"] in {"pending","running","failed","interrupted"} for t in result["tasks"]):
+            if any(t["status"] not in INTEGRABLE for t in result["tasks"]):
                 raise ValueError("Unfinished tasks block integration")
             if not result["tasks"]: raise ValueError("No implementation tasks")
             if spec.mode=="compare":
@@ -802,6 +833,135 @@ class Engine:
             result["summary"]=action.summary or result["summary"]
             self.store.save(result)
             self.store.event(run_id,"completed",{"summary":result["summary"]})
+
+    def _prepare_exploration(self, run_id, spec, action):
+        """Validate an explore action and persist its variants in one write. No engine loop decides what to try."""
+        result = self.store.get(run_id)
+        tasks = {t["id"]: t for t in result["tasks"]}
+        if spec.mode != "build":
+            raise ValueError("Exploration is available in Build runs")
+        if len(action.task_ids) != 1 or action.task_ids[0] not in tasks:
+            raise ValueError("Explore exactly one known task")
+        parent = tasks[action.task_ids[0]]
+        if parent.get("variant_of"):
+            raise ValueError("Variants cannot be explored further; explore their task")
+        live = [t for t in result["tasks"] if t.get("variant_of") == parent["id"] and t["status"] in VARIANT_LIVE]
+        if not (parent["status"] in {"pending", "failed"} or (parent["status"] == "exploring" and not live and not parent.get("selecting"))):
+            raise ValueError("Only a pending or failed task, or a finished exploration round, can be explored")
+        if not all(tasks.get(d, {}).get("status") in TASK_DONE for d in parent["dependencies"]):
+            raise ValueError("Task dependencies are not complete")
+        if parent["attempts"] > spec.limits.repairs:
+            raise ValueError("Task repair limit reached")
+        if spec.limits.workers < 2 or not 2 <= len(action.variants) <= spec.limits.workers:
+            raise ValueError(f"Explore between 2 and {spec.limits.workers} variants; it needs at least 2 concurrent workers")
+        ids = [v.id for v in action.variants]
+        if len(set(ids)) != len(ids) or set(ids) & set(tasks) or set(ids) & RESERVED_IDS:
+            raise ValueError("Variant ids must be new, unique, and not reserved")
+        tokens = []
+        for variant in action.variants:
+            if len(variant.directive) > 4000:
+                raise ValueError("A variant directive is limited to 4,000 characters")
+            words = set(re.findall(r"[a-z0-9]+", variant.directive.lower()))
+            if any(not words or len(words & other) / len(words | other) >= 0.8 for other in tokens):
+                raise ValueError("Variant directives must describe substantially different approaches")
+            tokens.append(words)
+        implementers = {p.provider for p in spec.team if p.role != "reviewer"}
+        reviewers = [p.provider for p in spec.team if p.role == "reviewer"] + [spec.coordinator.provider, *[p.provider for p in spec.team]]
+        for variant in action.variants:
+            provider = variant.provider or parent["provider"]
+            if provider not in implementers:
+                raise ValueError(f"{provider} is not an enabled implementer")
+            if not any(r != provider for r in reviewers):
+                raise ValueError(f"No independent reviewer is available for {provider}")
+        required = result["artifacts"].get("required_checks", [])
+        keys = {(tuple(c.argv), c.cwd, c.timeout) for c in spec.checks}
+        if not spec.checks or any((tuple(c["argv"]), c.get("cwd", "."), c.get("timeout", 120)) not in keys for c in required):
+            raise ValueError("Exploration needs the configured project checks to compare variants")
+        round_number = parent.get("explore_round", 0) + 1
+        for task in result["tasks"]:
+            if task.get("variant_of") == parent["id"] and task["status"] != "completed":
+                task.update(status="discarded", discarded_reason="superseded")
+        spec_fields = {key: parent[key] for key in ("title", "prompt", "files", "acceptance", "dependencies")}
+        for variant in action.variants:
+            result["tasks"].append({**spec_fields, "id": variant.id, "provider": variant.provider or parent["provider"],
+                                    "variant_of": parent["id"], "variant_round": round_number, "directive": variant.directive,
+                                    "status": "pending", "attempts": 0})
+        parent.update(status="exploring", attempts=parent["attempts"] + 1, explore_round=round_number)
+        parent.pop("selecting", None)
+        self.store.save(result)
+        for variant in action.variants:
+            self.store.event(run_id, "task", {"status": "pending", "variant_of": parent["id"], "variant_round": round_number}, variant.id)
+        self.store.event(run_id, "task", {"status": "exploring", "explore_round": round_number}, parent["id"])
+        return parent["id"], ids
+
+    async def _run_variants(self, run_id, spec, manager, parent_id, ids):
+        """Run variants in parallel isolated checkouts, then check each in its own sandbox. Nothing is merged."""
+        self._status(run_id, "running")
+        await self.checkpoint(run_id)
+        records = [t for t in self.store.get(run_id)["tasks"] if t["id"] in ids]
+        outcomes = await self._worker_batch(run_id, spec, manager, records)
+        for record, outcome in zip(records, outcomes):
+            if not outcome["ok"]:
+                self._task_update(run_id, record["id"], status="failed", result=outcome)
+                continue
+            await self.checkpoint(run_id)
+            evidence = await self._checks(run_id, Path(outcome["workspace"]), spec.checks, record["id"], phase="alternative")
+            failing = [c["name"] for c in evidence if not c["ok"]]
+            if failing:
+                self._task_update(run_id, record["id"], status="failed", checks=evidence,
+                                  result={**outcome, "ok": False, "error": "Variant checks failed: " + ", ".join(failing)})
+            else:
+                self._task_update(run_id, record["id"], status="candidate", checks=evidence, result=outcome)
+        self._close_round(run_id, parent_id)
+
+    def _close_round(self, run_id, parent_id):
+        """A round with no candidate and nothing still running returns its task to failed."""
+        result = self.store.get(run_id)
+        parent = next((t for t in result["tasks"] if t["id"] == parent_id), None)
+        if parent is None or parent["status"] != "exploring":
+            return
+        current = [t for t in result["tasks"] if t.get("variant_of") == parent_id and t.get("variant_round") == parent.get("explore_round")]
+        if any(t["status"] in VARIANT_LIVE | {"candidate"} for t in current):
+            return
+        for task in current:
+            task.update(status="discarded", discarded_reason="round_failed")
+        parent.update(status="failed", result={"ok": False, "error": f"Exploration round {parent.get('explore_round')} produced no selectable candidate"})
+        parent.pop("selecting", None)
+        self.store.save(result)
+        self.store.event(run_id, "task", {"status": "failed", "explore_round": parent.get("explore_round")}, parent_id)
+
+    async def _select_variant(self, run_id, manager, action):
+        result = self.store.get(run_id)
+        tasks = {t["id"]: t for t in result["tasks"]}
+        parent = tasks.get((action.task_ids or [None])[0])
+        chosen = tasks.get(action.selected_task or "")
+        if parent is None or parent["status"] != "exploring" or len(action.task_ids) != 1:
+            raise ValueError("Select a variant of a task that is being explored")
+        if (chosen is None or chosen.get("variant_of") != parent["id"] or chosen["status"] != "candidate"
+                or chosen.get("variant_round") != parent.get("explore_round")):
+            raise ValueError("Choose a candidate variant from the current exploration round")
+        if parent.get("selecting") not in (None, chosen["id"]):
+            raise ValueError("Another variant selection is in progress; select it again or explore anew")
+        parent["selecting"] = chosen["id"]
+        self.store.save(result)
+        merged = await self._workspace_call(manager.merge, Path(chosen["result"]["workspace"]))
+        result = self.store.get(run_id)
+        tasks = {t["id"]: t for t in result["tasks"]}
+        parent, chosen = tasks[parent["id"]], tasks[chosen["id"]]
+        if not merged["ok"]:
+            parent.pop("selecting", None)
+            self.store.save(result)
+            raise ValueError("The selected variant conflicts with the integration candidate: " + str(merged.get("error") or "")[:500])
+        chosen.update(status="completed", result={**chosen["result"], "merge": merged})
+        parent.update(status="resolved", resolved_by=chosen["id"], resolution="variant_selection")
+        parent.pop("selecting", None)
+        for task in result["tasks"]:
+            if task.get("variant_of") == parent["id"] and task["id"] != chosen["id"] and task["status"] != "discarded":
+                task.update(status="discarded", discarded_reason="not_selected")
+        result["diff"] = manager.diff()
+        result["artifacts"].pop("validated_fingerprint", None)
+        self.store.save(result)
+        self.store.event(run_id, "task", {"status": "resolved", "resolved_by": chosen["id"]}, parent["id"])
 
     async def _worker(self,run_id,spec,manager,task):
         member=next(p for p in spec.team if p.provider==task["provider"] and p.role!="reviewer")
@@ -882,7 +1042,8 @@ class Engine:
         if not collected["changed_files"]: return finish({"ok":False,"error":"Implementation produced no changes","workspace":str(target),"provider_result":_handoff(outcome)})
         reviewer=next((p for p in spec.team if p.provider!=member.provider and p.role=="reviewer"),None) or next((p for p in [spec.coordinator,*spec.team] if p.provider!=member.provider),None)
         if reviewer is None: return finish({"ok":False,"error":"No independent reviewer","workspace":str(target)})
-        review=await self._assess_patch(run_id,reviewer,target,spec.prompt,task,task["id"],patch=collected.get("patch") or "")
+        requirements={**task,"id":task.get("variant_of") or task["id"]}
+        review=await self._assess_patch(run_id,reviewer,target,spec.prompt,requirements,task["id"],patch=collected.get("patch") or "")
         if not review["ok"]: return finish({**collected,"ok":False,"error":"Independent review rejected the change","workspace":str(target),"review":review,"provider_result":_handoff(outcome)})
         active["reviewed_fingerprint"] = manager.fingerprint(target)
         return finish({**collected,"ok":True,"workspace":str(target),"review":review,"provider_result":_handoff(outcome)}, "reviewed")

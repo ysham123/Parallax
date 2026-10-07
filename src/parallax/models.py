@@ -99,15 +99,23 @@ class TaskSpec(Contract):
     files: list[str] = Field(default_factory=list)
     acceptance: list[str] = Field(default_factory=list)
 
+class VariantSpec(Contract):
+    """One alternative approach to a task, explored in its own isolated checkout."""
+    id: str = Field(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")
+    directive: str = Field(min_length=1)
+    provider: Provider | None = None
+
 class CoordinatorAction(Contract):
     id: str = Field(min_length=1)
-    action: Literal["plan", "dispatch", "inspect_results", "validate", "resolve_task", "request_integration", "finish"]
+    action: Literal["plan", "dispatch", "inspect_results", "validate", "resolve_task", "request_integration", "finish",
+                    "explore", "select_variant"]
     summary: str = ""
     tasks: list[TaskSpec] = Field(default_factory=list)
     task_ids: list[str] = Field(default_factory=list)
     checks: list[CheckSpec] = Field(default_factory=list)
     selected_task: str | None = None
     memo: str = ""  # Carried to the coordinator's next fresh turn (the engine shows at most 2,000 characters).
+    variants: list[VariantSpec] = Field(default_factory=list)
 
 class RunEvent(Contract):
     schema_version: Literal["1.0", "1.1"] = "1.1"
