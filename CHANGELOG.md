@@ -32,6 +32,7 @@
 - Evaluator isolation: reviewers judge the request, the original requirements, the candidate's own patch and its own evidence, never the implementer; review-mode synthesis is blind.
 - Exploration: the coordinator can try substantially different variants of a task in isolated checkouts, reviewed and checked independently, and merge one.
 - Project memory: a local per-project idea graph, coordinator-only retrieval with `search_ideas`, and post-run distillation of grounded, evidence-weighted lessons with local inspect, disable and forget controls.
+- Planner packets carry a complete task index with actionable detail first; plans are capped at 40 tasks; synthesis and worker packets are budgeted by encoded size; memory text is stored with runtime paths scrubbed and project paths relative.
 - Fixes: the integration reviewer sees the checks it just ran, merge conflicts consume the repair budget instead of looping, and a failed attempt is never re-run for free after a crash.
 
 Publication, remote CI, live API inference and the five-developer study remain separate validation gates.

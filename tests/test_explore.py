@@ -102,6 +102,46 @@ class ExplorationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((tasks["fix"]["status"], tasks["fix"]["explore_round"]), ("exploring", 2))
         self.assertEqual((tasks["v3"]["status"], tasks["v4"]["status"]), ("candidate", "candidate"))
 
+    async def test_a_variant_whose_checks_cannot_run_fails_alone(self):
+        registry = DirectiveRegistry()
+        run_id, spec, manager, engine = self.prepared(registry)
+        real = engine._checks
+        async def checks(run_id_, root, specs, task_id, phase):
+            if task_id == "v1":
+                raise ValueError("Check working directory escapes the checkout")
+            return await real(run_id_, root, specs, task_id, phase=phase)
+        engine._checks = checks
+        await engine._action(run_id, spec, manager, explore(("v1", "DIRECTIVE-A use the plus operator directly"),
+                                                            ("v2", "DIRECTIVE-B swap the operands and document why")))
+        tasks = self.tasks(run_id)
+        self.assertEqual((tasks["v1"]["status"], tasks["v2"]["status"], tasks["fix"]["status"]), ("failed", "candidate", "exploring"))
+        self.assertIn("could not run", tasks["v1"]["result"]["error"])
+
+    async def test_a_round_whose_checks_all_crash_returns_the_task_instead_of_deadlocking(self):
+        registry = DirectiveRegistry()
+        run_id, spec, manager, engine = self.prepared(registry)
+        async def checks(*args, **kwargs):
+            raise ValueError("Check working directory escapes the checkout")
+        engine._checks = checks
+        await engine._action(run_id, spec, manager, explore(("v1", "DIRECTIVE-A use the plus operator directly"),
+                                                            ("v2", "DIRECTIVE-B swap the operands and document why")))
+        self.assertEqual(self.tasks(run_id)["fix"]["status"], "failed")
+        # A crash mid-batch leaves no variant marked running forever.
+        run_id, spec, manager, engine = self.prepared(DirectiveRegistry())
+        async def crash(run_id_, spec_, manager_, records):
+            result = self.store.get(run_id_)
+            for task in result["tasks"]:
+                if task["id"] in {r["id"] for r in records}:
+                    task["status"] = "running"
+            self.store.save(result)
+            raise RuntimeError("worker pool crashed")
+        engine._worker_batch = crash
+        with self.assertRaisesRegex(RuntimeError, "worker pool crashed"):
+            await engine._action(run_id, spec, manager, explore(("v1", "DIRECTIVE-A use the plus operator directly"),
+                                                                ("v2", "DIRECTIVE-B swap the operands and document why")))
+        tasks = self.tasks(run_id)
+        self.assertEqual((tasks["v1"]["status"], tasks["v2"]["status"]), ("interrupted", "interrupted"))
+
     async def test_invalid_explorations_are_rejected_before_any_work(self):
         registry = DirectiveRegistry()
         run_id, spec, manager, engine = self.prepared(registry)

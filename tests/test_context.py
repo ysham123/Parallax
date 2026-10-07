@@ -126,9 +126,59 @@ class CoordinatorPacketSizeTests(unittest.TestCase):
         packet = coordinator_packet(result, [], turn=3)
         text = packet.render()
         self.assertIn(request, text)
-        self.assertLess(len(text) - len(request), 45000)
+        self.assertLess(len(text) - len(request), 55000)
         for leaked in ("NARRATIVE", "/secret/run", "s-123", "run-uuid"):
             self.assertNotIn(leaked, text)
+
+    def test_every_task_stays_visible_and_actionable_tasks_get_detail_first(self):
+        from parallax.context import coordinator_packet
+        limits = {"workers": 3, "repairs": 2, "minutes": 45, "attempt_seconds": 600, "coordinator_turns": 20}
+        tasks = [{"id": f"t{i}", "title": f"Task {i}", "provider": "claude", "prompt": "p" * 1400, "files": [f"src/m{i}.py"],
+                  "dependencies": [], "acceptance": ["a" * 400] * 3, "status": "completed", "attempts": 1,
+                  "result": {"ok": True, "changed_files": [f"src/m{i}.py"]}} for i in range(39)]
+        tasks.append({**tasks[0], "id": "late-failure", "status": "failed", "attempts": 2,
+                      "result": {"ok": False, "error": "LATE-FAILURE-DETAIL"}})
+        tasks.append({"id": "v1", "variant_of": "late-failure", "status": "candidate", "directive": "d"})
+        tasks.append({"id": "v0", "variant_of": "late-failure", "status": "discarded", "directive": "d"})
+        result = {"spec": {"prompt": "Build it", "mode": "build", "coordinator": {"provider": "codex"}, "team": [],
+                           "checks": [], "limits": limits}, "tasks": tasks, "artifacts": {}}
+        packet = coordinator_packet(result, [], turn=1)
+        text = packet.render()
+        sections = {s["name"]: s for s in packet.manifest()["sections"]}
+        self.assertEqual(sections["Task index"]["truncated_chars"], 0)
+        index = text.split("<<<begin Task index ", 1)[1].split("\n", 1)[1].split("\n<<<end Task index", 1)[0]
+        entries = json.loads(index)
+        self.assertEqual([e["id"] for e in entries], [t["id"] for t in tasks if not t.get("variant_of")])
+        self.assertEqual(entries[-1]["variants"], [["v1", "candidate"]])
+        self.assertEqual((entries[-1]["discarded_variants"], entries[-1]["repairs_left"]), (1, 1))
+        detail = text.split("<<<begin Tasks ", 1)[1]
+        self.assertLess(detail.index("LATE-FAILURE-DETAIL"), detail.index('"id":"t0"'))
+        self.assertIn('"details_omitted":[', detail)
+        self.assertEqual(sections["Tasks"]["truncated_chars"], 0)
+
+
+class PacketBudgetTests(unittest.TestCase):
+    def test_synthesis_keeps_every_label_when_answers_expand_under_encoding(self):
+        from parallax.context import synthesis_packet
+        answer = "\n\"" * 60000  # Each character doubles when rendered as JSON.
+        reviews = [{"ok": True, "provider": p, "answer": answer} for p in ("claude", "codex", "grok")]
+        packet, legend = synthesis_packet("Review this", reviews)
+        text = packet.render()
+        for label in "ABC":
+            self.assertIn(f'"label":"{label}"', text)
+        assessments = next(s for s in packet.manifest()["sections"] if s["name"] == "Assessments")
+        self.assertEqual(assessments["truncated_chars"], 0)
+
+    def test_worker_task_section_shrinks_to_fit_a_maximal_request(self):
+        from types import SimpleNamespace
+        from parallax.context import PROMPT_LIMIT, REQUEST_LIMIT, worker_packet
+        task = {"id": "t", "title": "T" * 200, "prompt": "P" * 50000, "files": ["f" * 200] * 100,
+                "acceptance": ["a" * 500] * 20, "dependencies": [], "directive": "D" * 4000, "attempts": 0}
+        result = {"spec": {"prompt": "R" * REQUEST_LIMIT, "mode": "build"}, "tasks": [task], "artifacts": {}}
+        packet = worker_packet(result, task, continuing=False, fresh_checkout=False, instructions={},
+                               limits=SimpleNamespace(repairs=2))
+        self.assertLessEqual(len(packet.render()), PROMPT_LIMIT)
+        self.assertIn("D" * 4000, packet.render())
 
 
 if __name__ == "__main__":

@@ -151,8 +151,10 @@ class GraphStore:
     # Projection --------------------------------------------------------------
     def project(self, result: dict, check_events: list[dict]) -> int:
         """Idempotently record one finished run's facts. Returns the run's sequence number."""
+        from .context import memory_scrubber
         run_id, now = result["run_id"], time.time()
         spec = result["spec"]
+        scrub = memory_scrubber(result["artifacts"].get("directory"), spec.get("workspace"))
         with self.connect() as db:
             row = db.execute("SELECT run_seq FROM runs WHERE run_id=?", (run_id,)).fetchone()
             if row is None:
@@ -163,7 +165,7 @@ class GraphStore:
                 db.execute("UPDATE runs SET status=? WHERE run_id=?", (result["status"], run_id))
             db.execute("DELETE FROM nodes WHERE run_id=?", (run_id,))
             goal = self.node_id("goal", run_id, "goal")
-            self._node(db, goal, run_id, "goal", "goal", _clip(spec["prompt"], 200), _clip(spec["prompt"], 2000), [], "runtime",
+            self._node(db, goal, run_id, "goal", "goal", _clip(scrub(spec["prompt"]), 200), _clip(scrub(spec["prompt"]), 2000), [], "runtime",
                        {"completed": "pass", "failed": "fail", "needs_attention": "fail"}.get(result["status"]), None,
                        {"mode": spec["mode"]}, now)
             sessions = {}
@@ -177,17 +179,17 @@ class GraphStore:
                 approach = self.node_id("approach", run_id, task["id"])
                 approaches[task["id"]] = approach
                 outcome_result = task.get("result") or {}
-                self._node(db, approach, run_id, "approach", task["id"], _clip(task.get("title"), 200),
-                           _clip(task.get("prompt"), 1000), task.get("files", []), "runtime", outcome, task.get("failure_category"),
+                self._node(db, approach, run_id, "approach", task["id"], _clip(scrub(task.get("title")), 200),
+                           _clip(scrub(task.get("prompt")), 1000), task.get("files", []), "runtime", outcome, task.get("failure_category"),
                            {"provider": task.get("provider"), "model": sessions.get(task["id"]), "attempts": task.get("attempts", 0),
-                            "acceptance": [_clip(a, 200) for a in task.get("acceptance", [])][:8],
+                            "acceptance": [_clip(scrub(a), 200) for a in task.get("acceptance", [])][:8],
                             "changed_files": (outcome_result.get("changed_files") or [])[:30],
-                            "variant_of": task.get("variant_of"), "directive": _clip(task.get("directive"), 300) or None}, now)
+                            "variant_of": task.get("variant_of"), "directive": _clip(scrub(task.get("directive")), 300) or None}, now)
                 db.execute("INSERT OR IGNORE INTO edges(src,rel,dst) VALUES(?,?,?)", (approach, "pursues", goal))
                 review = outcome_result.get("review")
                 if review:
                     evidence = self.node_id("evidence", run_id, f"review:{task['id']}")
-                    findings = [_clip(f if isinstance(f, str) else json.dumps(f, sort_keys=True), 200) for f in (review.get("findings") or [])[:3]]
+                    findings = [_clip(scrub(f if isinstance(f, str) else json.dumps(f, sort_keys=True)), 200) for f in (review.get("findings") or [])[:3]]
                     self._node(db, evidence, run_id, "evidence", f"review:{task['id']}", "Independent review " + ("approved" if review.get("ok") else "rejected"),
                                "\n".join(findings), task.get("files", []), "runtime", "pass" if review.get("ok") else "fail", None, {"type": "review"}, now)
                     db.execute("INSERT OR IGNORE INTO edges(src,rel,dst) VALUES(?,?,?)", (evidence, "supports" if review.get("ok") else "refutes", approach))
@@ -200,7 +202,7 @@ class GraphStore:
                 local = f"check:{event.get('sequence', '')}:{data.get('name')}"
                 evidence = self.node_id("evidence", run_id, local)
                 self._node(db, evidence, run_id, "evidence", local, _clip(f"Check {data.get('name')} {'passed' if data.get('ok') else 'failed'}", 200),
-                           "", [], "runtime", "pass" if data.get("ok") else "fail", data.get("error"),
+                           "", [], "runtime", "pass" if data.get("ok") else "fail", _clip(scrub(data.get("error")), 200) or None,
                            {"type": "check", "phase": data.get("phase"), "exit_code": data.get("exit_code")}, now)
                 if target:
                     db.execute("INSERT OR IGNORE INTO edges(src,rel,dst) VALUES(?,?,?)", (evidence, "supports" if data.get("ok") else "refutes", target))
@@ -377,13 +379,17 @@ LESSON_KEYS = set(DISTILL_SCHEMA["properties"]["lessons"]["items"]["required"])
 MAX_LESSONS_PER_RUN = 3
 OPPOSITE = {"prefer": "avoid", "avoid": "prefer"}
 HYGIENE = re.compile(
-    r"https?://|`|\$\(|\bcurl\b|\bwget\b|\beval\b|[A-Za-z0-9+/]{40,}={0,2}"
+    r"https?://|`|\$\(|\bcurl\b|\bwget\b|\beval\b|[A-Za-z0-9+]{40,}={0,2}"
     r"|\b(?:ignore|skip|disable|bypass|turn off|don't run|do not run)\b.{0,40}\b(?:checks?|reviews?|instructions?|tests?|sandbox(?:es)?)\b",
     re.IGNORECASE)
 
 
+SCOPE_SHAPE = re.compile(r"[A-Za-z0-9._@+/-]{1,200}")
+
+
 def _safe_scope(path) -> bool:
-    if not isinstance(path, str) or not path or len(path) > 200 or "\\" in path or "\x00" in path:
+    # A scope is a project path, never prose: no spaces or punctuation that could carry an instruction.
+    if not isinstance(path, str) or not SCOPE_SHAPE.fullmatch(path):
         return False
     parts = PurePosixPath(path).parts
     return not PurePosixPath(path).is_absolute() and ".." not in parts and not any(p.startswith(".git") for p in parts)

@@ -11,7 +11,7 @@ import uuid
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 from parallax.engine import Engine
-from parallax.models import CoordinatorAction
+from parallax.models import CoordinatorAction, TaskSpec
 import test_engine
 from test_engine import FakeRegistry
 
@@ -105,6 +105,48 @@ class EngineFixesTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(again["ok"])
         self.assertEqual(registry.prompts(mode="edit"), [])
         self.assertEqual(self.store.get(run_id)["tasks"][0]["attempts"], 1)
+
+    async def test_merge_failure_interrupted_before_bookkeeping_is_reported_not_rerun(self):
+        run_id, spec, manager = self.seed()
+        result = self.store.get(run_id); result["tasks"] = [self.task()]; self.store.save(result)
+        engine = self.engine(RecordingRegistry(), run_id)
+        with patch.object(manager, "merge", return_value={"ok": False, "error": "conflict"}):
+            await engine._action(run_id, spec, manager, CoordinatorAction(id="d1", action="dispatch", task_ids=["fix"]))
+        saved = self.store.get(run_id)["tasks"][0]
+        self.assertEqual((saved["active_attempt"]["state"], saved["active_attempt"]["resume_safe"]), ("merge_failed", False))
+        # The runtime crashed before the dispatch loop recorded the failure; the unsafe checkout is never resumed.
+        result = self.store.get(run_id); result["tasks"][0]["status"] = "interrupted"; self.store.save(result)
+        registry = RecordingRegistry()
+        again = await self.engine(registry, run_id)._worker(run_id, spec, manager, self.store.get(run_id)["tasks"][0])
+        self.assertFalse(again["ok"])
+        self.assertEqual(registry.prompts(mode="edit"), [])
+        self.assertEqual(self.store.get(run_id)["tasks"][0]["attempts"], 1)
+
+    async def test_an_interrupted_finished_failure_does_not_bypass_the_repair_limit(self):
+        run_id, spec, manager = self.seed()
+        spec.limits.repairs = 0
+        task = {**self.task(), "status": "interrupted", "attempts": 1, "result": {"ok": False, "error": "conflict"},
+                "active_attempt": {"state": "merge_failed", "resume_safe": False}}
+        result = self.store.get(run_id); result["spec"] = spec.model_dump(); result["tasks"] = [task]; self.store.save(result)
+        engine = self.engine(RecordingRegistry(), run_id)
+        with self.assertRaisesRegex(ValueError, "repair limit"):
+            await engine._action(run_id, spec, manager, CoordinatorAction(id="d1", action="dispatch", task_ids=["fix"]))
+        result = self.store.get(run_id); result["tasks"][0]["active_attempt"] = {"state": "implemented"}; self.store.save(result)
+        await engine._action(run_id, spec, manager, CoordinatorAction(id="d2", action="dispatch", task_ids=["fix"]))
+
+    async def test_plans_are_bounded_in_size_and_count(self):
+        run_id, spec, manager = self.seed()
+        engine = self.engine(RecordingRegistry(), run_id)
+        def planned(identifier, **changes):
+            return TaskSpec(**{"id": identifier, "title": "T", "provider": "claude", "prompt": "p", "files": ["maths.py"], **changes})
+        for changes in ({"title": "t" * 201}, {"acceptance": ["a"] * 21}, {"acceptance": ["a" * 501]},
+                        {"files": [f"f{i}.py" for i in range(101)]}, {"files": ["f" * 201]}):
+            with self.assertRaisesRegex(ValueError, "too large"):
+                engine._validate_tasks(spec, [planned("big", **changes)], [])
+        existing = [{"id": f"t{i}", "dependencies": []} for i in range(39)] + [{"id": "v1", "dependencies": [], "variant_of": "t0"}]
+        engine._validate_tasks(spec, [planned("last")], existing)
+        with self.assertRaisesRegex(ValueError, "at most 40 planned tasks"):
+            engine._validate_tasks(spec, [planned("one"), planned("two")], existing)
 
     async def test_stale_running_tasks_become_interrupted_before_reconciliation(self):
         run_id, spec, manager = self.seed()

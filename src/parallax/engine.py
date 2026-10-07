@@ -17,13 +17,14 @@ from .store import Store
 from .assessment import assess_project, execution_capability, package_directory
 from .recovery import classify, recovery_options
 from .context import (PROMPT_LIMIT, REQUEST_LIMIT, Packet, consultant_packet, coordinator_packet, distiller_packet,
-                      filter_patch, review_packet, synthesis_packet, worker_packet)
+                      filter_patch, memory_scrubber, review_packet, synthesis_packet, worker_packet)
 
 TERMINAL = {"completed", "failed", "cancelled", "needs_attention"}
 TASK_DONE = {"completed", "resolved"}
 INTEGRABLE = {"completed", "resolved", "discarded"}
 VARIANT_LIVE = {"pending", "running", "interrupted"}
 RESERVED_IDS = {"coordinator", "baseline", "integration", "distill", "synthesis"}
+MAX_TASKS = 40
 
 class RunProblem(Exception):
     pass
@@ -329,6 +330,8 @@ class Engine:
 
     def recover_run(self, run_id: str, action: str) -> dict:
         result = self.store.get(run_id)
+        if run_id in self.jobs and result["status"] != "paused":
+            raise ValueError("Run is finishing post-run memory work; retry shortly")
         choices = recovery_options(result)
         if action not in {item["id"] for item in choices["actions"]} or action not in {"repair_candidate", "retry_interrupted"}:
             raise ValueError("This recovery action is not available for the recorded failure")
@@ -388,7 +391,8 @@ class Engine:
                 raise ValueError("A completed run cannot be stopped")
             self.cancel_flags.setdefault(run_id,asyncio.Event()).set()
             self.wakeup.setdefault(run_id,asyncio.Event()).set()
-            if run_id not in self.jobs:
+            # A settled run whose job is still recording memory stops now; the in-flight distiller sees the flag.
+            if run_id not in self.jobs or result["status"] in TERMINAL - {"completed"}:
                 result["status"] = "cancelled"
                 self.store.save(result)
                 self.store.release(run_id)
@@ -623,7 +627,11 @@ class Engine:
         graph = {t["id"]:t["dependencies"] for t in existing}
         graph.update({t.id:t.dependencies for t in tasks})
         variant_ids = {t["id"] for t in existing if t.get("variant_of")}
+        if len(ids - variant_ids) + len(tasks) > MAX_TASKS:
+            raise ValueError(f"A run holds at most {MAX_TASKS} planned tasks; extend or resolve existing tasks instead")
         for task in tasks:
+            if len(task.title) > 200 or len(task.acceptance) > 20 or any(len(a) > 500 for a in task.acceptance) or len(task.files) > 100 or any(len(f) > 200 for f in task.files):
+                raise ValueError(f"Task {task.id} is too large: titles are limited to 200 characters, acceptance to 20 items of 500 characters, and ownership to 100 paths of 200 characters")
             if task.id in RESERVED_IDS:
                 raise ValueError(f"Task id {task.id} is reserved")
             if set(task.dependencies) & variant_ids:
@@ -746,7 +754,9 @@ class Engine:
             for task in selected:
                 if task["status"] not in {"pending","failed","interrupted"}: raise ValueError("Task is not pending or repairable")
                 if not set(task["dependencies"])<=done: raise ValueError("Task dependencies are not complete")
-                if task["status"] != "interrupted" and task["attempts"]>spec.limits.repairs: raise ValueError("Task repair limit reached")
+                # Only an attempt that was still in progress may continue past the budget; a finished failure may not.
+                continuing=task["status"]=="interrupted" and (task.get("active_attempt") or {}).get("state","running") in {"running","implemented","interrupted","reviewed"}
+                if not continuing and task["attempts"]>spec.limits.repairs: raise ValueError("Task repair limit reached")
             # The dispatch summary is the coordinator's brief to these workers.
             for task in selected:
                 task["coordinator_note"]=(action.summary or "")[:2000]
@@ -926,7 +936,7 @@ class Engine:
             candidates = [p for p in spec.team if p.role == "reviewer"] + [p for p in spec.team if p.role != "reviewer"]
             distiller = next((p for p in candidates if p.provider != spec.coordinator.provider), spec.coordinator)
             from .ideas import DISTILL_SCHEMA
-            outcome = await self._provider(run_id, distiller, directory, distiller_packet(digest), mode="consult", task_id="distill",
+            outcome = await self._provider(run_id, distiller, directory, distiller_packet(digest, memory_scrubber(result["artifacts"]["directory"], spec.workspace)), mode="consult", task_id="distill",
                                            role="distiller", schema=DISTILL_SCHEMA, timeout=min(spec.limits.attempt_seconds, 180), quiet=True)
             if not outcome.get("ok"):
                 raise RunProblem("distiller_failed")
@@ -1013,20 +1023,34 @@ class Engine:
         self._status(run_id, "running")
         await self.checkpoint(run_id)
         records = [t for t in self.store.get(run_id)["tasks"] if t["id"] in ids]
-        outcomes = await self._worker_batch(run_id, spec, manager, records)
-        for record, outcome in zip(records, outcomes):
-            if not outcome["ok"]:
-                self._task_update(run_id, record["id"], status="failed", result=outcome)
-                continue
-            await self.checkpoint(run_id)
-            evidence = await self._checks(run_id, Path(outcome["workspace"]), spec.checks, record["id"], phase="alternative")
-            failing = [c["name"] for c in evidence if not c["ok"]]
-            if failing:
-                self._task_update(run_id, record["id"], status="failed", checks=evidence,
-                                  result={**outcome, "ok": False, "error": "Variant checks failed: " + ", ".join(failing)})
-            else:
-                self._task_update(run_id, record["id"], status="candidate", checks=evidence, result=outcome)
-        self._close_round(run_id, parent_id)
+        try:
+            outcomes = await self._worker_batch(run_id, spec, manager, records)
+            for record, outcome in zip(records, outcomes):
+                if not outcome["ok"]:
+                    self._task_update(run_id, record["id"], status="failed", result=outcome)
+                    continue
+                await self.checkpoint(run_id)
+                try:
+                    evidence = await self._checks(run_id, Path(outcome["workspace"]), spec.checks, record["id"], phase="alternative")
+                except ValueError as exc:
+                    # A variant that breaks its own check environment fails alone; its siblings keep their results.
+                    self._task_update(run_id, record["id"], status="failed",
+                                      result={**outcome, "ok": False, "error": "Variant checks could not run: " + str(exc)[:1000]})
+                    continue
+                failing = [c["name"] for c in evidence if not c["ok"]]
+                if failing:
+                    self._task_update(run_id, record["id"], status="failed", checks=evidence,
+                                      result={**outcome, "ok": False, "error": "Variant checks failed: " + ", ".join(failing)})
+                else:
+                    self._task_update(run_id, record["id"], status="candidate", checks=evidence, result=outcome)
+        finally:
+            result = self.store.get(run_id)
+            stranded = [t for t in result["tasks"] if t["id"] in ids and t["status"] == "running"]
+            if stranded:
+                for task in stranded:
+                    task["status"] = "interrupted"
+                self.store.save(result)
+            self._close_round(run_id, parent_id)
 
     def _close_round(self, run_id, parent_id):
         """A round with no candidate and nothing still running returns its task to failed."""
@@ -1055,7 +1079,7 @@ class Engine:
                 or chosen.get("variant_round") != parent.get("explore_round")):
             raise ValueError("Choose a candidate variant from the current exploration round")
         if parent.get("selecting") not in (None, chosen["id"]):
-            raise ValueError("Another variant selection is in progress; select it again or explore anew")
+            raise ValueError(f"Variant {parent['selecting']} is already being selected; select it again to finish")
         parent["selecting"] = chosen["id"]
         self.store.save(result)
         merged = await self._workspace_call(manager.merge, Path(chosen["result"]["workspace"]))
@@ -1080,6 +1104,11 @@ class Engine:
     async def _worker(self,run_id,spec,manager,task):
         member=next(p for p in spec.team if p.provider==task["provider"] and p.role!="reviewer")
         previous = task.get("active_attempt") or {}
+        if (task["status"] == "interrupted" and previous.get("state") in {"failed", "merge_failed"}
+                and task.get("result", {}).get("ok") is False):
+            # The attempt already finished and failed before the crash; report it instead of re-running it.
+            self._task_update(run_id, task["id"], status="running", active_attempt=previous)
+            return task["result"]
         reuse = bool(previous.get("workspace") and previous.get("worker_id")
                      and previous.get("participant") == member.model_dump()
                      and previous.get("resume_safe", True)
@@ -1092,11 +1121,6 @@ class Engine:
         if reuse:
             if Path(previous["workspace"]).resolve() != target.resolve():
                 raise ValueError("Saved attempt workspace does not match its owned checkout")
-            if (task["status"] == "interrupted" and previous.get("state") == "failed"
-                    and task.get("result", {}).get("ok") is False):
-                # The attempt already finished and failed before the crash; report it instead of re-running it.
-                self._task_update(run_id, task["id"], status="running", active_attempt=previous)
-                return task["result"]
             if (previous.get("state") == "reviewed" and task.get("result", {}).get("ok")
                     and previous.get("reviewed_fingerprint") == manager.fingerprint(target)):
                 self._task_update(run_id, task["id"], status="running", active_attempt=previous)
