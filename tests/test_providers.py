@@ -371,6 +371,27 @@ class ProvidersTest(unittest.IsolatedAsyncioTestCase):
                         os.killpg(event['pid'],signal.SIGKILL)
             await asyncio.sleep(0.1)
 
+    async def test_process_started_is_published_before_output_even_when_identity_is_slow(self):
+        events=[]
+        (self.workspace/'behavior').write_text('sleep')
+        from parallax import providers as runner
+        real=runner.process_identity
+        async def slow_identity(pid):
+            await asyncio.sleep(0.5)  # The CLI prints its first event while the identity is still being read.
+            return await real(pid)
+        try:
+            with patch('parallax.providers.process_identity',side_effect=slow_identity):
+                await self.run_provider('codex',timeout=1.5,on_event=lambda event:events.append(event))
+            self.assertEqual(events[0]['type'],'parallax.process_started')
+            self.assertIn('identity',events[0])
+            self.assertGreater(len(events),2)  # The CLI's own output followed, then the bounded stop.
+        finally:
+            for event in events:
+                if event.get('type')=='parallax.process_started':
+                    with contextlib.suppress(ProcessLookupError):
+                        os.killpg(event['pid'],signal.SIGKILL)
+            await asyncio.sleep(0.1)
+
     async def test_copied_configuration_restored_after_provider_recreation(self):
         original=self.workspace/'.codex/config.toml'
         original.parent.mkdir()
