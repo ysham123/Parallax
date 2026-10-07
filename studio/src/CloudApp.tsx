@@ -113,7 +113,17 @@ export default function CloudApp() {
         setView({ kind: "ready", session: next });
         if (location.pathname === "/operator") window.history.replaceState(null, "", "/");
       } catch {
-        if (!background) setView({ kind: "unavailable" });
+        if (background) return;
+        // The public page never dead-ends on the runtime; visitors keep the plugin install path.
+        setView(
+          location.pathname === "/operator"
+            ? { kind: "unavailable" }
+            : {
+                kind: "signed-out",
+                notice:
+                  "Hosted workspaces are unavailable right now. The Claude Code and Codex plugins work as usual.",
+              },
+        );
       }
     },
     [endSession],
