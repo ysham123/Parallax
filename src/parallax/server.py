@@ -15,6 +15,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse, JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
+from . import __version__
 from .engine import Engine
 from .models import RunSpec, RunResult, RunEvent, ProjectProfile, Participant
 from .recovery import RecoveryRequest, AlphaFeedback, recovery_options, save_feedback, save_baseline_feedback, export_feedback
@@ -149,7 +150,7 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
         await engine.reconcile_children()
         yield
         await engine.shutdown()
-    app=FastAPI(title="Parallax",version="1.1.0",lifespan=lifespan,docs_url=None,redoc_url=None,openapi_url=None)
+    app=FastAPI(title="Parallax",version=__version__,lifespan=lifespan,docs_url=None,redoc_url=None,openapi_url=None)
     app.state.engine=engine;app.state.token=token;app.state.store=store;app.state.accounts=accounts
     from .executors import ExecutorHub, MAX_MESSAGE, limits_for
     hub = ExecutorHub(store) if deployment else None
@@ -249,7 +250,7 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
     async def missing(request,exc): return JSONResponse({"detail":"Run not found"},status_code=404)
 
     @app.get("/api/health")
-    async def health(): return {"ok":True,"version":"1.1.0"}
+    async def health(): return {"ok":True,"version":__version__}
     @app.get("/api/context")
     async def context(): return {"workspace":workspace or os.environ.get("PARALLAX_WORKSPACE","")}
     @app.post("/api/session")

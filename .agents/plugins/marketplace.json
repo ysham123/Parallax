@@ -8,7 +8,7 @@
       "name": "codex-claude-team",
       "source": {
         "source": "url",
-        "url": "https://github.com/ysham123/codex-claude-team.git"
+        "url": "https://github.com/ysham123/Parallax.git"
       },
       "policy": {
         "installation": "AVAILABLE",

@@ -1,37 +1,30 @@
-# Draft GitHub release: Parallax 1.1 · Developer alpha
+# Parallax 1.2 · Public release
 
-Code is pushed for review in [draft PR #1](https://github.com/ysham123/codex-claude-team/pull/1). Release archives are prepared locally. Tag creation and release publication await review.
+Parallax runs a team of coding agents from different providers on your project and integrates only what survives independent review and your project's real checks. This release brings Parallax to Claude Code, adds individual accounts to the hosted Studio, and rebuilds how agents receive context.
 
-Parallax turns an outcome into a reviewed, checked project patch from your Codex conversation. Choose Codex, Claude Code, Grok Build or Antigravity, assign the coordinator and roles, and select models and supported effort. Use existing CLI sign-ins or optional API connections.
+## Highlights
 
-Studio opens on a graph-first Workspace, with New run and Review; reusable presets; official provider marks; separate agent and task graphs with assignment inspection, dependencies, evidence and repair history; streaming activity; checkpoint steering; and pause, stop and resume. Dark and light themes, reduced motion, keyboard controls and a responsive layout are included.
+**Claude Code plugin.** Install with `/plugin marketplace add ysham123/Parallax` and `/plugin install parallax@parallax`. Use `/parallax:review`, `/parallax:build <task>` and `/parallax:studio`, or ask Claude to bring in the team. The plugin uses the same local runtime, history and profiles as the Codex plugin and the CLI.
 
-Workers use private snapshots of the effective working tree. Independent reviews and actual combined project checks gate integration. Staged work and unrelated edits are preserved, or the run stops with its patch and workspaces available. A downloadable verification record identifies the patch, settings and gate outcomes without exposing prompts or raw provider sessions. It is evidence, not a correctness guarantee.
+**Accounts and private workspaces.** A hosted Studio now has a public entry and GitHub sign-in. Each account gets a private workspace whose agents run only on machines its owner pairs, scoped to approved project folders. Sessions are server-side and revocable, accounts can be deleted with their evidence, and the operator keeps a separate workspace. Durable limits cover sign-in, pairing, machines, relayed requests and retained evidence.
 
-The repository, Parallax identity and `codex-claude-team` install ID are retained. The original Claude bridge arguments and result fields remain compatible. Users do not need Node to run the packaged Studio.
+**Context and memory engineering.** Every model call receives a compact, role-scoped packet compiled from saved state, never a growing transcript. Coordinator turns, repairs and reviews start fresh sessions. Reviewers never see who wrote a change, and review-mode synthesis is blind. The coordinator can explore substantially different variants of a task in isolated checkouts. A local, per-project idea graph and post-run distillation of evidence-grounded lessons give later runs a memory without hard-coded loops.
 
-This update adds project readiness, saved package roots and check profiles, private baseline checks, per-package setup, contextual recovery and opt-in local alpha feedback. See [delivery behavior](DELIVERY.md) and the [matched five-developer alpha protocol](ALPHA.md).
+## Upgrading
+
+See [UPGRADE.md](../UPGRADE.md#11-to-12). The Codex install ID stays `codex-claude-team`. Hosted operators should back up the runtime volume and follow the [public launch checklist](DEPLOYMENT.md#public-launch-checklist). Existing hosted sessions end, and paired workers should be updated alongside the runtime.
 
 ## Validation
 
-- The final 1.1 suite completed 142 cases on Python 3.13 locally, with one Linux-only live case skipped on macOS. Python 3.10 passed the earlier full suite and the final delivery and engine regressions. The real four-provider mixed-project build passed all four unchanged final checks and all five integration gates, and preserved the real index byte for byte. Two baseline test failures are retained.
-- Deterministic native/API provider, engine, workspace, compatibility, server, receipt and release tests validated locally on macOS with Python 3.10 and 3.13. See the [validation index](validation/README.md) for exact coverage.
-- Sixteen real native CLI cases passed across all four installed providers, including consultation, scoped editing, resume and permission boundaries.
-- The representative four-provider build completed with a rejected implementation, repair, independent review and eight passing acceptance tests before application. The actual diff and final verification record are included.
-- Desktop and mobile Studio flows, keyboard operation, modal focus behavior, graph inspection and dark/light presentation were checked against real provider metadata and recorded run evidence. Production build and npm audit passed.
-- Native model refresh and configured Codex defaults have focused regression coverage. The first GitHub CI run exposed base-interpreter test assumptions, a masked-secret assertion mismatch and user-local npm toolchain reads; the follow-up fixes preserve host-file isolation. See the PR checks for current matrix results.
-- Hashed runtime dependencies, synchronized manifests, prebuilt assets, source archives, wheel, sdist and checksums are supplied. The enabled personal installation was migrated through Codex's installer and checked locally.
+- The full suite passes on Python 3.10 and 3.13 on macOS and Linux in CI, with Studio graph checks, hosted routing checks, container smoke tests and release consistency checks. Tests use deterministic fake agents; no provider inference is involved.
+- The accounts work passed three adversarial review rounds covering tenant isolation, session handling, schema rollback, request races, storage limits and the OAuth flow. The engine work passed two, covering context isolation, exploration, repair budgets and memory hygiene.
+- The Claude Code plugin passes `claude plugin validate --strict`, installs into a clean configuration with exactly its four skills and its MCP server, and starts the runtime from an empty state.
 
-## Requirements and limits
+## Known limits
 
-macOS is the launch platform. Python 3.10+ and Git 2.38+ are required for implementation runs. The GitHub CI workflow covers macOS and Linux with Python 3.10 and 3.13, including a live Linux sandbox isolation test. Local Linux execution remains unverified because Docker was unavailable. Native capabilities depend on installed CLI versions; diagnostics identify incompatibilities explicitly.
+- Live API inference and the five-developer study remain separate validation gates.
+- Shared team workspaces and hosted execution for personal workspaces are not available.
+- API command execution requires the macOS sandbox. SSH workers and remote filesystem mounts are not supported.
+- Yarn, pnpm and npm workspaces need a prepared environment. Git submodules and symlinks that leave the project need manual handling.
 
-API protocol behavior and tool permissions have deterministic endpoint coverage. Real API inference needs separately configured account credentials and has not been verified on these accounts. Remote inference endpoints are supported; SSH workers, remote filesystems, external MCP tools and hosted agent execution are outside this release. API command execution currently requires the macOS sandbox.
-
-Automatic environment setup supports Python requirements.txt/PEP 621 dependencies and locked npm projects with lifecycle scripts disabled. Yarn, pnpm and npm workspaces setup remains unsupported and blocks preflight. Linux commands require working bubblewrap with user namespaces. Git submodules and symlinks escaping the project require manual handling.
-
-## Upgrade
-
-Follow [UPGRADE.md](../UPGRADE.md), reinstall through your marketplace and start a new Codex chat to load the skill and MCP operations. Version 1.1 keeps the existing installation ID. The GitHub marketplace commands install the current published version until this release is published.
-
-Attach the four archives and `SHA256SUMS` from `releases/` when publishing is separately requested. Use title **Parallax 1.1: Developer alpha** and tag **v1.1.0** only after the branch and release artifacts have been reviewed.
+Release archives and `SHA256SUMS` are produced by `python3 scripts/build_release.py`.
