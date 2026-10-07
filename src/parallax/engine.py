@@ -29,9 +29,12 @@ class RunProblem(Exception):
     pass
 
 class Engine:
-    def __init__(self, store: Store, registry=None):
+    def __init__(self, store: Store, registry=None, *, memory: bool | None = None):
         from .connections import ConnectionRegistry
         self.store = store
+        # Project memory is on for real providers unless PARALLAX_MEMORY=off; injected registries opt in explicitly.
+        self.memory = (registry is None and os.environ.get("PARALLAX_MEMORY", "on").lower() != "off") if memory is None else memory
+        self._memory_failed: set[str] = set()
         self.registry = registry or ConnectionRegistry(store)
         self.jobs: dict[str, asyncio.Task] = {}
         self.cancel_flags: dict[str, asyncio.Event] = {}
@@ -110,7 +113,7 @@ class Engine:
                                 or result["artifacts"].get("verified_only"))
             elif kind == "finish":
                 complete = result["status"] == "completed"
-            elif kind == "inspect_results":
+            elif kind in {"inspect_results", "search_ideas"}:
                 complete = True
             state = "completed" if complete else "interrupted"
             self._action_state(run_id, identifier, state, recovered=True)
@@ -563,6 +566,8 @@ class Engine:
             self._clocks.pop(run_id, None)
             if self.store.get(run_id)["status"] in TERMINAL:
                 self.store.release(run_id)
+        if not self.shutting_down and self.store.get(run_id)["status"] in TERMINAL:
+            await self._after_run(run_id, spec)
 
     async def _review_run(self, run_id, spec, manager, run_dir):
         try:
@@ -645,11 +650,14 @@ class Engine:
         # Saved sessions only pin the model and effort; every turn starts a fresh session from a compiled packet.
         bound = self._resume_session(run_id, "coordinator", coordinator_dir, spec.coordinator, "coordinate")
         coordinator = self._session_participant(spec.coordinator, bound)
+        ideas = await self._ideas(run_id, spec)
         while self.store.get(run_id)["artifacts"].get("coordinator_turns", 0) < spec.limits.coordinator_turns:
             await self.checkpoint(run_id)
             result = self.store.get(run_id)
             turn = result["artifacts"].get("coordinator_turns", 0) + 1
-            prompt = coordinator_packet(result, self.store.actions(run_id), turn=turn)
+            actions = self.store.actions(run_id)
+            memory, search = await self._memory_context(run_id, ideas, result, actions, coordinator_dir)
+            prompt = coordinator_packet(result, actions, turn=turn, memory=memory, search=search)
             self._status(run_id,"planning")
             result = self.store.get(run_id)
             result["artifacts"]["coordinator_turns"] = result["artifacts"].get("coordinator_turns", 0) + 1
@@ -705,7 +713,7 @@ class Engine:
 
     async def _action(self,run_id,spec,manager,action):
         result=self.store.get(run_id)
-        if (result["artifacts"].get("integration_applied") or result["artifacts"].get("verified_only")) and action.action not in {"inspect_results","finish"}:
+        if (result["artifacts"].get("integration_applied") or result["artifacts"].get("verified_only")) and action.action not in {"inspect_results","finish","search_ideas"}:
             raise ValueError("This candidate is finalized; only inspect_results or finish is allowed. Start a new run for further changes")
         self.store.event(run_id,"action",action.model_dump())
         if action.action=="plan":
@@ -779,6 +787,14 @@ class Engine:
             await self._run_variants(run_id,spec,manager,parent_id,variant_ids)
         elif action.action=="select_variant":
             await self._select_variant(run_id,manager,action)
+        elif action.action=="search_ideas":
+            ideas=await self._ideas(run_id,spec)
+            if ideas is None: raise ValueError("Project memory is not available for this run")
+            files=sorted({f for t in result["tasks"] if t["id"] in action.task_ids for f in t["files"]})
+            hits=await asyncio.to_thread(ideas.search,action.query or spec.prompt,files,6,run_id)
+            # Results stay in the local action journal (never mirrored) and appear in the next packet only.
+            self._action_state(run_id,action.id,"issued",memory_results=hits)
+            await asyncio.to_thread(ideas.expose,run_id,[h["id"] for h in hits],"search")
         elif action.action=="validate":
             checks=action.checks or spec.checks or _discover_checks(manager.integration_path)
             if not checks: raise ValueError("No meaningful checks configured. Supply project check argv commands")
@@ -833,6 +849,59 @@ class Engine:
             result["summary"]=action.summary or result["summary"]
             self.store.save(result)
             self.store.event(run_id,"completed",{"summary":result["summary"]})
+
+    async def _ideas(self, run_id, spec):
+        """The project's idea graph, or None when memory is off, in review mode, or unavailable."""
+        if not self.memory or spec.mode == "review":
+            return None
+        try:
+            from .ideas import IdeaStore
+            return await asyncio.to_thread(IdeaStore, self.store.home, spec.workspace)
+        except Exception as exc:
+            self._memory_unavailable(run_id, exc)
+            return None
+
+    def _memory_unavailable(self, run_id, exc):
+        if run_id not in self._memory_failed:
+            self._memory_failed.add(run_id)
+            self.store.event(run_id, "memory_unavailable", {"reason": type(exc).__name__})
+
+    async def _memory_context(self, run_id, ideas, result, actions, workspace):
+        """Primer (computed once per run, ids only in the run) and the latest search, rendered fresh from local memory."""
+        if ideas is None:
+            return [], []
+        try:
+            primer = (result["artifacts"].get("memory") or {}).get("primer")
+            if primer is None:
+                text = " ".join([result["spec"]["prompt"], *(t.get("title", "") for t in result["tasks"])])
+                files = sorted({f for t in result["tasks"] for f in t.get("files", [])})
+                primer = [hit["id"] for hit in await asyncio.to_thread(ideas.search, text, files, 6, run_id)]
+                saved = self.store.get(run_id)
+                saved["artifacts"]["memory"] = {**(saved["artifacts"].get("memory") or {}), "primer": primer}
+                self.store.save(saved)
+                await asyncio.to_thread(ideas.expose, run_id, primer, "primer")
+            memory = await asyncio.to_thread(ideas.render, primer, str(workspace))
+            newest = actions[-1] if actions else {}
+            search = []
+            if (newest.get("action") or {}).get("action") == "search_ideas":
+                search = await asyncio.to_thread(ideas.render, [h["id"] for h in newest.get("memory_results", [])], str(workspace))
+            return memory, search
+        except Exception as exc:
+            self._memory_unavailable(run_id, exc)
+            return [], []
+
+    async def _after_run(self, run_id, spec):
+        """Project the finished run's facts into project memory. Never changes the run's status."""
+        ideas = await self._ideas(run_id, spec)
+        if ideas is None:
+            return
+        try:
+            with self.store.connect() as db:
+                checks = [{"sequence": row[0], "task_id": row[1], "data": json.loads(row[2])} for row in db.execute(
+                    "SELECT sequence,task_id,data FROM events WHERE run_id=? AND kind='check' ORDER BY sequence", (run_id,))]
+            await asyncio.to_thread(ideas.project, self.store.get(run_id), checks)
+        except Exception as exc:
+            self._memory_unavailable(run_id, exc)
 
     def _prepare_exploration(self, run_id, spec, action):
         """Validate an explore action and persist its variants in one write. No engine loop decides what to try."""

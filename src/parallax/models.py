@@ -108,7 +108,7 @@ class VariantSpec(Contract):
 class CoordinatorAction(Contract):
     id: str = Field(min_length=1)
     action: Literal["plan", "dispatch", "inspect_results", "validate", "resolve_task", "request_integration", "finish",
-                    "explore", "select_variant"]
+                    "explore", "select_variant", "search_ideas"]
     summary: str = ""
     tasks: list[TaskSpec] = Field(default_factory=list)
     task_ids: list[str] = Field(default_factory=list)
@@ -116,6 +116,7 @@ class CoordinatorAction(Contract):
     selected_task: str | None = None
     memo: str = ""  # Carried to the coordinator's next fresh turn (the engine shows at most 2,000 characters).
     variants: list[VariantSpec] = Field(default_factory=list)
+    query: str | None = None  # search_ideas: what to look for in this project's memory.
 
 class RunEvent(Contract):
     schema_version: Literal["1.0", "1.1"] = "1.1"
