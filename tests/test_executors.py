@@ -179,6 +179,36 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(requests,["/api/worker/sync","/api/worker/sync"])
 
 
+class WorkerEvidenceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_evidence_declined_by_a_relay_low_on_storage_is_resent(self):
+        root = Path(tempfile.mkdtemp()).resolve(); self.addCleanup(lambda: __import__("shutil").rmtree(root, ignore_errors=True))
+        project = root / "project"; project.mkdir(); state = root / "state"; state.mkdir()
+        (state / "worker-connection.json").write_text(encode({"id": str(uuid.uuid4()), "token": "worker-secret", "url": "https://relay.example.com",
+                                                              "workspaces": [str(project)]}))
+        run_id = str(uuid.uuid4())
+        events = [{"run_id": run_id, "sequence": n, "kind": "status", "data": {}} for n in (1, 2)]
+        sent = []
+        def handle(request):
+            if request.url.path == "/api/worker/next":
+                return httpx.Response(200, json=[])
+            sent.append([e["sequence"] for e in json.loads(request.content)["events"]])
+            if len(sent) == 1:
+                return httpx.Response(200, json={"ok": True, "stored": False})
+            if len(sent) == 2:
+                return httpx.Response(200, json={"ok": True, "stored": True})
+            return httpx.Response(401, json={"detail": "stop"})
+        original = httpx.AsyncClient
+        def client(**kwargs):
+            kwargs.setdefault("transport", httpx.MockTransport(handle))
+            return original(**kwargs)
+        snapshot = lambda self, hashes, cursor: ([], [e for e in events if e["sequence"] > cursor])
+        with patch("parallax.worker.httpx.AsyncClient", side_effect=client), patch("parallax.worker.asyncio.sleep", new_callable=AsyncMock), \
+                patch.object(WorkerRuntime, "snapshot", snapshot):
+            with self.assertRaises(PermissionError):
+                await run_worker("https://relay.example.com", state, [project], name="Test")
+        self.assertEqual(sent, [[1, 2], [1, 2], []])
+
+
 class WorkerProtocolTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)

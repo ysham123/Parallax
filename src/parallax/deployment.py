@@ -59,6 +59,9 @@ class Deployment:
         token = os.environ.get("PARALLAX_ACCESS_TOKEN", "")
         if len(token) < 32 or len(token) > 512 or not token.isascii():
             raise ValueError("PARALLAX_ACCESS_TOKEN must contain 32 to 512 characters")
+        if len(set(token)) < 12:
+            # Guessing is throttled, but only a random key makes it hopeless.
+            raise ValueError("PARALLAX_ACCESS_TOKEN looks repetitive; generate a random key, for example with openssl rand -base64 36")
         origins = set()
         for value in os.environ.get("PARALLAX_STUDIO_ORIGINS", "").split(","):
             value = value.strip().rstrip("/")

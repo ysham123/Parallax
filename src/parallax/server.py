@@ -30,6 +30,7 @@ from .accounts import (Accounts, Principal, SignInRefused, operator_principal, S
 HOST_SHAPE = re.compile(r"([A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?)(?::[0-9]{1,5})?")
 WORKSPACE_ROUTES = re.compile(r"/api/(?:session|account|executors|executors/pair|executors/[^/]+|executors/[^/]+/proxy/.*)")
 HOSTED_BODY_LIMIT = 2 * 1024 * 1024
+WORKER_CONNECT_LIMIT = 128 * 1024
 
 
 class BodyLimit:
@@ -150,12 +151,21 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
     app.state.executors = hub
     relay_inflight, event_streams = Counter(), Counter()
     def body_limit(path):
+        if path == "/api/worker/connect":
+            return WORKER_CONNECT_LIMIT  # Unauthenticated: a name, a platform and a list of project paths.
         if path.startswith("/api/worker/") or "/proxy/" in path or not deployment:
             return MAX_MESSAGE + 65536
         return HOSTED_BODY_LIMIT
     app.add_middleware(BodyLimit, limit_for=body_limit)
     def principal_of(request) -> Principal:
         return request.state.principal
+    def still_signed_in(request) -> bool:
+        """Live streams re-check the session they opened with, so sign-out, expiry or deletion ends them."""
+        principal=principal_of(request)
+        if not deployment or principal.session is None:
+            return True  # Local sessions, and bearer keys checked on every request.
+        current=accounts.principal(request.cookies.get(SESSION_COOKIE))
+        return current is not None and current.session==principal.session and current.workspace==principal.workspace
 
     @app.middleware("http")
     async def guard(request:Request,call_next):
@@ -198,7 +208,11 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
         if deployment:
             if bearer and hmac.compare_digest(bearer.encode(),token.encode()):
                 principal=operator_principal()
-            elif not bearer:
+            elif bearer:
+                # A wrong key here is a guess like a failed sign-in, and shares its throttle.
+                if not accounts.operator_failure():
+                    return JSONResponse({"detail":"Too many sign-in attempts. Try again in one minute."},status_code=429)
+            else:
                 principal=accounts.principal(request.cookies.get(SESSION_COOKIE))
         else:
             presented=request.query_params.get("token","")
@@ -335,9 +349,12 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
             async def replay():
                 # Counted from the first iteration: an unstarted generator never reaches its finally block.
                 event_streams[scope]+=1
-                position=cursor
+                position,ticks=cursor,0
                 try:
                     while not await request.is_disconnected():
+                        ticks+=1
+                        if ticks%10==0 and not still_signed_in(request):
+                            break
                         for event in hub.events(identifier,path.split('/')[1],position,scope):
                             position=event["sequence"]
                             yield f"id: {position}\ndata: {json.dumps(event)}\n\n"
@@ -443,8 +460,11 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
         try: cursor=max(cursor,int(request.headers.get("last-event-id","0")))
         except ValueError: raise HTTPException(400,"Invalid event cursor")
         async def stream():
-            position=cursor
+            position,ticks=cursor,0
             while not await request.is_disconnected():
+                ticks+=1
+                if ticks%10==0 and not still_signed_in(request):
+                    break
                 for item in store.events(run_id,position):
                     position=item["sequence"]
                     yield f"id: {position}\ndata: {json.dumps(item)}\n\n"

@@ -86,17 +86,31 @@ def permitted(method: str, path: str, query: str = "") -> bool:
     return False
 
 
-SCOPE = "COALESCE((SELECT workspace FROM worker_scope WHERE worker=workers.id),'owner')"
+# Machines are read through their scope row. A personal machine's real token and revocation live only in
+# worker_scope; its workers row says revoked with an unusable token, so the previous release (which reads
+# only workers) can neither list it nor accept its token after a rollback.
+MACHINES = "workers w LEFT JOIN worker_scope s ON s.worker=w.id"
+ACTIVE = "(CASE WHEN s.token_hash IS NULL THEN w.revoked=0 ELSE s.revoked=0 END)"
+SCOPE = "COALESCE(s.workspace,'owner')"
+
+
+def _columns(db, table):
+    return {row[1] for row in db.execute(f"PRAGMA table_info({table})")}
 
 
 class ExecutorHub:
     """Workspace data lives in side tables, so the original worker tables keep the
-    previous release's shape and a rollback onto the same database still works.
+    previous release's shape and a rollback onto the same database still works,
+    without exposing personal machines or pairing codes to the operator.
     Machines and pairing codes without a scope row belong to the operator workspace."""
 
     def __init__(self, store):
         self.store = store
         with store.connect() as db:
+            # A pre-release build named indexes after the side tables; free those names for the tables.
+            for name in ("worker_scope", "worker_pair_scope"):
+                if db.execute("SELECT 1 FROM sqlite_master WHERE type='index' AND name=?", (name,)).fetchone():
+                    db.execute(f"DROP INDEX {name}")
             db.executescript("""
             CREATE TABLE IF NOT EXISTS worker_pairs(hash TEXT PRIMARY KEY, expires REAL NOT NULL);
             CREATE TABLE IF NOT EXISTS workers(id TEXT PRIMARY KEY, name TEXT NOT NULL,
@@ -109,13 +123,37 @@ class ExecutorHub:
             CREATE TABLE IF NOT EXISTS worker_events(worker TEXT NOT NULL, run_id TEXT NOT NULL,
                 sequence INTEGER NOT NULL, event TEXT NOT NULL, PRIMARY KEY(worker,run_id,sequence));
             CREATE TABLE IF NOT EXISTS worker_scope(worker TEXT PRIMARY KEY, workspace TEXT NOT NULL,
-                evidence_bytes INTEGER NOT NULL DEFAULT 0, pruned_through INTEGER NOT NULL DEFAULT 0);
-            CREATE TABLE IF NOT EXISTS worker_pair_scope(hash TEXT PRIMARY KEY, workspace TEXT NOT NULL);
-            CREATE INDEX IF NOT EXISTS worker_scope_workspace ON worker_scope(workspace);
+                evidence_bytes INTEGER NOT NULL DEFAULT 0, pruned_through INTEGER NOT NULL DEFAULT 0,
+                token_hash TEXT, revoked INTEGER NOT NULL DEFAULT 0);
+            CREATE TABLE IF NOT EXISTS worker_pair_scope(hash TEXT PRIMARY KEY, workspace TEXT NOT NULL,
+                expires REAL NOT NULL DEFAULT 0);
             CREATE INDEX IF NOT EXISTS worker_event_order ON worker_events(worker, sequence);
             CREATE INDEX IF NOT EXISTS worker_queue ON worker_commands(worker, response, created);
+            CREATE INDEX IF NOT EXISTS worker_command_age ON worker_commands(created);
             """)
-            db.execute(f"INSERT OR IGNORE INTO worker_scope(worker,workspace) SELECT id,'{OWNER_WORKSPACE}' FROM workers")
+            # Side tables from an earlier build of this release lack the columns that hide personal state.
+            for table, column, definition in (("worker_scope", "token_hash", "token_hash TEXT"),
+                                              ("worker_scope", "revoked", "revoked INTEGER NOT NULL DEFAULT 0"),
+                                              ("worker_pair_scope", "expires", "expires REAL NOT NULL DEFAULT 0")):
+                if column not in _columns(db, table):
+                    db.execute(f"ALTER TABLE {table} ADD COLUMN {definition}")
+            db.execute("CREATE INDEX IF NOT EXISTS worker_scope_workspace ON worker_scope(workspace)")
+            db.execute("CREATE INDEX IF NOT EXISTS worker_scope_token ON worker_scope(token_hash)")
+            # A pre-release build kept the workspace on the original rows; carry it over before defaulting.
+            if "workspace" in _columns(db, "workers"):
+                db.execute("INSERT OR IGNORE INTO worker_scope(worker,workspace) SELECT id,workspace FROM workers")
+            if "workspace" in _columns(db, "worker_pairs"):
+                db.execute("INSERT OR IGNORE INTO worker_pair_scope(hash,workspace,expires) SELECT hash,workspace,expires FROM worker_pairs WHERE workspace!=?",
+                           (OWNER_WORKSPACE,))
+            db.execute("INSERT OR IGNORE INTO worker_scope(worker,workspace) SELECT id,? FROM workers", (OWNER_WORKSPACE,))
+            db.execute("""UPDATE worker_scope SET token_hash=(SELECT token_hash FROM workers WHERE id=worker_scope.worker),
+                revoked=(SELECT revoked FROM workers WHERE id=worker_scope.worker) WHERE workspace!=? AND token_hash IS NULL""", (OWNER_WORKSPACE,))
+            db.execute("UPDATE workers SET revoked=1,token_hash='scoped:'||id WHERE id IN (SELECT worker FROM worker_scope WHERE workspace!=?)",
+                       (OWNER_WORKSPACE,))
+            # Personal pairing codes live only in the side table; operator codes only in worker_pairs.
+            db.execute("UPDATE worker_pair_scope SET expires=COALESCE((SELECT expires FROM worker_pairs WHERE hash=worker_pair_scope.hash),0) WHERE expires=0")
+            db.execute("DELETE FROM worker_pairs WHERE hash IN (SELECT hash FROM worker_pair_scope WHERE workspace!=?)", (OWNER_WORKSPACE,))
+            db.execute("DELETE FROM worker_pair_scope WHERE workspace=?", (OWNER_WORKSPACE,))
             # Recount retained evidence so budgets also hold for rows written before accounting existed.
             db.execute("""UPDATE worker_scope SET evidence_bytes=
                 COALESCE((SELECT SUM(length(CAST(event AS BLOB))) FROM worker_events WHERE worker=worker_scope.worker),0)+
@@ -126,23 +164,28 @@ class ExecutorHub:
         limits, now = limits_for(workspace), time.time()
         with self.store.connect() as db:
             db.execute("DELETE FROM worker_pairs WHERE expires<?", (now,))
-            db.execute("DELETE FROM worker_pair_scope WHERE hash NOT IN (SELECT hash FROM worker_pairs)")
+            db.execute("DELETE FROM worker_pair_scope WHERE expires<?", (now,))
             if self._active(db, workspace) >= limits.workers:
                 raise HTTPException(409, f"This workspace can connect up to {limits.workers} machines. Disconnect one before pairing another.")
-            pending = db.execute("SELECT COUNT(*) FROM worker_pairs p WHERE COALESCE((SELECT workspace FROM worker_pair_scope WHERE hash=p.hash),'owner')=?",
-                                 (workspace,)).fetchone()[0]
+            if workspace == OWNER_WORKSPACE:
+                pending = db.execute("SELECT COUNT(*) FROM worker_pairs").fetchone()[0]
+            else:
+                pending = db.execute("SELECT COUNT(*) FROM worker_pair_scope WHERE workspace=?", (workspace,)).fetchone()[0]
             if pending >= limits.pending_pairs:
                 raise HTTPException(429, "Several unused pairing codes are still active. Use one, or wait five minutes for them to expire.")
             if not allow_rate(db, "pair:" + workspace, limits.pairs_per_hour, 3600):
                 raise HTTPException(429, "Too many pairing codes were generated this hour. Try again later.")
             code = secrets.token_urlsafe(24)
-            db.execute("INSERT INTO worker_pairs(hash,expires) VALUES(?,?)", (digest(code), now + PAIR_SECONDS))
-            db.execute("INSERT INTO worker_pair_scope(hash,workspace) VALUES(?,?)", (digest(code), workspace))
+            if workspace == OWNER_WORKSPACE:
+                db.execute("INSERT INTO worker_pairs(hash,expires) VALUES(?,?)", (digest(code), now + PAIR_SECONDS))
+            else:
+                db.execute("INSERT INTO worker_pair_scope(hash,workspace,expires) VALUES(?,?,?)", (digest(code), workspace, now + PAIR_SECONDS))
         return {"code": code, "expires_in": PAIR_SECONDS}
 
     def workers(self, workspace):
         with self.store.connect() as db:
-            rows = db.execute(f"SELECT id,name,seen,metadata FROM workers WHERE revoked=0 AND {SCOPE}=? ORDER BY name,id", (workspace,)).fetchall()
+            rows = db.execute(f"SELECT w.id,w.name,w.seen,w.metadata FROM {MACHINES} WHERE {ACTIVE} AND {SCOPE}=? ORDER BY w.name,w.id",
+                              (workspace,)).fetchall()
         now = time.time()
         return [{"id": r["id"], "name": r["name"], "online": now - r["seen"] < ONLINE_SECONDS,
                  "last_seen": r["seen"], **json.loads(r["metadata"])} for r in rows]
@@ -158,7 +201,7 @@ class ExecutorHub:
         self.worker(identifier, workspace)
         with self.store.connect() as db:
             db.execute("UPDATE workers SET revoked=1 WHERE id=?", (identifier,))
-            db.execute("UPDATE worker_scope SET evidence_bytes=0 WHERE worker=?", (identifier,))
+            db.execute("UPDATE worker_scope SET revoked=1,evidence_bytes=0 WHERE worker=?", (identifier,))
             # A revoked machine's mirror is unreachable; remove it instead of retaining it indefinitely.
             for table in ("worker_commands", "worker_cache", "worker_events"):
                 db.execute(f"DELETE FROM {table} WHERE worker=?", (identifier,))
@@ -174,7 +217,6 @@ class ExecutorHub:
                     db.execute(f"DELETE FROM {table} WHERE worker=?", (identifier,))
                 db.execute("DELETE FROM workers WHERE id=?", (identifier,))
             db.execute("DELETE FROM worker_scope WHERE workspace=?", (workspace,))
-            db.execute("DELETE FROM worker_pairs WHERE hash IN (SELECT hash FROM worker_pair_scope WHERE workspace=?)", (workspace,))
             db.execute("DELETE FROM worker_pair_scope WHERE workspace=?", (workspace,))
             db.execute("DELETE FROM rate_events WHERE bucket IN (?,?)", ("pair:" + workspace, "relay:" + workspace))
 
@@ -203,7 +245,7 @@ class ExecutorHub:
             if not allow_rate(db, "relay:" + workspace, limits.relayed_per_window, RELAY_WINDOW):
                 raise HTTPException(429, "Too many requests reached this workspace's machines in the last five minutes. Retry shortly.")
         with self.store.connect() as db:
-            db.execute("DELETE FROM worker_commands WHERE worker=? AND created<?", (worker, time.time() - COMMAND_RETENTION))
+            self._sweep(db)
             waiting, queued = db.execute("SELECT COUNT(*),COALESCE(SUM(length(CAST(request AS BLOB))),0) FROM worker_commands WHERE worker=? AND response IS NULL",
                                          (worker,)).fetchone()
             if waiting >= limits.pending_commands or queued + len(payload) > limits.pending_bytes:
@@ -229,41 +271,45 @@ class ExecutorHub:
     def connect(self, code, name, metadata):
         # Pairing codes carry 192 random bits, so no shared guess limit is needed (one would let
         # anonymous traffic block every pairing).
-        identifier, token = str(uuid.uuid4()), secrets.token_urlsafe(32)
+        identifier, token, now = str(uuid.uuid4()), secrets.token_urlsafe(32), time.time()
         with self.store.connect() as db:
-            row = db.execute("DELETE FROM worker_pairs WHERE hash=? AND expires>=? RETURNING hash", (digest(code), time.time())).fetchone()
-            if not row:
-                raise HTTPException(401, "Pairing code is invalid, expired, or already used")
-            scope = db.execute("DELETE FROM worker_pair_scope WHERE hash=? RETURNING workspace", (row[0],)).fetchone()
-            workspace = scope[0] if scope else OWNER_WORKSPACE
+            # Raising inside this transaction rolls back the deletes, so a refused code stays usable.
+            if db.execute("DELETE FROM worker_pairs WHERE hash=? AND expires>=? RETURNING hash", (digest(code), now)).fetchone():
+                workspace = OWNER_WORKSPACE
+            else:
+                scope = db.execute("DELETE FROM worker_pair_scope WHERE hash=? AND expires>=? RETURNING workspace", (digest(code), now)).fetchone()
+                if not scope:
+                    raise HTTPException(401, "Pairing code is invalid, expired, or already used")
+                workspace = scope[0]
             limits = limits_for(workspace)
             if self._active(db, workspace) >= limits.workers:
                 raise HTTPException(409, f"This workspace already has {limits.workers} machines. Disconnect one in Studio, then retry with the same code.")
-            db.execute("INSERT INTO workers(id,name,token_hash,seen,revoked,metadata) VALUES(?,?,?,?,0,?)",
-                       (identifier, name, digest(token), time.time(), encode(metadata)))
-            db.execute("INSERT INTO worker_scope(worker,workspace) VALUES(?,?)", (identifier, workspace))
+            personal = workspace != OWNER_WORKSPACE
+            db.execute("INSERT INTO workers(id,name,token_hash,seen,revoked,metadata) VALUES(?,?,?,?,?,?)",
+                       (identifier, name, "scoped:" + identifier if personal else digest(token), now, int(personal), encode(metadata)))
+            db.execute("INSERT INTO worker_scope(worker,workspace,token_hash) VALUES(?,?,?)",
+                       (identifier, workspace, digest(token) if personal else None))
         return {"id": identifier, "token": token}
 
     def authenticate(self, token):
         with self.store.connect() as db:
-            row = db.execute("SELECT id FROM workers WHERE token_hash=? AND revoked=0", (digest(token),)).fetchone()
+            row = (db.execute("SELECT id FROM workers WHERE token_hash=? AND revoked=0", (digest(token),)).fetchone()
+                   or db.execute("SELECT worker FROM worker_scope WHERE token_hash=? AND revoked=0", (digest(token),)).fetchone())
         if not row:
             raise HTTPException(401, "Worker connection revoked or invalid")
         return row[0]
 
     def pending(self, worker):
-        now = time.time()
         with self.store.connect() as db:
-            db.execute("DELETE FROM worker_commands WHERE worker=? AND created<?", (worker, now - COMMAND_RETENTION))
-            # Answers nobody collected (the Studio request timed out) are kept only briefly.
-            db.execute("DELETE FROM worker_commands WHERE worker=? AND response IS NOT NULL AND created<?", (worker, now - 300))
-            db.execute("UPDATE workers SET seen=? WHERE id=?", (now, worker))
+            self._claim(db, worker)
+            self._sweep(db)
             rows = db.execute("SELECT id,request FROM worker_commands WHERE worker=? AND response IS NULL ORDER BY created LIMIT 8", (worker,)).fetchall()
         return [{"id": row["id"], **json.loads(row["request"])} for row in rows]
 
     def complete(self, worker, identifier, response):
         serialized = encode(response)
         with self.store.connect() as db:
+            workspace = self._claim(db, worker)
             row = db.execute("SELECT request,response FROM worker_commands WHERE id=? AND worker=?", (identifier, worker)).fetchone()
             if not row:
                 raise HTTPException(404, "Worker request not found")
@@ -271,9 +317,15 @@ class ExecutorHub:
                 if row["response"] != serialized:
                     raise HTTPException(409, "Worker response cannot be replaced")
                 return {"ok": True}
+            # Answers wait only until Studio collects them, so their total per machine stays within its queue budget.
+            limits = limits_for(workspace)
+            held = db.execute("SELECT COALESCE(SUM(length(CAST(response AS BLOB))),0) FROM worker_commands WHERE worker=? AND response IS NOT NULL",
+                              (worker,)).fetchone()[0]
+            if held + len(serialized) > limits.pending_bytes or (len(serialized) > LOW_DISK_BODY and self._low_disk(workspace)):
+                serialized = encode({"status": 507, "content_type": "application/json",
+                                     "body": {"detail": "The machine's answer was too large to hold right now. Retry shortly."}})
             db.execute("UPDATE worker_commands SET response=? WHERE id=?", (serialized, identifier))
             request = json.loads(row["request"])
-            workspace = self._workspace(db, worker)
             if request["method"] == "GET" and 200 <= response["status"] < 300 and not self._low_disk(workspace):
                 self._cache(db, worker, request["path"] + ("?" + request["query"] if request["query"] else ""), response)
                 self._prune(db, worker)
@@ -282,11 +334,10 @@ class ExecutorHub:
     def sync(self, worker, runs, events):
         encode({"runs": runs, "events": events})
         with self.store.connect() as db:
-            workspace = self._workspace(db, worker)
+            workspace = self._claim(db, worker)
             limits = limits_for(workspace)
             if (runs or events) and self._low_disk(workspace):
                 # Keep the machine reachable so stop and steer still work; evidence stays on the machine.
-                db.execute("UPDATE workers SET seen=? WHERE id=?", (time.time(), worker))
                 return {"ok": True, "stored": False}
             for result in runs:
                 uuid.UUID(result["run_id"])
@@ -310,20 +361,33 @@ class ExecutorHub:
                 cursor = db.execute("INSERT OR IGNORE INTO worker_events(worker,run_id,sequence,event) VALUES(?,?,?,?)",
                                     (worker, event["run_id"], event["sequence"], serialized))
                 added += len(serialized) if cursor.rowcount else 0
-            db.execute("UPDATE workers SET seen=? WHERE id=?", (time.time(), worker))
             db.execute("UPDATE worker_scope SET evidence_bytes=evidence_bytes+? WHERE worker=?", (added, worker))
             self._prune(db, worker)
-        return {"ok": True}
+        return {"ok": True, "stored": True}
 
     # Internal helpers ----------------------------------------------------------
     @staticmethod
     def _active(db, workspace):
-        return db.execute(f"SELECT COUNT(*) FROM workers WHERE revoked=0 AND {SCOPE}=?", (workspace,)).fetchone()[0]
+        return db.execute(f"SELECT COUNT(*) FROM {MACHINES} WHERE {ACTIVE} AND {SCOPE}=?", (workspace,)).fetchone()[0]
 
     @staticmethod
-    def _workspace(db, worker):
+    def _claim(db, worker):
+        """Mark the machine seen and return its workspace, or refuse if it was revoked or deleted after
+        authentication. The write comes first, so the check and the rest of the request share one transaction."""
+        updated = db.execute(f"UPDATE workers SET seen=? WHERE id=? AND EXISTS(SELECT 1 FROM {MACHINES} WHERE w.id=workers.id AND {ACTIVE})",
+                             (time.time(), worker)).rowcount
+        if not updated:
+            raise HTTPException(401, "Worker connection revoked or invalid")
         db.execute("INSERT OR IGNORE INTO worker_scope(worker,workspace) VALUES(?,?)", (worker, OWNER_WORKSPACE))
         return db.execute("SELECT workspace FROM worker_scope WHERE worker=?", (worker,)).fetchone()[0]
+
+    @staticmethod
+    def _sweep(db):
+        """Expire commands for every machine, including ones that went offline and never poll again."""
+        now = time.time()
+        db.execute("DELETE FROM worker_commands WHERE created<?", (now - COMMAND_RETENTION,))
+        # Answers nobody collected (the Studio request timed out) are kept only briefly.
+        db.execute("DELETE FROM worker_commands WHERE response IS NOT NULL AND created<?", (now - 300,))
 
     def _low_disk(self, workspace):
         return workspace != OWNER_WORKSPACE and shutil.disk_usage(self.store.home).free < MIN_FREE_BYTES

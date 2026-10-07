@@ -142,10 +142,16 @@ async def run_worker(url, state, workspaces, *, name, pair_code=None):
                     if response.status_code == 401:
                         raise PermissionError("Worker connection revoked. Active local runs will be interrupted and preserved.")
                     response.raise_for_status()
-                    for result in runs:
-                        hashes[result["run_id"]] = digest(encode(result))
-                    if events:
-                        cursor = events[-1]["sequence"]
+                    # A relay low on storage keeps the machine reachable but declines evidence; resend it later.
+                    try:
+                        stored = response.json().get("stored", True) is not False
+                    except (ValueError, AttributeError):
+                        stored = True
+                    if stored:
+                        for result in runs:
+                            hashes[result["run_id"]] = digest(encode(result))
+                        if events:
+                            cursor = events[-1]["sequence"]
                     response = await remote.get("/api/worker/next")
                     if response.status_code == 401:
                         raise PermissionError("Worker connection revoked. Active local runs will be interrupted and preserved.")

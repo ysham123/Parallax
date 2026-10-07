@@ -7,6 +7,10 @@ export function setApiExecutor(value: string | null) {
 export function onUnauthorized(listener: (() => void) | null) {
   unauthorized = listener;
 }
+/** Requests to a paired machine cross the relay, whose per-workspace rate is limited. */
+export function viaMachine(): boolean {
+  return executor !== null;
+}
 export function apiUrl(path: string): string {
   return executor
     ? `/api/executors/${encodeURIComponent(executor)}/proxy${path}`

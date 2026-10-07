@@ -28,7 +28,7 @@ Studio operations cross a method/path allowlist. The worker validates it again a
 
 API connections can be inspected and existing connections used. Credential creation, replacement, and deletion remain local; the relay rejects these operations and does not persist API keys in its request journal.
 
-Run results, diffs, check output, and ordered events are mirrored to the private Railway workspace for graph inspection and replay. These may contain project information. Provider auth caches and arbitrary source files are not mirrored. Local inference still communicates with each provider's service.
+Run results, diffs, check output, and ordered events are mirrored to the private Railway workspace for graph inspection and replay. These may contain project information. Provider auth caches and arbitrary source files are not mirrored. Local inference still communicates with each provider's service. When the hosted volume is low on space, the relay declines new evidence while keeping the machine controllable; the worker keeps that evidence and resends it once the relay accepts it again. Workers from 1.1.0 skip declined evidence instead, so update the worker alongside the hosted runtime.
 
 ## Disconnection and recovery
 

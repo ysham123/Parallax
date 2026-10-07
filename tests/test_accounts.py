@@ -14,7 +14,7 @@ import time
 import unittest
 import uuid
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 from urllib.parse import parse_qs, urlsplit
 import httpx
 from fastapi.testclient import TestClient
@@ -543,12 +543,25 @@ class HardeningTests(HostedFixture):
             self.assertIn("five minutes", limited.exception.detail)
 
     def test_anonymous_traffic_cannot_block_sign_in_or_pairing(self):
+        # A visitor's flow started before a flood of anonymous starts still completes: pending flows hold no server state.
+        visitor = self.browser()
+        start = visitor.post("/api/auth/github/start", headers={"Origin": ORIGIN})
+        query = parse_qs(urlsplit(start.json()["url"]).query)
+        with self.store.connect() as db:
+            before = db.execute("SELECT COUNT(*) FROM sqlite_master").fetchone()[0], self.store.path.stat().st_size
         anonymous = self.browser()
         for _ in range(650):
             self.assertEqual(anonymous.post("/api/auth/github/start", headers={"Origin": ORIGIN}).status_code, 200)
         with self.store.connect() as db:
-            self.assertLessEqual(db.execute("SELECT COUNT(*) FROM auth_flows").fetchone()[0], 2000)
-        self.signed_in(user(1004, "noor"))  # A real visitor still completes sign-in.
+            self.assertEqual((db.execute("SELECT COUNT(*) FROM sqlite_master").fetchone()[0], self.store.path.stat().st_size), before)
+        code = self.github.issue(user(1004, "noor"), query["code_challenge"][0])
+        finished = visitor.get("/api/auth/github/callback", params={"code": code, "state": query["state"][0]}, follow_redirects=False)
+        self.assertEqual(finished.headers["location"], "/")
+        # A forged or altered flow cookie is refused.
+        forged = self.browser()
+        forged.cookies.set("parallax_oauth", "A" * 43 + "." + str(int(time.time()) + 300) + "." + "B" * 43)
+        refused = forged.get("/api/auth/github/callback", params={"code": "c", "state": "C" * 43}, follow_redirects=False)
+        self.assertEqual(refused.headers["location"], "/?auth_error=expired")
         for _ in range(150):
             self.assertEqual(anonymous.post("/api/worker/connect", json={"code": "x" * 32, "name": "M", "platform": "darwin", "workspaces": ["/p"]}).status_code, 401)
         client = self.signed_in(user(1005, "omar"))
@@ -618,6 +631,151 @@ class HardeningTests(HostedFixture):
         self.assertEqual(client.get("/api/executors").headers["x-parallax-workspace"], workspace)
 
 
+class RollbackAndRaceTests(HostedFixture):
+    """Schema transitions in both directions, and requests racing revocation."""
+
+    def operator(self, app=None):
+        client = self.browser(app); client.post("/api/session", json={"token": KEY}, headers={"Origin": ORIGIN})
+        return client
+
+    def test_previous_release_sees_neither_personal_machines_nor_their_codes(self):
+        client = self.signed_in(user(1101, "tess"))
+        machine = self.pair(client)
+        code = client.post("/api/executors/pair", headers={"Origin": ORIGIN}).json()["code"]
+        operator_code = self.operator().post("/api/executors/pair", headers={"Origin": ORIGIN}).json()["code"]
+        token_hash = hashlib.sha256(machine["token"].encode()).hexdigest()
+        with self.store.connect() as db:  # The 4f1b5ec release's own queries.
+            self.assertNotIn(machine["id"], [r[0] for r in db.execute("SELECT id FROM workers WHERE revoked=0")])
+            self.assertIsNone(db.execute("SELECT id FROM workers WHERE token_hash=? AND revoked=0", (token_hash,)).fetchone())
+            pairs = [r[0] for r in db.execute("SELECT hash FROM worker_pairs WHERE expires>=?", (time.time(),))]
+        self.assertNotIn(hashlib.sha256(code.encode()).hexdigest(), pairs)
+        self.assertIn(hashlib.sha256(operator_code.encode()).hexdigest(), pairs)
+        # This release still lists, authenticates and pairs them normally.
+        self.assertEqual([m["id"] for m in client.get("/api/executors").json()], [machine["id"]])
+        self.assertEqual(self.app.state.executors.authenticate(machine["token"]), machine["id"])
+        second = self.browser().post("/api/worker/connect", json={"code": code, "name": "Two", "platform": "darwin", "workspaces": ["/p"]})
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(len(client.get("/api/executors").json()), 2)
+        self.assertEqual(self.operator().get("/api/executors").json(), [])
+        # Disconnecting a personal machine revokes its real token.
+        self.assertEqual(client.delete(f"/api/executors/{machine['id']}", headers={"Origin": ORIGIN}).status_code, 200)
+        with self.assertRaises(Exception):
+            self.app.state.executors.authenticate(machine["token"])
+
+    def test_databases_from_earlier_builds_upgrade_without_exposing_personal_machines(self):
+        home = self.root / "prerelease"; home.mkdir()
+        db = sqlite3.connect(home / "state.sqlite3")
+        db.executescript("""
+            CREATE TABLE worker_pairs(hash TEXT PRIMARY KEY, expires REAL NOT NULL, workspace TEXT NOT NULL DEFAULT 'owner');
+            CREATE TABLE workers(id TEXT PRIMARY KEY, name TEXT NOT NULL, token_hash TEXT NOT NULL, seen REAL NOT NULL,
+                revoked INTEGER NOT NULL DEFAULT 0, metadata TEXT NOT NULL, workspace TEXT NOT NULL DEFAULT 'owner');
+            CREATE TABLE worker_commands(id TEXT PRIMARY KEY, worker TEXT NOT NULL, request TEXT NOT NULL, response TEXT, created REAL NOT NULL);
+            CREATE TABLE worker_cache(worker TEXT NOT NULL, path TEXT NOT NULL, response TEXT NOT NULL, PRIMARY KEY(worker,path));
+            CREATE TABLE worker_events(worker TEXT NOT NULL, run_id TEXT NOT NULL, sequence INTEGER NOT NULL, event TEXT NOT NULL, PRIMARY KEY(worker,run_id,sequence));
+            CREATE INDEX worker_scope ON workers(workspace, revoked);
+            CREATE INDEX worker_pair_scope ON worker_pairs(workspace, expires);""")
+        rows = [("personal-mac", "personal-token", "ws-personal"), ("operator-mac", "operator-token", "owner")]
+        for identifier, token, workspace in rows:
+            db.execute("INSERT INTO workers VALUES(?,?,?,?,0,?,?)", (identifier, identifier, hashlib.sha256(token.encode()).hexdigest(), time.time(), "{}", workspace))
+        db.execute("INSERT INTO worker_pairs VALUES(?,?,?)", ("personal-code-hash", time.time() + 300, "ws-personal"))
+        db.commit(); db.close()
+        store = Store(home)
+        hub = ExecutorHub(store)
+        self.assertEqual([m["id"] for m in hub.workers("ws-personal")], ["personal-mac"])
+        self.assertEqual([m["id"] for m in hub.workers(OWNER_WORKSPACE)], ["operator-mac"])
+        self.assertEqual((hub.authenticate("personal-token"), hub.authenticate("operator-token")), ("personal-mac", "operator-mac"))
+        with store.connect() as conn:
+            self.assertEqual([r[0] for r in conn.execute("SELECT id FROM workers WHERE revoked=0")], ["operator-mac"])
+            self.assertEqual(conn.execute("SELECT workspace FROM worker_pair_scope WHERE hash='personal-code-hash'").fetchone()[0], "ws-personal")
+            self.assertIsNone(conn.execute("SELECT 1 FROM worker_pairs WHERE hash='personal-code-hash'").fetchone())
+        # The previous build of this release (side tables without the hiding columns) upgrades the same way.
+        home = self.root / "earlier"; home.mkdir()
+        earlier = Store(home)
+        ExecutorHub(earlier)
+        with earlier.connect() as conn:
+            conn.executescript("""DROP TABLE worker_scope; DROP TABLE worker_pair_scope;
+                CREATE TABLE worker_scope(worker TEXT PRIMARY KEY, workspace TEXT NOT NULL, evidence_bytes INTEGER NOT NULL DEFAULT 0, pruned_through INTEGER NOT NULL DEFAULT 0);
+                CREATE TABLE worker_pair_scope(hash TEXT PRIMARY KEY, workspace TEXT NOT NULL);""")
+            conn.execute("INSERT INTO workers VALUES(?,?,?,?,0,?)", ("older-personal", "Older", hashlib.sha256(b"older-token").hexdigest(), time.time(), "{}"))
+            conn.execute("INSERT INTO worker_scope(worker,workspace) VALUES('older-personal','ws-older')")
+        hub = ExecutorHub(Store(home))
+        ExecutorHub(Store(home))  # Idempotent.
+        self.assertEqual(hub.authenticate("older-token"), "older-personal")
+        self.assertEqual([m["id"] for m in hub.workers("ws-older")], ["older-personal"])
+        with earlier.connect() as conn:
+            self.assertEqual(conn.execute("SELECT revoked,token_hash FROM workers WHERE id='older-personal'").fetchone()[:], (1, "scoped:older-personal"))
+
+    def test_requests_racing_revocation_or_account_deletion_are_refused(self):
+        client = self.signed_in(user(1102, "uma"))
+        workspace = client.get("/api/session").json()["workspace"]["id"]
+        machine = self.pair(client)
+        hub = self.app.state.executors
+        worker = hub.authenticate(machine["token"])  # Authenticated, then the account is deleted before the handler runs.
+        hub.purge_workspace(workspace)
+        event = [{"run_id": str(uuid.uuid4()), "sequence": 1, "kind": "status", "data": {}}]
+        for call in (lambda: hub.sync(worker, [], event), lambda: hub.pending(worker), lambda: hub.complete(worker, "x", {"status": 200})):
+            with self.assertRaises(Exception) as refused:
+                call()
+            self.assertEqual(refused.exception.status_code, 401)
+        with self.store.connect() as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM worker_scope WHERE worker=?", (worker,)).fetchone()[0], 0)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM worker_events WHERE worker=?", (worker,)).fetchone()[0], 0)
+
+    def test_uncollected_answers_are_bounded_and_expire_for_offline_machines(self):
+        client = self.signed_in(user(1103, "val"))
+        workspace = client.get("/api/session").json()["workspace"]["id"]
+        machine = self.pair(client)
+        hub = self.app.state.executors
+        large = {"status": 200, "content_type": "application/json", "body": {"blob": "x" * (7 * 1024 * 1024)}}
+        kept = []
+        for _ in range(6):  # Each Studio request times out before the machine answers.
+            with self.assertRaises(Exception):
+                asyncio.run(hub.request(machine["id"], "GET", "/api/runs", "", None, workspace=workspace, timeout=.05))
+            command = hub.pending(machine["id"])[-1]
+            hub.complete(machine["id"], command["id"], large)
+            with self.store.connect() as db:
+                kept.append(db.execute("SELECT response FROM worker_commands WHERE id=?", (command["id"],)).fetchone()[0])
+        self.assertTrue(json.loads(kept[0])["status"] == 200)
+        self.assertEqual(json.loads(kept[-1])["status"], 507)
+        with self.store.connect() as db:
+            held = db.execute("SELECT SUM(length(CAST(response AS BLOB))) FROM worker_commands WHERE worker=?", (machine["id"],)).fetchone()[0]
+        self.assertLessEqual(held, executors.PERSONAL_LIMITS.pending_bytes + 4096)
+        # The machine goes offline for good; another workspace's activity still sweeps its answers.
+        other = self.pair(self.signed_in(user(1104, "wes")))
+        with patch("parallax.executors.time.time", return_value=time.time() + 301):
+            hub.pending(other["id"])
+        with self.store.connect() as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM worker_commands WHERE worker=?", (machine["id"],)).fetchone()[0], 0)
+
+    def test_wrong_bearer_keys_share_the_sign_in_throttle(self):
+        anonymous = self.browser()
+        statuses = [anonymous.get("/api/runs", headers={"Authorization": "Bearer wrong-key-" + str(n)}).status_code for n in range(22)]
+        self.assertEqual(statuses[:20], [401] * 20)
+        self.assertEqual(statuses[-1], 429)
+        self.assertEqual(anonymous.get("/api/session", headers={"Authorization": "Bearer " + KEY}).status_code, 200)
+
+    def test_live_event_streams_end_with_their_session(self):
+        client = self.signed_in(user(1105, "xia"))
+        machine = self.pair(client)
+        run_id = str(uuid.uuid4())
+        self.browser().post("/api/worker/sync", headers={"Authorization": "Bearer " + machine["token"]},
+                            json={"runs": [], "events": [{"run_id": run_id, "sequence": 1, "timestamp": "t", "kind": "status", "data": {}}]})
+        accounts = self.app.state.accounts
+        real, calls = accounts.principal, []
+        def principal(token):
+            calls.append(token)
+            return real(token) if len(calls) == 1 else None  # Valid when the stream opens, signed out afterwards.
+        with patch.object(accounts, "principal", side_effect=principal), patch("parallax.server.asyncio.sleep", new=AsyncMock()):
+            stream = client.get(f"/api/executors/{machine['id']}/proxy/runs/{run_id}/events")
+        self.assertEqual(stream.status_code, 200)
+        self.assertIn('"sequence": 1', stream.text)
+        self.assertGreaterEqual(len(calls), 2)
+
+    def test_unauthenticated_pairing_bodies_are_small(self):
+        body = {"code": "x" * 32, "name": "M", "platform": "darwin", "workspaces": ["/" + "p" * 200_000]}
+        self.assertEqual(self.browser().post("/api/worker/connect", json=body).status_code, 413)
+
+
 class ConfigurationTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
@@ -627,6 +785,11 @@ class ConfigurationTests(unittest.TestCase):
     def load(self, **extra):
         with patch.dict(os.environ, {**self.base, **extra}, clear=True):
             return Deployment.from_env()
+
+    def test_repetitive_access_keys_are_refused(self):
+        with patch.dict(os.environ, {**self.base, "PARALLAX_ACCESS_TOKEN": "ab" * 20}, clear=True):
+            with self.assertRaisesRegex(ValueError, "repetitive"):
+                Deployment.from_env()
 
     def test_github_configuration_is_explicit_and_redacted(self):
         plain = self.load()

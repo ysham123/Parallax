@@ -27,10 +27,11 @@ GITHUB_SESSION_SECONDS = 7 * 86400
 OPERATOR_SESSION_SECONDS = 86400
 FLOW_SECONDS = 600
 SESSIONS_PER_ACCOUNT = 20
-PENDING_FLOWS = 2000
 SIGN_IN_ERRORS = ("unavailable", "denied", "expired", "failed", "closed", "not_invited", "capacity", "busy", "disabled")
 _LOGIN = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?")
 _CODE = re.compile(r"[A-Za-z0-9_.-]{1,256}")
+_BINDING = re.compile(r"([A-Za-z0-9_-]{43})\.([0-9]{10})\.([A-Za-z0-9_-]{43})")
+_STATE = re.compile(r"[A-Za-z0-9_-]{43}")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS accounts(id TEXT PRIMARY KEY, github_id INTEGER NOT NULL UNIQUE,
@@ -41,8 +42,6 @@ CREATE TABLE IF NOT EXISTS workspaces(id TEXT PRIMARY KEY, kind TEXT NOT NULL, n
 CREATE TABLE IF NOT EXISTS sessions(hash TEXT PRIMARY KEY, kind TEXT NOT NULL, account TEXT,
     workspace TEXT NOT NULL, created REAL NOT NULL, expires REAL NOT NULL, credential TEXT);
 CREATE INDEX IF NOT EXISTS session_accounts ON sessions(account, created);
-CREATE TABLE IF NOT EXISTS auth_flows(state TEXT PRIMARY KEY, binding TEXT NOT NULL,
-    verifier TEXT NOT NULL, expires REAL NOT NULL);
 """
 
 
@@ -144,40 +143,44 @@ class Accounts:
             return allow_rate(db, "operator-sign-in-failure", 20, 60)
 
     # GitHub OAuth web flow with PKCE and a browser-bound state -------------
+    # Pending flows hold no server state: the flow cookie carries a nonce and expiry sealed with a key derived
+    # from the client secret, and the state and PKCE verifier are recomputed from it. Anonymous traffic therefore
+    # cannot fill storage or displace anyone's sign-in, and the cookie itself reveals neither value.
+    def _flow_value(self, purpose: str, nonce: str, expires: int) -> str:
+        key = hmac.new(self.deployment.github.client_secret.encode(), b"parallax-oauth-flow-v1", hashlib.sha256).digest()
+        mac = hmac.new(key, f"{purpose}|{nonce}|{expires}".encode(), hashlib.sha256).digest()
+        return base64.urlsafe_b64encode(mac).rstrip(b"=").decode()
+
     def begin_github(self) -> tuple[str, str]:
         app, redirect = self.deployment.github, self.deployment.github_redirect
         if not app or not redirect:
             raise SignInRefused("unavailable")
-        state, binding, verifier = secrets.token_urlsafe(32), secrets.token_urlsafe(32), secrets.token_urlsafe(64)
+        nonce, expires = base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode(), int(time.time()) + FLOW_SECONDS
+        verifier = self._flow_value("verifier", nonce, expires)
         challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
-        now = time.time()
-        with self.store.connect() as db:
-            db.execute("DELETE FROM auth_flows WHERE expires<?", (now,))
-            # Bounded storage without a global refusal: the oldest pending flows are evicted first.
-            db.execute("DELETE FROM auth_flows WHERE state IN (SELECT state FROM auth_flows ORDER BY expires DESC LIMIT -1 OFFSET ?)",
-                       (PENDING_FLOWS - 1,))
-            db.execute("INSERT INTO auth_flows(state,binding,verifier,expires) VALUES(?,?,?,?)",
-                       (digest(state), digest(binding), verifier, now + FLOW_SECONDS))
-        query = urlencode({"client_id": app.client_id, "redirect_uri": redirect, "state": state,
+        binding = f"{nonce}.{expires}.{self._flow_value('binding', nonce, expires)}"
+        query = urlencode({"client_id": app.client_id, "redirect_uri": redirect, "state": self._flow_value("state", nonce, expires),
                            "code_challenge": challenge, "code_challenge_method": "S256", "allow_signup": "true"})
         return "https://github.com/login/oauth/authorize?" + query, binding
 
     async def finish_github(self, *, state: str, code: str, binding: str, error: str | None = None) -> tuple[str, int]:
         if not self.deployment.github or not self.deployment.github_redirect:
             raise SignInRefused("unavailable")
-        if not state or not binding or len(state) > 256 or len(binding) > 256:
+        # A flow completes only in the browser that started it (its cookie), for its own state, before it expires.
+        sealed = _BINDING.fullmatch(binding or "")
+        if not sealed or not _STATE.fullmatch(state or ""):
             raise SignInRefused("expired")
-        # A flow is consumed only by the browser that started it, and only once.
-        with self.store.connect() as db:
-            flow = db.execute("DELETE FROM auth_flows WHERE state=? AND binding=? RETURNING verifier,expires",
-                              (digest(state), digest(binding))).fetchone()
-        if flow is None or flow["expires"] < time.time():
+        nonce, expires, tag = sealed.group(1), int(sealed.group(2)), sealed.group(3)
+        if (not hmac.compare_digest(tag, self._flow_value("binding", nonce, expires))
+                or not hmac.compare_digest(state, self._flow_value("state", nonce, expires))
+                or not time.time() <= expires <= time.time() + FLOW_SECONDS):
             raise SignInRefused("expired")
+        verifier = self._flow_value("verifier", nonce, expires)
         if error:
             raise SignInRefused("denied")
         if not code or not _CODE.fullmatch(code):
             raise SignInRefused("failed")
-        profile = await self._github_profile(code, flow["verifier"])
+        profile = await self._github_profile(code, verifier)
         account, workspace = self._admit(profile)
         return self.create_session("github", workspace, account)
 

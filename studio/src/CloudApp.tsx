@@ -86,27 +86,38 @@ export default function CloudApp() {
     setView({ kind: "signed-out", notice });
   }, []);
 
-  const checkSession = useCallback(async () => {
-    try {
-      const response = await fetch("/api/session", { credentials: "same-origin" });
-      if (response.status === 401) return setView({ kind: "signed-out" });
-      if (!response.ok) throw new Error(String(response.status));
-      const next = normalize(await response.json());
-      exiting.current = false;
-      if (workspaceRef.current && workspaceRef.current !== next.workspace.id) {
-        // A different account now owns this browser's session: drop every trace of the previous one.
-        setApiExecutor(null);
-        setMachines([]);
-        setMachinesLoaded(false);
-        setSelected(null);
-        setDeleting(false);
+  /** `background` checks run while Studio is open: they end or switch the session, but a transient
+   *  failure leaves Studio as it is for the next poll or focus to retry. */
+  const checkSession = useCallback(
+    async (background = false) => {
+      try {
+        const response = await fetch("/api/session", { credentials: "same-origin" });
+        if (background && (viewRef.current !== "ready" || exiting.current)) return;
+        if (response.status === 401) {
+          if (background) return endSession("Your session has ended. Sign in again to continue.");
+          return setView({ kind: "signed-out" });
+        }
+        if (!response.ok) throw new Error(String(response.status));
+        const next = normalize(await response.json());
+        if (background && (viewRef.current !== "ready" || exiting.current)) return;
+        exiting.current = false;
+        if (workspaceRef.current && workspaceRef.current !== next.workspace.id) {
+          // A different account now owns this browser's session: drop every trace of the previous one.
+          setApiExecutor(null);
+          setMachines([]);
+          setMachinesLoaded(false);
+          setSelected(null);
+          setDeleting(false);
+          setOnboarding(false);
+        }
+        setView({ kind: "ready", session: next });
+        if (location.pathname === "/operator") window.history.replaceState(null, "", "/");
+      } catch {
+        if (!background) setView({ kind: "unavailable" });
       }
-      setView({ kind: "ready", session: next });
-      if (location.pathname === "/operator") window.history.replaceState(null, "", "/");
-    } catch {
-      setView({ kind: "unavailable" });
-    }
-  }, []);
+    },
+    [endSession],
+  );
 
   useEffect(() => {
     void checkSession();
@@ -122,7 +133,7 @@ export default function CloudApp() {
   useEffect(() => {
     const recheck = () => {
       if (document.visibilityState === "visible" && viewRef.current === "ready" && !exiting.current)
-        void checkSession();
+        void checkSession(true);
     };
     document.addEventListener("visibilitychange", recheck);
     window.addEventListener("focus", recheck);
@@ -154,7 +165,7 @@ export default function CloudApp() {
       const scope = response.headers.get("X-Parallax-Workspace");
       if (scope && scope !== workspaceRef.current) {
         // The cookie now belongs to a different workspace (another tab switched accounts).
-        void checkSession();
+        void checkSession(true);
         return;
       }
       setMachines((await response.json()) as ExecutionMachine[]);
@@ -212,7 +223,7 @@ export default function CloudApp() {
     if (!response || !response.ok) {
       exiting.current = false;
       const body = response ? await response.json().catch(() => ({})) : {};
-      if (response?.status === 409) void checkSession();
+      if (response?.status === 409) void checkSession(true);
       throw new Error(
         typeof body.detail === "string" ? body.detail : "The account could not be deleted. Try again.",
       );
