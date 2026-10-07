@@ -67,7 +67,7 @@ export default function HostedApp() {
       <main className="hosted-main">
         <div className="hosted-intro">
           <span className="hosted-eyebrow">
-            DEVELOPER ALPHA · LOCAL EXECUTION
+            VERIFIED CODING TEAMS · LOCAL EXECUTION
           </span>
           <h1>
             A coding team.
@@ -109,8 +109,11 @@ export default function HostedApp() {
         </div>
         <section className="hosted-launch" aria-labelledby="launch-title">
           <span className="hosted-eyebrow">OPEN YOUR WORKSPACE</span>
-          <h2 id="launch-title">Start in Codex</h2>
-          <p>With the Parallax plugin installed, ask:</p>
+          <h2 id="launch-title">Start in Claude Code or Codex</h2>
+          <p>
+            With the Parallax plugin installed, run <code>/parallax:studio</code> in Claude
+            Code, or ask Codex:
+          </p>
           <blockquote>“Open Parallax Studio for this project.”</blockquote>
           <p>
             The plugin returns an authenticated local link. Open it directly, or
@@ -166,7 +169,7 @@ export default function HostedApp() {
         </section>
       </main>
       <footer className="hosted-footer">
-        <span>Parallax 1.1 · Constellation</span>
+        <span>Parallax {__PARALLAX_VERSION__}</span>
         <span>Hosted entry · Studio runs locally</span>
       </footer>
     </div>

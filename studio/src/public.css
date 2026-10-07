@@ -137,6 +137,7 @@
   font-size: 13.5px;
   font-weight: 600;
   color: var(--background);
+  text-decoration: none;
   background: var(--text);
   border-radius: 8px;
 }
@@ -326,6 +327,31 @@
 .pub-section > .pub-fineprint {
   max-width: 640px;
   margin-top: 28px;
+}
+.pub-section > .pub-fineprint a {
+  color: var(--text);
+}
+.pub-where {
+  margin-top: 56px;
+}
+.pub-install {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 40px;
+}
+.pub-install h3 {
+  font-size: 15px;
+}
+.pub-install p {
+  margin-top: 12px;
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--muted);
+}
+.pub-install p code {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12.5px;
+  color: var(--text);
 }
 .pub-local {
   display: flex;
@@ -680,7 +706,8 @@
     padding: 56px 0;
   }
   .pub-steps,
-  .pub-columns {
+  .pub-columns,
+  .pub-install {
     grid-template-columns: 1fr;
     gap: 28px;
   }

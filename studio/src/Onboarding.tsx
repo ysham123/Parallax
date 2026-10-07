@@ -4,7 +4,7 @@ import { Mark, ThemeToggle } from "./PublicChrome";
 import { platformLabel, workerCommands, type ExecutionMachine } from "./session";
 import "./public.css";
 
-function CopyBlock({ label, text }: { label: string; text: string }) {
+export function CopyBlock({ label, text }: { label: string; text: string }) {
   const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
   return (
     <div className="onb-code">

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ProviderMark } from "./Brand";
+import { CopyBlock } from "./Onboarding";
 import { Mark, ThemeToggle } from "./PublicChrome";
 import {
   REPOSITORY,
@@ -90,6 +91,37 @@ function GraphPreview() {
   );
 }
 
+const CLAUDE_INSTALL = "/plugin marketplace add ysham123/Parallax\n/plugin install parallax@parallax";
+const CODEX_INSTALL = "codex plugin marketplace add ysham123/Parallax\ncodex plugin add codex-claude-team@codex-claude-team";
+
+function Install() {
+  return (
+    <section className="pub-section" id="install" aria-labelledby="install-title">
+      <h2 id="install-title">Install</h2>
+      <div className="pub-install">
+        <div>
+          <h3>Claude Code</h3>
+          <CopyBlock label="Claude Code install commands" text={CLAUDE_INSTALL} />
+          <p>
+            Then run <code>/parallax:review</code>, <code>/parallax:build</code> or{" "}
+            <code>/parallax:studio</code>, or ask Claude to bring in the team.
+          </p>
+        </div>
+        <div>
+          <h3>Codex</h3>
+          <CopyBlock label="Codex install commands" text={CODEX_INSTALL} />
+          <p>Then start a new chat and ask Codex to use Parallax for a review or a build.</p>
+        </div>
+      </div>
+      <p className="pub-fineprint">
+        Needs Python 3.10 or newer, Git, and at least one signed-in agent CLI or API key. Agents,
+        project files and run history stay on your machine; prompts and relevant code go only to the
+        providers you choose. Prefer the terminal? See the <a href={`${REPOSITORY}#install`}>README</a>.
+      </p>
+    </section>
+  );
+}
+
 export default function PublicEntry({
   config,
   error,
@@ -155,6 +187,9 @@ export default function PublicEntry({
     </button>
   );
 
+  // Without hosted sign-in, installing the plugin is the way in; the page never dead-ends on a disabled button.
+  const local = config !== null && !available;
+
   return (
     <div className="pub-page">
       <a className="skip-link" href="#public-main">
@@ -169,7 +204,13 @@ export default function PublicEntry({
           <a href={`${REPOSITORY}#readme`}>Docs</a>
           <a href={REPOSITORY}>GitHub</a>
           <ThemeToggle />
-          {signInButton("Sign in", "pub-signin-link")}
+          {local ? (
+            <a className="pub-signin-link" href="#install">
+              Install
+            </a>
+          ) : (
+            signInButton("Sign in", "pub-signin-link")
+          )}
         </nav>
       </header>
 
@@ -183,9 +224,9 @@ export default function PublicEntry({
               One verified result.
             </h1>
             <p className="pub-lead">
-              Parallax coordinates Codex, Claude Code, Grok Build, and Antigravity on a machine you
-              control. Follow each agent in a live graph, then review the evidence before a change
-              reaches your project.
+              Parallax runs Codex, Claude Code, Grok Build and Antigravity as one team on your
+              project. Every agent works in isolation, a different provider reviews each change, and
+              your own checks must pass before anything reaches your code.
             </p>
             {(failure || notice) && (
               <p className="pub-alert" role="alert">
@@ -193,9 +234,15 @@ export default function PublicEntry({
               </p>
             )}
             <div className="pub-actions">
-              {signInButton("Continue with GitHub", "pub-primary")}
-              <a className="pub-secondary" href="#how">
-                How it works
+              {local ? (
+                <a className="pub-primary" href="#install">
+                  Install Parallax
+                </a>
+              ) : (
+                signInButton("Continue with GitHub", "pub-primary")
+              )}
+              <a className="pub-secondary" href={local ? "#how" : "#install"}>
+                {local ? "How it works" : "Install locally"}
               </a>
             </div>
             <p className="pub-fineprint" id="sign-in-unavailable">
@@ -205,9 +252,9 @@ export default function PublicEntry({
                   ? config.signup === "open"
                     ? "Parallax reads only your public GitHub profile. It cannot see your repositories."
                     : config.signup === "allowlist"
-                      ? "Invite only during the developer alpha. Parallax reads only your public GitHub profile."
+                      ? "Hosted workspaces are invite only for now. Parallax reads only your public GitHub profile."
                       : "New accounts are closed right now. Existing accounts can still sign in."
-                  : "GitHub sign-in is not configured on this deployment yet. You can still run Parallax entirely on your machine."}
+                  : "Free and open source. Runs on your machine from Claude Code or Codex."}
             </p>
             <ul className="pub-providers" aria-label="Supported agents">
               {PROVIDERS.map(([id, name]) => (
@@ -221,86 +268,106 @@ export default function PublicEntry({
           <GraphPreview />
         </section>
 
+        {local && <Install />}
+
         <section className="pub-section" id="how" aria-labelledby="how-title">
           <h2 id="how-title">How it works</h2>
           <ol className="pub-steps">
             <li>
               <span>01</span>
-              <h3>Sign in</h3>
+              <h3>Plan in scoped tasks</h3>
               <p>
-                Your GitHub account opens a private workspace. Other accounts cannot see or
-                control your machines, runs, or evidence.
+                A coordinator splits your request into tasks with explicit file ownership. Each
+                agent gets a compact brief of its own, never a shared transcript.
               </p>
             </li>
             <li>
               <span>02</span>
-              <h3>Connect your machine</h3>
+              <h3>Build in isolation</h3>
               <p>
-                Run one command next to the project you approve. The worker connects outward over
-                HTTPS and uses the CLIs you are already signed in to.
+                Every worker edits its own checkout. When approaches genuinely differ, variants run
+                side by side and only the one that passes review and checks is kept.
               </p>
             </li>
             <li>
               <span>03</span>
-              <h3>Run and review</h3>
+              <h3>Review, check, apply</h3>
               <p>
-                Choose a coordinator, models, and effort. Inspect assignments, independent reviews,
-                and checks, then download the verification record and patch.
+                A different provider reviews each change, your project&apos;s checks run on the
+                combined result, and only the verified patch reaches your working tree, with a record
+                of the evidence.
               </p>
             </li>
           </ol>
         </section>
 
-        <section className="pub-section" aria-labelledby="data-title">
-          <h2 id="data-title">Where your work runs</h2>
-          <div className="pub-columns">
-            <div>
-              <h3>On your machine</h3>
-              <ul>
-                <li>Project files, worktrees, and integration</li>
-                <li>CLI sign-ins and API keys</li>
-                <li>Agent processes and project checks</li>
-              </ul>
+        {!local && (
+          <section className="pub-section" aria-labelledby="hosted-title">
+            <h2 id="hosted-title">Hosted workspaces</h2>
+            <ol className="pub-steps">
+              <li>
+                <span>01</span>
+                <h3>Sign in</h3>
+                <p>
+                  Your GitHub account opens a private workspace. Other accounts cannot see or
+                  control your machines, runs, or evidence.
+                </p>
+              </li>
+              <li>
+                <span>02</span>
+                <h3>Connect your machine</h3>
+                <p>
+                  Run one command next to the project you approve. The worker connects outward over
+                  HTTPS and uses the CLIs you are already signed in to.
+                </p>
+              </li>
+              <li>
+                <span>03</span>
+                <h3>Run from anywhere</h3>
+                <p>
+                  Start and steer runs in the browser, follow each agent in the graph, and download
+                  the verification record and patch.
+                </p>
+              </li>
+            </ol>
+            <div className="pub-columns pub-where">
+              <div>
+                <h3>On your machine</h3>
+                <ul>
+                  <li>Project files, worktrees, and integration</li>
+                  <li>CLI sign-ins and API keys</li>
+                  <li>Agent processes and project checks</li>
+                </ul>
+              </div>
+              <div>
+                <h3>In your workspace</h3>
+                <ul>
+                  <li>Run results, diffs, check output, and ordered events, mirrored for the graph</li>
+                  <li>Machine names and approved project paths</li>
+                  <li>Your GitHub ID, username, display name, avatar URL, and sign-in times</li>
+                </ul>
+              </div>
+              <div>
+                <h3>Not available yet</h3>
+                <ul>
+                  <li>Running agents on Parallax servers. New workspaces use machines you connect.</li>
+                  <li>Shared team workspaces</li>
+                </ul>
+              </div>
             </div>
-            <div>
-              <h3>In your workspace</h3>
-              <ul>
-                <li>Run results, diffs, check output, and ordered events, mirrored for the graph</li>
-                <li>Machine names and approved project paths</li>
-                <li>Your GitHub ID, username, display name, avatar URL, and sign-in times</li>
-              </ul>
-            </div>
-            <div>
-              <h3>Not available yet</h3>
-              <ul>
-                <li>Running agents on Parallax servers. New workspaces use machines you connect.</li>
-                <li>Shared team workspaces</li>
-              </ul>
-            </div>
-          </div>
-          <p className="pub-fineprint">
-            Prompts and relevant project content go to the inference providers you choose. The
-            operator of this deployment administers its hosted data. Deleting your account removes
-            your workspace, its machines, and mirrored evidence.
-          </p>
-        </section>
-
-        <section className="pub-section pub-local" aria-labelledby="local-title">
-          <div>
-            <h2 id="local-title">Prefer fully local?</h2>
-            <p>
-              Install the Codex plugin and open Studio on your own computer. Nothing is mirrored and
-              no account is needed.
+            <p className="pub-fineprint">
+              Prompts and relevant project content go to the inference providers you choose. The
+              operator of this deployment administers its hosted data. Deleting your account removes
+              your workspace, its machines, and mirrored evidence.
             </p>
-          </div>
-          <a className="pub-secondary" href={`${REPOSITORY}#install`}>
-            Local install guide
-          </a>
-        </section>
+          </section>
+        )}
+
+        {!local && <Install />}
       </main>
 
       <footer className="pub-footer">
-        <span>Parallax 1.1 · Developer alpha · MIT</span>
+        <span>Parallax {__PARALLAX_VERSION__} · MIT</span>
         <a href={REPOSITORY}>Source</a>
       </footer>
     </div>
