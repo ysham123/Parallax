@@ -28,4 +28,10 @@
 - Versioned additive contracts and SQLite tables, retained 1.0 receipts and legacy Claude compatibility.
 - Python service, typed React and mixed-project fake-agent acceptance fixtures; prepared matched single-Codex alpha protocol.
 
+- Context engineering: every provider call receives a role-scoped packet compiled from durable state, with budgets, hash fences, path scrubbing and a recorded content-free manifest. Coordinator turns, repairs, reviews and synthesis start fresh sessions; only a crashed attempt is continued.
+- Evaluator isolation: reviewers judge the request, the original requirements, the candidate's own patch and its own evidence, never the implementer; review-mode synthesis is blind.
+- Exploration: the coordinator can try substantially different variants of a task in isolated checkouts, reviewed and checked independently, and merge one.
+- Project memory: a local per-project idea graph, coordinator-only retrieval with `search_ideas`, and post-run distillation of grounded, evidence-weighted lessons with local inspect, disable and forget controls.
+- Fixes: the integration reviewer sees the checks it just ran, merge conflicts consume the repair budget instead of looping, and a failed attempt is never re-run for free after a crash.
+
 Publication, remote CI, live API inference and the five-developer study remain separate validation gates.

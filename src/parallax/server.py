@@ -28,6 +28,11 @@ class AssessmentRequest(ProjectProfile):
 class Steering(BaseModel):
     message: str = Field(min_length=1,max_length=20000)
 
+class MemoryLessonUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    workspace: str = Field(min_length=1, max_length=4096)
+    status: str = Field(pattern=r"^(active|disabled)$")
+
 class SessionInput(BaseModel):
     token: str = Field(min_length=1,max_length=512)
 
@@ -266,6 +271,30 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
         return {"name":name,"profile":body.model_dump(),"assessment":assessment}
     @app.delete("/api/project-profiles/{name}")
     async def remove_project_profile(name:str): store.delete_project_profile(name);return {"ok":True}
+    # Project memory is local to this machine: these routes are deliberately absent from the worker relay allowlist.
+    def memory_for(workspace:str):
+        if not workspace or not Path(workspace).expanduser().is_dir(): raise ValueError("Choose an existing project directory")
+        check_workspace(workspace)
+        from .ideas import IdeaStore
+        return IdeaStore(store.home,str(Path(workspace).expanduser().resolve()))
+    @app.get("/api/memory")
+    async def memory(workspace:str,q:str="",status:str|None=None,limit:int=50):
+        ideas=await asyncio.to_thread(memory_for,workspace)
+        return {"lessons":ideas.lessons(q[:500],status,max(1,min(limit,200))),"counts":ideas.counts()}
+    @app.patch("/api/memory/lessons/{identifier}")
+    async def lesson_status(identifier:str,body:MemoryLessonUpdate):
+        ideas=await asyncio.to_thread(memory_for,body.workspace)
+        try: ideas.set_status(identifier,body.status)
+        except KeyError: raise HTTPException(404,"Lesson not found")
+        return {"ok":True}
+    @app.delete("/api/memory")
+    async def forget_memory(workspace:str):
+        ideas=await asyncio.to_thread(memory_for,workspace)
+        with store.connect() as db:
+            if db.execute("SELECT 1 FROM project_locks WHERE workspace=?",(str(Path(workspace).expanduser().resolve()),)).fetchone():
+                raise HTTPException(409,"A run is active in this project; forget its memory after the run finishes")
+        ideas.forget()
+        return {"ok":True}
     @app.post("/api/feedback/baseline")
     async def baseline_feedback(body:AlphaFeedback): return save_baseline_feedback(store,body)
     @app.get("/api/feedback/export")
