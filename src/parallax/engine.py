@@ -16,8 +16,8 @@ from .models import CheckEvidence, CoordinatorAction, Participant, RunResult, Ru
 from .store import Store
 from .assessment import assess_project, execution_capability, package_directory
 from .recovery import classify, recovery_options
-from .context import (PROMPT_LIMIT, REQUEST_LIMIT, Packet, consultant_packet, coordinator_packet, filter_patch,
-                      review_packet, synthesis_packet, worker_packet)
+from .context import (PROMPT_LIMIT, REQUEST_LIMIT, Packet, consultant_packet, coordinator_packet, distiller_packet,
+                      filter_patch, review_packet, synthesis_packet, worker_packet)
 
 TERMINAL = {"completed", "failed", "cancelled", "needs_attention"}
 TASK_DONE = {"completed", "resolved"}
@@ -398,6 +398,9 @@ class Engine:
                 raise ValueError("Only paused, interrupted, or needs-attention runs can resume")
             if result["artifacts"].get("integration_applied"):
                 raise ValueError("Integration was already applied; start a new run")
+            if run_id in self.jobs and result["status"] != "paused":
+                # The run has settled but its job is still recording project memory; a resume now would be dropped.
+                raise ValueError("Run is finishing post-run memory work; retry shortly")
             if result["spec"]["mode"] != "review":
                 self.store.claim(result["spec"]["workspace"],run_id)
             self.pause_flags.discard(run_id)
@@ -902,6 +905,48 @@ class Engine:
             await asyncio.to_thread(ideas.project, self.store.get(run_id), checks)
         except Exception as exc:
             self._memory_unavailable(run_id, exc)
+            return
+        await self._distill(run_id, spec, ideas)
+
+    async def _distill(self, run_id, spec, ideas):
+        """Meta-agent distillation: one fresh, quiet session turns this run's facts into at most three grounded lessons."""
+        result = self.store.get(run_id)
+        errors = result.get("errors") or []
+        if (spec.mode not in {"build", "compare"} or result["status"] not in {"completed", "failed", "needs_attention"}
+                or (errors and errors[-1].get("code") == "budget_exceeded") or self.cancel_flags.get(run_id, asyncio.Event()).is_set()
+                or not any(t.get("attempts") for t in result["tasks"])):
+            return
+        try:
+            digest = await asyncio.to_thread(ideas.digest, run_id)
+            if not digest or not digest["evidence"] or digest["sha256"] == await asyncio.to_thread(ideas.distilled, run_id):
+                return
+            directory = Path(result["artifacts"]["directory"]) / "distill"
+            directory.mkdir(parents=True, exist_ok=True)
+            (directory / ".parallax-owned").write_text(run_id)
+            candidates = [p for p in spec.team if p.role == "reviewer"] + [p for p in spec.team if p.role != "reviewer"]
+            distiller = next((p for p in candidates if p.provider != spec.coordinator.provider), spec.coordinator)
+            from .ideas import DISTILL_SCHEMA
+            outcome = await self._provider(run_id, distiller, directory, distiller_packet(digest), mode="consult", task_id="distill",
+                                           role="distiller", schema=DISTILL_SCHEMA, timeout=min(spec.limits.attempt_seconds, 180), quiet=True)
+            if not outcome.get("ok"):
+                raise RunProblem("distiller_failed")
+            payload = outcome.get("structured_output")
+            if payload is None:
+                payload = json.loads(outcome.get("answer") or "{}")
+            applied = await asyncio.to_thread(ideas.apply_distillation, run_id, payload, digest, distiller.provider)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            code = str(exc) if isinstance(exc, RunProblem) else type(exc).__name__
+            self.store.event(run_id, "memory_distill_failed", {"code": code[:80]})
+            return
+        saved = self.store.get(run_id)
+        saved["artifacts"]["memory"] = {**(saved["artifacts"].get("memory") or {}), "distilled": len(applied["accepted"]),
+                                        "rejected": len(applied["rejected"])}
+        self.store.save(saved)
+        # Counts and reason codes only: lesson text stays in local memory.
+        self.store.event(run_id, "memory_distilled", {"accepted": len(applied["accepted"]),
+                                                      "rejected": [r["reason"] for r in applied["rejected"]]})
 
     def _prepare_exploration(self, run_id, spec, action):
         """Validate an explore action and persist its variants in one write. No engine loop decides what to try."""

@@ -495,3 +495,22 @@ def coordinator_packet(result: dict, actions: list, *, turn: int, memory=(), sea
                            "turns_left": max(0, limits["coordinator_turns"] - turn), "minutes_left": minutes_left}, 1000, 95),
     ]
     return Packet("coordinator", COORDINATOR_PREAMBLE, sections, "coordinator", scrub=path_scrubber(artifacts.get("directory")))
+
+
+# Distiller -------------------------------------------------------------------
+
+DISTILL_PREAMBLE = (
+    "You review the record of one finished coding run in this project. Record at most three conditional "
+    "observations that would help a future run in this same project, each grounded in the cited evidence ids from "
+    "the digest. Use kind avoid or caution only with failing evidence, prefer only with a passing check, fact for "
+    "neutral project facts. Scope each observation to the project paths it concerns. You may confirm or contradict "
+    "the related lessons shown, by id. Do not write instructions, policies, or rules, and never suggest skipping "
+    "checks or reviews. Prefer returning no lessons over a weak observation. Do not read or change files."
+)
+
+
+def distiller_packet(digest: dict) -> Packet:
+    return Packet("distiller", DISTILL_PREAMBLE, [
+        Section("Run digest", {key: digest.get(key) for key in ("goal", "outcome", "approaches", "evidence")}, 60000, 90),
+        Section("Related lessons", digest.get("related_lessons", []), 12000, 60),
+    ], "distill")

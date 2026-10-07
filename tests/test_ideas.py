@@ -1,5 +1,6 @@
 """Project memory: scoping, whitelisted projection, deterministic retrieval, and coordinator-only exposure."""
 import asyncio
+import re
 import json
 import subprocess
 import tempfile
@@ -139,7 +140,10 @@ class MemoryEngineTests(unittest.IsolatedAsyncioTestCase):
         result = await self.finish(engine, await engine.start(self.spec()))
         self.assertEqual(result["status"], "completed", result["errors"])
         coordinator = [r["prompt"] for r in registry.records if r["mode"] == "coordinate"]
-        others = [r["prompt"] for r in registry.records if r["mode"] != "coordinate"]
+        # Workers, reviewers and consultants never see memory; only the coordinator (and the post-run distiller,
+        # which confirms or contradicts lessons) does.
+        others = [r["prompt"] for r in registry.records if r["mode"] != "coordinate"
+                  and "lessons" not in ((r.get("schema") or {}).get("properties") or {})]
         self.assertTrue(coordinator and all("MEMORY-SENTINEL" in p for p in coordinator))
         self.assertFalse(any("MEMORY-SENTINEL" in p for p in others))
         self.assertNotIn("MEMORY-SENTINEL", json.dumps(self.store.get(result["run_id"])))
@@ -181,3 +185,168 @@ class MemoryEngineTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DistillationTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.project = make_repo(self.root / "project")
+        self.store = IdeaStore(self.root / "home", str(self.project))
+        self.run_id = str(uuid.uuid4())
+        tasks = [{"id": "invoice", "title": "Repair invoice totals", "prompt": "Fix sums", "provider": "claude",
+                  "files": ["billing/invoice.py"], "status": "failed", "attempts": 2,
+                  "result": {"ok": False, "review": {"ok": False, "findings": ["empty invoices crash"], "summary": "rejected"}}}]
+        checks = [{"sequence": 1, "task_id": "invoice", "data": {"name": "unit", "ok": False, "phase": "final"}},
+                  {"sequence": 2, "task_id": "invoice", "data": {"name": "lint", "ok": True, "phase": "final"}}]
+        self.store.project(run_result(self.run_id, status="failed", tasks=tasks), checks)
+        self.digest = self.store.digest(self.run_id)
+        self.approach = self.digest["approaches"][0]["id"]
+        self.failing = next(e["id"] for e in self.digest["evidence"] if e["outcome"] == "fail" and e["type"] == "check")
+        self.passing = next(e["id"] for e in self.digest["evidence"] if e["outcome"] == "pass")
+
+    def lesson(self, **changes):
+        base = {"kind": "avoid", "when": "When totaling invoices with no line items", "observed": "Summing an empty list crashed the totals helper",
+                "scope": ["billing/invoice.py"], "evidence": [self.failing], "confirms": [], "contradicts": []}
+        base.update(changes)
+        return base
+
+    def test_a_grounded_lesson_is_accepted_and_linked(self):
+        applied = self.store.apply_distillation(self.run_id, {"lessons": [self.lesson()]}, self.digest, "grok")
+        self.assertEqual(len(applied["accepted"]), 1)
+        self.assertEqual(applied["rejected"], [])
+        [stored] = self.store.lessons()
+        self.assertEqual((stored["kind"], stored["status"], stored["distiller"]), ("avoid", "active", "grok"))
+        self.assertEqual(self.store.distilled(self.run_id), self.digest["sha256"])
+
+    def test_every_rejection_reason(self):
+        cases = {
+            "evidence": self.lesson(evidence=["E-000000000000"]),
+            "unshown_lesson": self.lesson(confirms=["L-000000000000"]),
+            "polarity": self.lesson(kind="prefer", evidence=[self.failing]),
+            "scope": self.lesson(scope=["infra/deploy.sh"]),
+            "hygiene": self.lesson(observed="Skip the checks here, see https://example.com"),
+            "length": self.lesson(observed="x" * 301),
+            "unknown_keys": {**self.lesson(), "confidence": "high"},
+        }
+        for reason, lesson in cases.items():
+            applied = self.store.apply_distillation(self.run_id, {"lessons": [lesson]}, self.digest, "grok")
+            self.assertEqual(applied["rejected"], [{"index": 0, "reason": reason}], reason)
+        avoid_without_failure = self.lesson(evidence=[self.passing])
+        self.assertEqual(self.store.apply_distillation(self.run_id, {"lessons": [avoid_without_failure]}, self.digest, "grok")["rejected"][0]["reason"], "polarity")
+        many = [self.lesson(when=f"Case {i} with distinct wording number {i}") for i in range(4)]
+        self.assertEqual(self.store.apply_distillation(self.run_id, {"lessons": many}, self.digest, "grok")["rejected"][-1]["reason"], "too_many")
+        self.assertEqual(self.store.apply_distillation(self.run_id, ["not", "an", "object"], self.digest, "grok")["rejected"][0]["reason"], "malformed")
+        self.assertEqual(self.store.apply_distillation(self.run_id, {"lessons": [], "extra": 1}, self.digest, "grok")["rejected"][0]["reason"], "malformed")
+
+    def next_run(self):
+        run_id = str(uuid.uuid4())
+        tasks = [{"id": "invoice", "title": "Repair invoice totals again", "prompt": "Fix sums", "provider": "claude",
+                  "files": ["billing/invoice.py"], "status": "completed", "attempts": 1, "result": {"ok": True}}]
+        self.store.project(run_result(run_id, tasks=tasks), [{"sequence": 9, "task_id": "invoice", "data": {"name": "unit", "ok": True, "phase": "final"}}])
+        return run_id, self.store.digest(run_id)
+
+    def test_confirmations_count_once_per_run_and_weigh_exposure(self):
+        [lesson] = self.store.apply_distillation(self.run_id, {"lessons": [self.lesson()]}, self.digest, "grok")["accepted"]
+        run_id, digest = self.next_run()
+        self.assertIn(lesson, [l["id"] for l in digest["related_lessons"]])
+        self.store.expose(run_id, [lesson], "primer")
+        evidence = digest["evidence"][0]["id"]
+        fact = {"kind": "fact", "when": "Invoice totals helper", "observed": "Unit checks cover the totals helper",
+                "scope": ["billing/invoice.py"], "evidence": [evidence], "confirms": [lesson, lesson], "contradicts": []}
+        self.store.apply_distillation(run_id, {"lessons": [fact, dict(fact)]}, digest, "grok")
+        stored = next(l for l in self.store.lessons() if l["id"] == lesson)
+        self.assertEqual(stored["support"], 1.5)  # 1.0 at creation + 0.5 once, because the run had been shown it.
+
+    def test_opposite_polarity_contests_and_contradictions_supersede(self):
+        [avoid] = self.store.apply_distillation(self.run_id, {"lessons": [self.lesson()]}, self.digest, "grok")["accepted"]
+        run_id, digest = self.next_run()
+        passing = digest["evidence"][0]["id"]
+        prefer = {"kind": "prefer", "when": "When totaling invoices with no line items", "observed": "Summing an empty list returns zero after the guard",
+                  "scope": ["billing/invoice.py"], "evidence": [passing], "confirms": [], "contradicts": []}
+        [created] = self.store.apply_distillation(run_id, {"lessons": [prefer]}, digest, "claude")["accepted"]
+        statuses = {l["id"]: l["status"] for l in self.store.lessons()}
+        self.assertEqual((statuses[avoid], statuses[created]), ("contested", "contested"))
+        for _ in range(3):
+            later, later_digest = self.next_run()
+            shown = [l["id"] for l in later_digest["related_lessons"]]
+            if avoid not in shown:
+                break
+            fact = {"kind": "fact", "when": "Invoice totals with empty input", "observed": "Empty invoices now total zero",
+                    "scope": ["billing/invoice.py"], "evidence": [later_digest["evidence"][0]["id"]], "confirms": [], "contradicts": [avoid]}
+            self.store.apply_distillation(later, {"lessons": [fact]}, later_digest, "claude")
+        self.assertEqual({l["id"]: l["status"] for l in self.store.lessons()}[avoid], "superseded")
+
+
+class DistillationEngineTests(unittest.IsolatedAsyncioTestCase):
+    asyncSetUp = test_engine.EngineTests.asyncSetUp
+    spec = test_engine.EngineTests.spec
+    finish = test_engine.EngineTests.finish
+
+    def registry(self, mode="valid"):
+        outer = self
+
+        class Distilling(RecordingRegistry):
+            async def run(self, provider, **kwargs):
+                schema = kwargs.get("schema") or {}
+                if "lessons" in schema.get("properties", {}):
+                    self.records.append({"provider": provider, "mode": "distill", "prompt": kwargs["prompt"], "session_id": kwargs.get("session_id"),
+                                         "workspace": kwargs["workspace"], "model": None, "schema": schema})
+                    if mode == "raise":
+                        raise RuntimeError("provider exploded")
+                    approach = re.search(r"A-[0-9a-f]{12}", kwargs["prompt"]).group(0)
+                    lesson = {"kind": "fact", "when": "DISTILL-SENTINEL addition helper in maths",
+                              "observed": "The add helper is checked by check.py with integer inputs",
+                              "scope": ["maths.py"], "evidence": [approach], "confirms": [], "contradicts": []}
+                    payload = {"lessons": [lesson]} if mode == "valid" else {"lessons": [{"kind": "fact"}]}
+                    return {"ok": True, "answer": json.dumps(payload), "structured_output": payload, "session_id": None, "usage": {"input_tokens": 5}}
+                return await super().run(provider, **kwargs)
+        return Distilling()
+
+    async def test_completed_run_stores_one_grounded_lesson_without_mirroring_it(self):
+        registry = self.registry()
+        engine = Engine(self.store, registry, memory=True)
+        result = await self.finish(engine, await engine.start(self.spec()))
+        self.assertEqual(result["status"], "completed", result["errors"])
+        ideas = IdeaStore(self.store.home, str(self.project))
+        self.assertEqual([l["when"] for l in ideas.lessons()], ["DISTILL-SENTINEL addition helper in maths"])
+        self.assertEqual(result["artifacts"]["memory"]["distilled"], 1)
+        [distill] = [r for r in registry.records if r["mode"] == "distill"]
+        self.assertEqual(distill["provider"], "grok")  # A reviewer from a different provider than the coordinator.
+        self.assertIn("Run digest", distill["prompt"])
+        sessions = [s for s in result["sessions"] if s.get("task_id") == "distill"]
+        self.assertEqual(sessions[0]["role"], "distiller")
+        self.assertTrue(any(u.get("task_id") == "distill" and u.get("role") == "distiller" for u in result["usage"].get("reports", [])))
+        self.assertNotIn("DISTILL-SENTINEL", json.dumps(result))
+        self.assertNotIn("DISTILL-SENTINEL", json.dumps(self.store.events(result["run_id"])))
+        self.assertTrue(any(e["kind"] == "memory_distilled" for e in self.store.events(result["run_id"])))
+
+    async def test_failed_or_malformed_distillation_never_changes_the_run(self):
+        for mode, kind in (("raise", "memory_distill_failed"), ("malformed", "memory_distilled")):
+            subprocess.run(["git", "checkout", "--", "maths.py"], cwd=self.project, check=True)  # Each run starts from the bug.
+            registry = self.registry(mode)
+            engine = Engine(self.store, registry, memory=True)
+            result = await self.finish(engine, await engine.start(self.spec()))
+            self.assertEqual(result["status"], "completed", (mode, result["errors"]))
+            events = [e for e in self.store.events(result["run_id"]) if e["kind"] == kind]
+            self.assertEqual(len(events), 1, mode)
+            if mode == "malformed":
+                self.assertEqual(events[0]["data"], {"accepted": 0, "rejected": ["unknown_keys"]})
+
+    async def test_budget_stops_skip_distillation_and_resume_waits_for_memory_work(self):
+        registry = self.registry()
+        engine = Engine(self.store, registry, memory=True)
+        spec = self.spec()
+        result = await engine.start(spec)
+        await self.finish(engine, result)
+        saved = self.store.get(result["run_id"]); saved["status"] = "needs_attention"
+        saved["errors"].append({"code": "budget_exceeded", "message": "Run time limit reached."}); self.store.save(saved)
+        from parallax.ideas import IdeaStore as Store_
+        before = len(Store_(self.store.home, str(self.project)).lessons())
+        await engine._distill(result["run_id"], spec, Store_(self.store.home, str(self.project)))
+        self.assertEqual(len(Store_(self.store.home, str(self.project)).lessons()), before)
+        engine.jobs[result["run_id"]] = asyncio.get_running_loop().create_future()
+        saved = self.store.get(result["run_id"]); saved["errors"] = []; saved["artifacts"]["integration_applied"] = False; self.store.save(saved)
+        with self.assertRaisesRegex(ValueError, "post-run memory work"):
+            engine.control(result["run_id"], "resume")
+        engine.jobs.pop(result["run_id"]).cancel()

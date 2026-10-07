@@ -118,7 +118,9 @@ def _clip(text, limit):
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
-class IdeaStore:
+class GraphStore:
+    """Storage, projection and retrieval. IdeaStore adds distillation."""
+
     def __init__(self, home: Path, workspace: str, *, key: str | None = None):
         self.workspace = os.path.realpath(workspace)
         self.key = key or project_key(workspace)
@@ -353,3 +355,199 @@ class IdeaStore:
     def forget(self) -> None:
         for suffix in ("", "-wal", "-shm"):
             Path(str(self.path) + suffix).unlink(missing_ok=True)
+
+
+# Distillation ----------------------------------------------------------------
+
+DISTILL_SCHEMA = {
+    "type": "object", "additionalProperties": False, "required": ["lessons"],
+    "properties": {"lessons": {"type": "array", "items": {
+        "type": "object", "additionalProperties": False,
+        "required": ["kind", "when", "observed", "scope", "evidence", "confirms", "contradicts"],
+        "properties": {
+            "kind": {"type": "string", "enum": ["prefer", "avoid", "caution", "fact"]},
+            "when": {"type": "string"}, "observed": {"type": "string"},
+            "scope": {"type": "array", "items": {"type": "string"}},
+            "evidence": {"type": "array", "items": {"type": "string"}},
+            "confirms": {"type": "array", "items": {"type": "string"}},
+            "contradicts": {"type": "array", "items": {"type": "string"}},
+        }}}},
+}
+LESSON_KEYS = set(DISTILL_SCHEMA["properties"]["lessons"]["items"]["required"])
+MAX_LESSONS_PER_RUN = 3
+OPPOSITE = {"prefer": "avoid", "avoid": "prefer"}
+HYGIENE = re.compile(
+    r"https?://|`|\$\(|\bcurl\b|\bwget\b|\beval\b|[A-Za-z0-9+/]{40,}={0,2}"
+    r"|\b(?:ignore|skip|disable|bypass|turn off|don't run|do not run)\b.{0,40}\b(?:checks?|reviews?|instructions?|tests?|sandbox(?:es)?)\b",
+    re.IGNORECASE)
+
+
+def _safe_scope(path) -> bool:
+    if not isinstance(path, str) or not path or len(path) > 200 or "\\" in path or "\x00" in path:
+        return False
+    parts = PurePosixPath(path).parts
+    return not PurePosixPath(path).is_absolute() and ".." not in parts and not any(p.startswith(".git") for p in parts)
+
+
+def _overlaps(path, files) -> bool:
+    path = path.rstrip("/")
+    return any(f == path or f.startswith(path + "/") or path.startswith(f.rstrip("/") + "/") for f in files)
+
+
+def _digest_hash(digest: dict) -> str:
+    return hashlib.sha256(json.dumps({k: v for k, v in digest.items() if k != "sha256"}, sort_keys=True).encode()).hexdigest()
+
+
+class IdeaStore(GraphStore):
+    """Project memory with post-run distillation of grounded lessons."""
+
+    def digest(self, run_id: str) -> dict | None:
+        """The distiller's whole input: this run's whitelisted facts plus related lessons it may confirm or contradict."""
+        with self.connect() as db:
+            run = db.execute("SELECT run_seq,status,distilled_sha256 FROM runs WHERE run_id=?", (run_id,)).fetchone()
+            if run is None:
+                return None
+            nodes = db.execute("SELECT * FROM nodes WHERE run_id=? ORDER BY id", (run_id,)).fetchall()
+            edges = db.execute("""SELECT e.src,e.rel,e.dst FROM edges e JOIN nodes n ON n.id=e.src WHERE n.run_id=?
+                AND e.rel IN ('supports','refutes')""", (run_id,)).fetchall()
+        goal = next((n for n in nodes if n["kind"] == "goal"), None)
+        links = {}
+        for src, rel, dst in edges:
+            links.setdefault(src, []).append({"relation": rel, "approach": dst})
+        approaches = [{"id": n["id"], "title": n["title"], "requirements": _clip(n["body"], 600), "outcome": n["outcome"],
+                       "failure_category": n["category"], "files": json.loads(n["files"])[:20],
+                       **{k: v for k, v in json.loads(n["meta"]).items() if k in ("attempts", "directive", "variant_of", "provider", "model")}}
+                      for n in nodes if n["kind"] == "approach"]
+        evidence = [{"id": n["id"], "title": n["title"], "detail": _clip(n["body"], 600), "outcome": n["outcome"],
+                     "type": json.loads(n["meta"]).get("type"), "links": links.get(n["id"], [])}
+                    for n in nodes if n["kind"] == "evidence"]
+        files = sorted({f for a in approaches for f in a["files"]})
+        text = " ".join([goal["title"] if goal else "", *(a["title"] for a in approaches)])
+        related = [h["id"] for h in self.search(text, files, k=8) if h["id"].startswith("L-")]
+        lessons = [r for r in self.render(related) if r.get("type") == "lesson"][:8]
+        digest = {"goal": goal["body"] if goal else "", "outcome": run["status"], "approaches": approaches,
+                  "evidence": evidence, "related_lessons": lessons}
+        digest["sha256"] = _digest_hash(digest)
+        return digest
+
+    def distilled(self, run_id: str) -> str | None:
+        with self.connect() as db:
+            row = db.execute("SELECT distilled_sha256 FROM runs WHERE run_id=?", (run_id,)).fetchone()
+        return row[0] if row else None
+
+    def apply_distillation(self, run_id: str, payload, digest: dict, distiller: str) -> dict:
+        """Validate proposed lessons against the digest and fold them into memory. Never trusts the model's claims."""
+        accepted, rejected = [], []
+        lessons = payload.get("lessons") if isinstance(payload, dict) else None
+        if not isinstance(lessons, list) or set(payload) - {"lessons"}:
+            return {"accepted": [], "rejected": [{"index": None, "reason": "malformed"}]}
+        approaches = {a["id"]: a for a in digest.get("approaches", [])}
+        evidence = {e["id"]: e for e in digest.get("evidence", [])}
+        shown = {l["id"] for l in digest.get("related_lessons", [])}
+        with self.connect() as db:
+            sequence = db.execute("SELECT run_seq FROM runs WHERE run_id=?", (run_id,)).fetchone()
+            if sequence is None:
+                return {"accepted": [], "rejected": [{"index": None, "reason": "unknown_run"}]}
+            sequence = sequence[0]
+            exposed = {row[0] for row in db.execute("SELECT node_id FROM exposures WHERE run_id=?", (run_id,))}
+            for index, lesson in enumerate(lessons):
+                reason = self._invalid(index, lesson, approaches, evidence, shown)
+                if reason:
+                    rejected.append({"index": index, "reason": reason})
+                    continue
+                for identifier in lesson["confirms"]:
+                    self._support(db, identifier, run_id, sequence, 0.5 if identifier in exposed else 1.0)
+                for identifier in lesson["contradicts"]:
+                    self._refute(db, identifier, run_id)
+                existing = self._similar(db, lesson)
+                if existing and existing["kind"] == lesson["kind"]:
+                    self._support(db, existing["node_id"], run_id, sequence, 0.5 if existing["node_id"] in exposed else 1.0)
+                    accepted.append(existing["node_id"])
+                    continue
+                identifier = self.node_id("lesson", None, lesson["kind"] + "|" + lesson["when"] + "|" + lesson["observed"])
+                status = "active"
+                if existing and OPPOSITE.get(lesson["kind"]) == existing["kind"]:
+                    status = "contested"
+                    db.execute("UPDATE lessons SET status='contested' WHERE node_id=? AND status='active'", (existing["node_id"],))
+                self._node(db, identifier, None, "lesson", identifier, lesson["when"], lesson["observed"], lesson["scope"],
+                                "model", None, None, {"evidence": lesson["evidence"], "run": run_id}, time.time())
+                db.execute("""INSERT OR IGNORE INTO lessons(node_id,kind,status,support,refute,last_support_seq,exposures_since_support,distiller)
+                    VALUES(?,?,?,1.0,0,?,0,?)""", (identifier, lesson["kind"], status, sequence, distiller))
+                db.execute("INSERT OR IGNORE INTO lesson_runs(lesson_id,run_id,effect,weight) VALUES(?,?,?,1.0)", (identifier, run_id, "created"))
+                for cited in lesson["evidence"]:
+                    if cited in approaches or cited in evidence:
+                        db.execute("INSERT OR IGNORE INTO edges(src,rel,dst) VALUES(?,?,?)", (identifier, "derived_from", cited))
+                accepted.append(identifier)
+            self._cap(db)
+            db.execute("UPDATE runs SET distilled_sha256=? WHERE run_id=?", (digest.get("sha256"), run_id))
+        return {"accepted": accepted, "rejected": rejected}
+
+    @staticmethod
+    def _invalid(index, lesson, approaches, evidence, shown) -> str | None:
+        if index >= MAX_LESSONS_PER_RUN:
+            return "too_many"
+        if not isinstance(lesson, dict) or set(lesson) != LESSON_KEYS:
+            return "unknown_keys"
+        if lesson["kind"] not in ("prefer", "avoid", "caution", "fact"):
+            return "kind"
+        if not all(isinstance(lesson[k], str) for k in ("when", "observed")) or not all(
+                isinstance(lesson[k], list) and all(isinstance(v, str) for v in lesson[k]) for k in ("scope", "evidence", "confirms", "contradicts")):
+            return "types"
+        if not lesson["when"].strip() or not lesson["observed"].strip() or len(lesson["when"]) > 160 or len(lesson["observed"]) > 300:
+            return "length"
+        if not lesson["evidence"] or any(e not in approaches and e not in evidence for e in lesson["evidence"]):
+            return "evidence"
+        if any(i not in shown for i in lesson["confirms"] + lesson["contradicts"]):
+            return "unshown_lesson"
+        cited_outcomes = [(approaches.get(e) or evidence.get(e) or {}).get("outcome") for e in lesson["evidence"]]
+        if lesson["kind"] in ("avoid", "caution") and "fail" not in cited_outcomes:
+            return "polarity"
+        if lesson["kind"] == "prefer" and not any(evidence.get(e, {}).get("type") == "check" and evidence[e].get("outcome") == "pass"
+                                                  for e in lesson["evidence"]):
+            return "polarity"
+        files = set()
+        for cited in lesson["evidence"]:
+            if cited in approaches:
+                files.update(approaches[cited]["files"])
+            for link in evidence.get(cited, {}).get("links", []):
+                files.update(approaches.get(link["approach"], {}).get("files", []))
+        if not lesson["scope"] or len(lesson["scope"]) > 8 or not all(_safe_scope(s) and _overlaps(s, files) for s in lesson["scope"]):
+            return "scope"
+        if HYGIENE.search(lesson["when"] + "\n" + lesson["observed"]) or any(HYGIENE.search(s) for s in lesson["scope"]):
+            return "hygiene"
+        return None
+
+    def _similar(self, db, lesson):
+        words = tokenize(lesson["when"] + " " + lesson["observed"])
+        best = None
+        for row in db.execute("""SELECT l.node_id,l.kind,n.title,n.body,n.files FROM lessons l JOIN nodes n ON n.id=l.node_id
+                WHERE l.status IN ('active','contested','stale')"""):
+            if not any(_overlaps(s, json.loads(row["files"])) or _overlaps(f, lesson["scope"]) for s in lesson["scope"] for f in json.loads(row["files"])):
+                continue
+            similarity = jaccard(words, tokenize(row["title"] + " " + row["body"]))
+            if similarity >= 0.6 and (best is None or similarity > best[0]):
+                best = (similarity, dict(row))
+        return best[1] if best else None
+
+    @staticmethod
+    def _support(db, identifier, run_id, sequence, weight):
+        if db.execute("INSERT OR IGNORE INTO lesson_runs(lesson_id,run_id,effect,weight) VALUES(?,?,?,?)",
+                      (identifier, run_id, "confirm", weight)).rowcount:
+            db.execute("""UPDATE lessons SET support=support+?, last_support_seq=?, exposures_since_support=0,
+                status=CASE WHEN status='stale' THEN 'active' ELSE status END WHERE node_id=?""", (weight, sequence, identifier))
+
+    @staticmethod
+    def _refute(db, identifier, run_id):
+        if db.execute("INSERT OR IGNORE INTO lesson_runs(lesson_id,run_id,effect,weight) VALUES(?,?,?,1.0)",
+                      (identifier, run_id, "contradict")).rowcount:
+            db.execute("UPDATE lessons SET refute=refute+1 WHERE node_id=?", (identifier,))
+            db.execute("""UPDATE lessons SET status=CASE WHEN refute>=support+2 THEN 'superseded'
+                WHEN refute>support THEN 'contested' ELSE status END WHERE node_id=? AND status IN ('active','contested','stale')""", (identifier,))
+
+    @staticmethod
+    def _cap(db):
+        rows = db.execute("""SELECT node_id FROM lessons WHERE status IN ('active','contested')
+            ORDER BY (support+1)/(support+refute+2) DESC, last_support_seq DESC, node_id LIMIT -1 OFFSET ?""", (MAX_ACTIVE_LESSONS,)).fetchall()
+        for (identifier,) in rows:
+            db.execute("UPDATE lessons SET status='superseded' WHERE node_id=?", (identifier,))
+
