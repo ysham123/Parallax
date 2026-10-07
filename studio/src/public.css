@@ -741,3 +741,10 @@
     display: none;
   }
 }
+
+.account-problem {
+  padding: 6px 10px 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--danger);
+}

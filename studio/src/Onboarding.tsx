@@ -61,20 +61,20 @@ export function PairingCode() {
   }
   return (
     <div className="onb-pair">
+      {/* Announced once per state change; the ticking countdown and the code itself are not re-read. */}
+      <span className="sr-only" role="status">
+        {pair ? (remaining > 0 ? "Pairing code generated. It is valid for five minutes and works once." : "The pairing code expired.") : ""}
+      </span>
       {pair && remaining > 0 ? (
-        <div className="onb-pair-code" role="status">
+        <div className="onb-pair-code">
           <code>{pair.code}</code>
-          <small>
+          <small aria-live="off">
             Expires in {Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, "0")} ·
             works once
           </small>
         </div>
       ) : (
-        pair && (
-          <p className="onb-muted" role="status">
-            That code expired. Generate a fresh one.
-          </p>
-        )
+        pair && <p className="onb-muted">That code expired. Generate a fresh one.</p>
       )}
       <button type="button" className="pub-primary" onClick={() => void generate()} disabled={busy}>
         {busy ? "Generating…" : pair ? "Generate a new code" : "Generate pairing code"}

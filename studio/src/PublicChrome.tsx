@@ -76,6 +76,7 @@ export function AccountMenu({
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState("");
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -109,7 +110,11 @@ export function AccountMenu({
         className="account-trigger"
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={() => setOpen(!open)}
+        aria-label={`Account menu, ${label}`}
+        onClick={() => {
+          setProblem("");
+          setOpen(!open);
+        }}
       >
         <span className="account-initials" aria-hidden="true">
           {initials(session)}
@@ -131,8 +136,11 @@ export function AccountMenu({
             disabled={busy}
             onClick={async () => {
               setBusy(true);
+              setProblem("");
               try {
                 await onSignOut();
+              } catch (failure) {
+                setProblem(failure instanceof Error ? failure.message : "Sign-out failed. Try again.");
               } finally {
                 setBusy(false);
               }
@@ -140,6 +148,11 @@ export function AccountMenu({
           >
             {busy ? "Signing out…" : "Sign out"}
           </button>
+          {problem && (
+            <p className="account-problem" role="alert">
+              {problem}
+            </p>
+          )}
           {github && !operatorWorkspace && (
             <button
               type="button"
@@ -173,13 +186,15 @@ export function DeleteAccountDialog({
   const [error, setError] = useState("");
   const dialog = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
+  const cancel = useRef(onCancel);
+  cancel.current = onCancel;
+  // Runs once: parent re-renders (machine polling) must not move focus inside the dialog.
   useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
     input.current?.focus();
     const keys = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.stopPropagation();
-        onCancel();
+        cancel.current();
       }
       if (event.key === "Tab") {
         const items = Array.from(
@@ -199,9 +214,10 @@ export function DeleteAccountDialog({
     document.addEventListener("keydown", keys, true);
     return () => {
       document.removeEventListener("keydown", keys, true);
-      previous?.focus();
+      // The menu item that opened the dialog is gone; return focus to the account button.
+      document.querySelector<HTMLElement>(".account-trigger")?.focus();
     };
-  }, [onCancel]);
+  }, []);
   return (
     <div
       className="machine-backdrop"

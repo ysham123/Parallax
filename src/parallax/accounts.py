@@ -27,6 +27,7 @@ GITHUB_SESSION_SECONDS = 7 * 86400
 OPERATOR_SESSION_SECONDS = 86400
 FLOW_SECONDS = 600
 SESSIONS_PER_ACCOUNT = 20
+PENDING_FLOWS = 2000
 SIGN_IN_ERRORS = ("unavailable", "denied", "expired", "failed", "closed", "not_invited", "capacity", "busy", "disabled")
 _LOGIN = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?")
 _CODE = re.compile(r"[A-Za-z0-9_.-]{1,256}")
@@ -134,9 +135,13 @@ class Accounts:
             with self.store.connect() as db:
                 db.execute("DELETE FROM sessions WHERE hash=?", (session_hash,))
 
-    def operator_sign_in_allowed(self) -> bool:
+    def operator_failure(self) -> bool:
+        """Record a rejected access key. Returns False once failures exceed the limit.
+
+        Only failures are counted, so other clients' guesses never lock out a valid key.
+        """
         with self.store.connect() as db:
-            return allow_rate(db, "operator-sign-in", 20, 60)
+            return allow_rate(db, "operator-sign-in-failure", 20, 60)
 
     # GitHub OAuth web flow with PKCE and a browser-bound state -------------
     def begin_github(self) -> tuple[str, str]:
@@ -148,9 +153,9 @@ class Accounts:
         now = time.time()
         with self.store.connect() as db:
             db.execute("DELETE FROM auth_flows WHERE expires<?", (now,))
-            if not allow_rate(db, "github-flow", 600, 600):
-                raise SignInRefused("busy")
-        with self.store.connect() as db:
+            # Bounded storage without a global refusal: the oldest pending flows are evicted first.
+            db.execute("DELETE FROM auth_flows WHERE state IN (SELECT state FROM auth_flows ORDER BY expires DESC LIMIT -1 OFFSET ?)",
+                       (PENDING_FLOWS - 1,))
             db.execute("INSERT INTO auth_flows(state,binding,verifier,expires) VALUES(?,?,?,?)",
                        (digest(state), digest(binding), verifier, now + FLOW_SECONDS))
         query = urlencode({"client_id": app.client_id, "redirect_uri": redirect, "state": state,
@@ -240,9 +245,11 @@ class Accounts:
             return account, workspace
 
     # Account lifecycle -------------------------------------------------------
-    def delete_account(self, principal: Principal, hub) -> None:
+    def delete_account(self, principal: Principal, hub, confirm: str = "") -> None:
         if principal.kind != "github" or not principal.account:
             raise PermissionError("Only a GitHub account can delete itself")
+        if confirm.casefold() != principal.account["login"].casefold():
+            raise PermissionError("The confirmation does not match the signed-in account. Reload and try again.")
         if principal.workspace == OWNER_WORKSPACE:
             raise PermissionError("Operator accounts are managed by the deployment operator")
         hub.purge_workspace(principal.workspace)

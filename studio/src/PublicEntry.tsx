@@ -104,6 +104,14 @@ export default function PublicEntry({
   useEffect(() => {
     if (error) setFailure(signInErrorMessage(error));
   }, [error]);
+  // Returning from GitHub with the Back button restores this page from the back-forward cache.
+  useEffect(() => {
+    const restore = (event: PageTransitionEvent) => {
+      if (event.persisted) setBusy(false);
+    };
+    window.addEventListener("pageshow", restore);
+    return () => window.removeEventListener("pageshow", restore);
+  }, []);
   const available = config?.github === true;
 
   async function signIn() {
@@ -196,7 +204,9 @@ export default function PublicEntry({
                 : available
                   ? config.signup === "open"
                     ? "Parallax reads only your public GitHub profile. It cannot see your repositories."
-                    : "Invite only during the developer alpha. Parallax reads only your public GitHub profile."
+                    : config.signup === "allowlist"
+                      ? "Invite only during the developer alpha. Parallax reads only your public GitHub profile."
+                      : "New accounts are closed right now. Existing accounts can still sign in."
                   : "GitHub sign-in is not configured on this deployment yet. You can still run Parallax entirely on your machine."}
             </p>
             <ul className="pub-providers" aria-label="Supported agents">
@@ -257,7 +267,7 @@ export default function PublicEntry({
               <ul>
                 <li>Run results, diffs, check output, and ordered events, mirrored for the graph</li>
                 <li>Machine names and approved project paths</li>
-                <li>Your GitHub ID, username, and display name</li>
+                <li>Your GitHub ID, username, display name, avatar URL, and sign-in times</li>
               </ul>
             </div>
             <div>

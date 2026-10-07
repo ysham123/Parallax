@@ -27,6 +27,7 @@ from .accounts import (Accounts, Principal, SignInRefused, operator_principal, S
 
 # Paths a workspace without hosted execution may use. Everything else under /api
 # reaches the hosted runtime's own engine, CLI sign-ins, and project clones.
+HOST_SHAPE = re.compile(r"([A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?)(?::[0-9]{1,5})?")
 WORKSPACE_ROUTES = re.compile(r"/api/(?:session|account|executors|executors/pair|executors/[^/]+|executors/[^/]+/proxy/.*)")
 HOSTED_BODY_LIMIT = 2 * 1024 * 1024
 
@@ -56,7 +57,7 @@ class BodyLimit:
         while more:
             message = await receive()
             if message["type"] == "http.disconnect":
-                return
+                return await self._reject(send, 400, "Client disconnected before sending the request body")
             body += message.get("body", b"")
             if len(body) > limit:
                 return await self._reject(send, 413, "Request body exceeds the limit")
@@ -158,12 +159,16 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
 
     @app.middleware("http")
     async def guard(request:Request,call_next):
-        path=request.url.path
-        host=request.headers.get("host","").split(":")[0]
+        # Decide on the path the router dispatches. request.url is rebuilt from the Host
+        # header, so a crafted Host could otherwise make the guard check a different path.
+        path=request.scope["path"]
+        raw_host=request.headers.get("host","")
+        shape=HOST_SHAPE.fullmatch(raw_host)
+        host=shape.group(1).lower() if shape else ""
         allowed_hosts=deployment.hosts|{"127.0.0.1","localhost"} if deployment else {"127.0.0.1","localhost","testserver"}
         if deployment and host=="healthcheck.railway.app" and path=="/api/health":
             return await call_next(request)
-        if host.lower() not in allowed_hosts:
+        if host not in allowed_hosts:
             return JSONResponse({"detail":"Host is not allowed" if deployment else "Loopback Host required"},status_code=403)
         origin=request.headers.get("origin")
         allowed_origins=deployment.origins if deployment else {f"{request.url.scheme}://{request.headers.get('host')}"}
@@ -232,8 +237,9 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
     async def sign_in(body:SessionInput):
         """Operator access key. Opens only the operator workspace."""
         if not deployment: raise HTTPException(404)
-        if not accounts.operator_sign_in_allowed(): raise HTTPException(429,"Too many sign-in attempts. Try again in one minute.")
-        if not hmac.compare_digest(body.token.encode(),token.encode()): raise HTTPException(401,"Invalid access key")
+        if not hmac.compare_digest(body.token.encode(),token.encode()):
+            if not accounts.operator_failure(): raise HTTPException(429,"Too many sign-in attempts. Try again in one minute.")
+            raise HTTPException(401,"Invalid access key")
         value,lifetime=accounts.create_session("operator",OWNER_WORKSPACE)
         return set_session(JSONResponse({"ok":True}),value,lifetime)
     @app.get("/api/session")
@@ -274,7 +280,7 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
     @app.delete("/api/account")
     async def delete_account(request:Request):
         if not deployment: raise HTTPException(404)
-        try: accounts.delete_account(principal_of(request),hub)
+        try: accounts.delete_account(principal_of(request),hub,request.query_params.get("confirm",""))
         except PermissionError as refused: raise HTTPException(409,str(refused))
         response=JSONResponse({"ok":True})
         response.delete_cookie(SESSION_COOKIE,secure=True,httponly=True,samesite="strict")
@@ -285,7 +291,9 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
         return {"mode":"hosted" if deployment else "local","execution":execution_capability()}
     @app.get("/api/executors")
     async def executors(request:Request):
-        return hub.workers(principal_of(request).workspace) if hub else []
+        scope=principal_of(request).workspace
+        # The workspace header lets a stale Studio tab notice that its cookie now belongs to another account.
+        return JSONResponse(hub.workers(scope) if hub else [],headers={"X-Parallax-Workspace":scope})
     @app.post("/api/executors/pair")
     async def pair_worker(request:Request):
         if not hub: raise HTTPException(404)
@@ -294,22 +302,23 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
     async def revoke_worker(identifier:str,request:Request):
         if not hub: raise HTTPException(404)
         return hub.revoke(identifier,principal_of(request).workspace)
+    # Worker endpoints are plain functions: FastAPI runs them in a thread, so SQLite work never blocks the event loop.
     @app.post("/api/worker/connect")
-    async def connect_worker(body:WorkerConnect):
+    def connect_worker(body:WorkerConnect):
         if not hub: raise HTTPException(404)
         if any(len(path)>4096 or not Path(path).is_absolute() for path in body.workspaces):
             raise ValueError("Worker projects must be absolute paths")
         return hub.connect(body.code,body.name,{"platform":body.platform,"workspaces":body.workspaces})
     @app.get("/api/worker/next")
-    async def next_worker(request:Request):
+    def next_worker(request:Request):
         if not hub: raise HTTPException(404)
         return hub.pending(request.state.worker)
     @app.post("/api/worker/reply")
-    async def reply_worker(body:WorkerReply,request:Request):
+    def reply_worker(body:WorkerReply,request:Request):
         if not hub: raise HTTPException(404)
         return hub.complete(request.state.worker,body.id,body.model_dump(exclude={"id"}))
     @app.post("/api/worker/sync")
-    async def sync_worker(body:WorkerSync,request:Request):
+    def sync_worker(body:WorkerSync,request:Request):
         if not hub: raise HTTPException(404)
         return hub.sync(request.state.worker,[r.model_dump() for r in body.runs],[e.model_dump() for e in body.events])
     @app.api_route("/api/executors/{identifier}/proxy/{path:path}", methods=["GET","POST","PUT","DELETE"])

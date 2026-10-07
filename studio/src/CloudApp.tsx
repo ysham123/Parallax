@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import App from "./App";
-import { onUnauthorized, relayApi, setApiExecutor, messageOf } from "./api";
+import { onUnauthorized, setApiExecutor, messageOf } from "./api";
 import { ExecutionMachines } from "./ExecutionMachines";
 import Onboarding from "./Onboarding";
 import OperatorGate from "./OperatorGate";
@@ -11,8 +11,8 @@ import {
   chooseMachine,
   executorKey,
   forgetMachines,
-  readStored,
   signInError,
+  storedMachine,
   writeStored,
   type AuthConfig,
   type ExecutionMachine,
@@ -47,19 +47,28 @@ export default function CloudApp() {
   const [machinesLoaded, setMachinesLoaded] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // Set while a workspace with no machines is onboarding, so a newly paired machine is
+  // announced in place and Studio opens only when the user chooses it.
+  const [onboarding, setOnboarding] = useState(false);
   const [error, setError] = useState("");
   const [authError] = useState(() => signInError(location.search));
   const operatorRoute = location.pathname === "/operator";
   const session = view.kind === "ready" ? view.session : null;
   const workspace = session?.workspace.id || "";
   const hosted = session?.workspace.hosted_execution === true;
+  const workspaceRef = useRef(workspace);
+  workspaceRef.current = workspace;
   // The execution target is derived on every render: the explicit or remembered choice for
   // this workspace while it still exists, otherwise a connected machine. Personal
   // workspaces never fall back to the hosted runtime.
   const resolved =
     workspace && machinesLoaded
-      ? chooseMachine(machines, selected ?? readStored(executorKey(workspace)), hosted)
+      ? chooseMachine(machines, selected ?? storedMachine(workspace), hosted)
       : null;
+  // Tracks the view outside React state so late responses can be ignored after an intentional exit.
+  const viewRef = useRef<View["kind"]>(view.kind);
+  viewRef.current = view.kind;
+  const exiting = useRef(false);
 
   useEffect(() => {
     applyStoredTheme();
@@ -67,11 +76,13 @@ export default function CloudApp() {
   }, [authError]);
 
   const endSession = useCallback((notice?: string) => {
+    viewRef.current = "signed-out";
     forgetMachines();
     setApiExecutor(null);
     setMachines([]);
     setMachinesLoaded(false);
     setSelected(null);
+    setOnboarding(false);
     setView({ kind: "signed-out", notice });
   }, []);
 
@@ -80,7 +91,17 @@ export default function CloudApp() {
       const response = await fetch("/api/session", { credentials: "same-origin" });
       if (response.status === 401) return setView({ kind: "signed-out" });
       if (!response.ok) throw new Error(String(response.status));
-      setView({ kind: "ready", session: normalize(await response.json()) });
+      const next = normalize(await response.json());
+      exiting.current = false;
+      if (workspaceRef.current && workspaceRef.current !== next.workspace.id) {
+        // A different account now owns this browser's session: drop every trace of the previous one.
+        setApiExecutor(null);
+        setMachines([]);
+        setMachinesLoaded(false);
+        setSelected(null);
+        setDeleting(false);
+      }
+      setView({ kind: "ready", session: next });
       if (location.pathname === "/operator") window.history.replaceState(null, "", "/");
     } catch {
       setView({ kind: "unavailable" });
@@ -89,9 +110,27 @@ export default function CloudApp() {
 
   useEffect(() => {
     void checkSession();
-    onUnauthorized(() => endSession("Your session has ended. Sign in again to continue."));
+    onUnauthorized(() => {
+      // A poll that lands after an intentional sign-out or deletion must not replace its message.
+      if (viewRef.current === "ready" && !exiting.current)
+        endSession("Your session has ended. Sign in again to continue.");
+    });
     return () => onUnauthorized(null);
   }, [checkSession, endSession]);
+
+  // Another tab may have signed out or switched accounts; re-check when this tab returns.
+  useEffect(() => {
+    const recheck = () => {
+      if (document.visibilityState === "visible" && viewRef.current === "ready" && !exiting.current)
+        void checkSession();
+    };
+    document.addEventListener("visibilitychange", recheck);
+    window.addEventListener("focus", recheck);
+    return () => {
+      document.removeEventListener("visibilitychange", recheck);
+      window.removeEventListener("focus", recheck);
+    };
+  }, [checkSession]);
 
   useEffect(() => {
     if (view.kind !== "signed-out" || config) return;
@@ -103,15 +142,28 @@ export default function CloudApp() {
   }, [view.kind, config]);
 
   const refreshMachines = useCallback(async () => {
+    if (exiting.current) return;
     try {
-      const list = await relayApi<ExecutionMachine[]>("/executors");
-      setMachines(list);
+      const response = await fetch("/api/executors", { credentials: "same-origin" });
+      if (response.status === 401) {
+        if (viewRef.current === "ready" && !exiting.current)
+          endSession("Your session has ended. Sign in again to continue.");
+        return;
+      }
+      if (!response.ok) throw new Error("Machines could not be loaded. Retrying.");
+      const scope = response.headers.get("X-Parallax-Workspace");
+      if (scope && scope !== workspaceRef.current) {
+        // The cookie now belongs to a different workspace (another tab switched accounts).
+        void checkSession();
+        return;
+      }
+      setMachines((await response.json()) as ExecutionMachine[]);
       setMachinesLoaded(true);
       setError("");
     } catch (failure) {
       setError(messageOf(failure));
     }
-  }, []);
+  }, [checkSession, endSession]);
 
   useEffect(() => {
     if (!workspace) return;
@@ -124,21 +176,46 @@ export default function CloudApp() {
     if (workspace && machinesLoaded) writeStored(executorKey(workspace), resolved);
   }, [workspace, machinesLoaded, resolved]);
 
+  useEffect(() => {
+    if (machinesLoaded && resolved === null) setOnboarding(true);
+  }, [machinesLoaded, resolved]);
+
   function select(id: string) {
     writeStored(executorKey(workspace), id);
     setSelected(id);
   }
 
   async function signOut() {
-    await fetch("/api/session", { method: "DELETE", credentials: "same-origin" }).catch(() => undefined);
+    exiting.current = true;
+    let response: Response;
+    try {
+      response = await fetch("/api/session", { method: "DELETE", credentials: "same-origin" });
+    } catch {
+      exiting.current = false;
+      throw new Error("Sign-out did not reach Parallax. Check your connection and try again.");
+    }
+    // Only a confirmed revocation (or an already ended session) counts as signed out.
+    if (!response.ok && response.status !== 401) {
+      exiting.current = false;
+      throw new Error("Sign-out failed. Try again.");
+    }
     endSession();
   }
 
   async function deleteAccount() {
-    const response = await fetch("/api/account", { method: "DELETE", credentials: "same-origin" });
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({}));
-      throw new Error(typeof body.detail === "string" ? body.detail : "The account could not be deleted. Try again.");
+    const login = view.kind === "ready" ? view.session.account?.login || "" : "";
+    exiting.current = true;
+    const response = await fetch("/api/account?confirm=" + encodeURIComponent(login), {
+      method: "DELETE",
+      credentials: "same-origin",
+    }).catch(() => null);
+    if (!response || !response.ok) {
+      exiting.current = false;
+      const body = response ? await response.json().catch(() => ({})) : {};
+      if (response?.status === 409) void checkSession();
+      throw new Error(
+        typeof body.detail === "string" ? body.detail : "The account could not be deleted. Try again.",
+      );
     }
     setDeleting(false);
     endSession("Your account, workspace, and mirrored evidence were deleted.");
@@ -196,7 +273,7 @@ export default function CloudApp() {
       </div>
     );
 
-  if (resolved === null)
+  if (resolved === null || onboarding)
     return (
       <>
         <Onboarding
@@ -204,7 +281,10 @@ export default function CloudApp() {
           machines={machines}
           loading={!machinesLoaded}
           account={account}
-          onOpen={select}
+          onOpen={(id) => {
+            setOnboarding(false);
+            select(id);
+          }}
         />
         {dialog}
       </>

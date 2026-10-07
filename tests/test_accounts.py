@@ -3,6 +3,7 @@
 GitHub is replaced by an httpx MockTransport; no network access or real OAuth
 application is used. Two TestClient instances on one app act as two browsers.
 """
+import asyncio
 import base64
 import hashlib
 import json
@@ -71,7 +72,8 @@ def user(identifier, login, kind="User"):
             "avatar_url": f"https://avatars.githubusercontent.com/u/{identifier}?v=4"}
 
 
-class HostedAccountTests(unittest.TestCase):
+class HostedFixture(unittest.TestCase):
+    """Shared hosted app, fake GitHub, and browser helpers. Holds no tests."""
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
@@ -114,6 +116,8 @@ class HostedAccountTests(unittest.TestCase):
         self.assertEqual(worker.status_code, 200, worker.text)
         return worker.json()
 
+
+class HostedAccountTests(HostedFixture):
     # Sign-in flow ---------------------------------------------------------------
     def test_public_config_and_start_are_safe_to_expose(self):
         anonymous = self.browser()
@@ -232,8 +236,8 @@ class HostedAccountTests(unittest.TestCase):
         self.assertEqual(client.get("/api/session").status_code, 200)
         with patch("parallax.accounts.time.time", return_value=time.time() + 7 * 86400 + 5):
             self.assertEqual(client.get("/api/session").status_code, 401)
-        client.cookies.set(SESSION_COOKIE, client.cookies.get(SESSION_COOKIE) + "x")
-        self.assertEqual(client.get("/api/session").status_code, 401)
+        tampered = self.browser(); tampered.cookies.set(SESSION_COOKIE, client.cookies.get(SESSION_COOKIE) + "x")
+        self.assertEqual(tampered.get("/api/session").status_code, 401)
 
     def test_operator_access_key_is_server_side_and_legacy_cookies_fail(self):
         stale = self.browser()
@@ -364,13 +368,17 @@ class HostedAccountTests(unittest.TestCase):
         run_id = str(uuid.uuid4())
         self.browser().post("/api/worker/sync", headers={"Authorization": "Bearer " + machine["token"]},
                             json={"runs": [], "events": [{"run_id": run_id, "sequence": 1, "timestamp": "t", "kind": "status", "data": {}}]})
-        self.assertEqual(client.delete("/api/account").status_code, 403)
-        self.assertEqual(client.delete("/api/account", headers={"Origin": ORIGIN}).status_code, 200)
+        self.assertEqual(client.delete("/api/account?confirm=dora").status_code, 403)
+        # A stale tab confirming a different login cannot delete whoever the cookie belongs to now.
+        self.assertEqual(client.delete("/api/account?confirm=ellen", headers={"Origin": ORIGIN}).status_code, 409)
+        self.assertEqual(client.delete("/api/account", headers={"Origin": ORIGIN}).status_code, 409)
+        self.assertEqual(client.delete("/api/account?confirm=DORA", headers={"Origin": ORIGIN}).status_code, 200)
         self.assertEqual(client.get("/api/session").status_code, 401)
         self.assertEqual(self.browser().get("/api/worker/next", headers={"Authorization": "Bearer " + machine["token"]}).status_code, 401)
         with self.store.connect() as db:
-            for table, column in (("workers", "workspace"), ("worker_pairs", "workspace")):
-                self.assertEqual(db.execute(f"SELECT COUNT(*) FROM {table} WHERE {column}=?", (workspace,)).fetchone()[0], 0)
+            for table in ("worker_scope", "worker_pair_scope"):
+                self.assertEqual(db.execute(f"SELECT COUNT(*) FROM {table} WHERE workspace=?", (workspace,)).fetchone()[0], 0)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM workers WHERE id=?", (machine["id"],)).fetchone()[0], 0)
             self.assertEqual(db.execute("SELECT COUNT(*) FROM worker_events WHERE worker=?", (machine["id"],)).fetchone()[0], 0)
             self.assertEqual(db.execute("SELECT COUNT(*) FROM accounts WHERE github_id=801").fetchone()[0], 0)
             self.assertEqual(db.execute("SELECT COUNT(*) FROM workspaces WHERE id=?", (workspace,)).fetchone()[0], 0)
@@ -415,7 +423,7 @@ class HostedAccountTests(unittest.TestCase):
                 events = [{"run_id": run_id, "sequence": 2 + batch * 10 + n, "timestamp": "t", "kind": "status", "data": {"pad": "y" * 500}} for n in range(10)]
                 self.assertEqual(self.browser().post("/api/worker/sync", headers=token, json={"runs": [], "events": events}).status_code, 200)
             with self.store.connect() as db:
-                total, recorded = db.execute("SELECT (SELECT SUM(length(CAST(event AS BLOB))) FROM worker_events WHERE worker=?), evidence_bytes FROM workers WHERE id=?",
+                total, recorded = db.execute("SELECT (SELECT SUM(length(CAST(event AS BLOB))) FROM worker_events WHERE worker=?), evidence_bytes FROM worker_scope WHERE worker=?",
                                              (machine["id"], machine["id"])).fetchone()
                 newest = db.execute("SELECT MAX(sequence), MIN(sequence) FROM worker_events WHERE worker=?", (machine["id"],)).fetchone()
             self.assertLessEqual(recorded, 20_000)
@@ -442,7 +450,7 @@ class HostedAccountTests(unittest.TestCase):
         self.assertEqual([m["name"] for m in operator.get("/api/executors").json()], ["Legacy Mac"])
         self.assertEqual(app.state.executors.authenticate(token), worker)
         with store.connect() as conn:
-            self.assertEqual(conn.execute("SELECT evidence_bytes FROM workers WHERE id=?", (worker,)).fetchone()[0], len('{"kind":"status"}'))
+            self.assertEqual(conn.execute("SELECT evidence_bytes FROM worker_scope WHERE worker=?", (worker,)).fetchone()[0], len('{"kind":"status"}'))
         personal = self.sign_in(user(903, "ida"), self.browser(app))[0]
         self.assertEqual(personal.get("/api/executors").json(), [])
         self.assertEqual(personal.get(f"/api/executors/{worker}/proxy/runs").status_code, 404)
@@ -470,8 +478,144 @@ class HostedAccountTests(unittest.TestCase):
         client = self.browser()
         for _ in range(20):
             self.assertEqual(client.post("/api/session", json={"token": "wrong-key"}, headers={"Origin": ORIGIN}).status_code, 401)
-        restarted = create_app(self.store, token=KEY, deployment=self.deployment)
-        self.assertEqual(self.browser(restarted).post("/api/session", json={"token": KEY}, headers={"Origin": ORIGIN}).status_code, 429)
+        restarted = self.browser(create_app(self.store, token=KEY, deployment=self.deployment))
+        self.assertEqual(restarted.post("/api/session", json={"token": "wrong-key"}, headers={"Origin": ORIGIN}).status_code, 429)
+        self.assertEqual(restarted.post("/api/session", json={"token": KEY}, headers={"Origin": ORIGIN}).status_code, 200)
+
+
+class HardeningTests(HostedFixture):
+    """Regressions for the adversarial review of the accounts change."""
+
+    def test_crafted_host_headers_cannot_shift_the_checked_path(self):
+        personal = self.signed_in(user(1001, "kim"))
+        anonymous = self.browser()
+        for host in ("runtime.example.com:443/api/health?", "runtime.example.com/api/session#", "runtime.example.com:80@evil",
+                     "runtime.example.com:443/api/executors?x=", "runtime.example.com:", "runtime.example.com:1:2", " runtime.example.com"):
+            for client in (personal, anonymous):
+                for path in ("/api/runs", "/api/providers", "/api/runs/" + str(uuid.uuid4()) + "/patch"):
+                    response = client.get(path, headers={"Host": host})
+                    self.assertEqual(response.status_code, 403, (host, path, response.text))
+        # Well-formed hosts with ports still work.
+        self.assertEqual(personal.get("/api/session", headers={"Host": "runtime.example.com:443"}).status_code, 200)
+
+    def test_answered_commands_leave_no_payload_behind(self):
+        client = self.signed_in(user(1002, "lee"))
+        machine = self.pair(client)
+        hub = self.app.state.executors
+        workspace = client.get("/api/session").json()["workspace"]["id"]
+        async def roundtrip(method, path, body):
+            pending = asyncio.create_task(hub.request(machine["id"], method, path, "", body, workspace=workspace, timeout=5))
+            await asyncio.sleep(.05)
+            for command in hub.pending(machine["id"]):
+                hub.complete(machine["id"], command["id"], {"status": 200, "body": {"echo": len(json.dumps(command["body"] or {}))}, "content_type": "application/json"})
+            return await pending
+        big = {"note": "x" * (2 * 1024 * 1024)}
+        for _ in range(5):
+            self.assertEqual(asyncio.run(roundtrip("POST", "/api/feedback/baseline", big))["status"], 200)
+        with self.store.connect() as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM worker_commands").fetchone()[0], 0)
+        # Answers nobody collected are dropped after five minutes.
+        with self.store.connect() as db:
+            db.execute("INSERT INTO worker_commands(id,worker,request,response,created) VALUES(?,?,?,?,?)",
+                       (str(uuid.uuid4()), machine["id"], "{}", json.dumps({"status": 200, "body": "late"}), time.time() - 301))
+        hub.pending(machine["id"])
+        with self.store.connect() as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM worker_commands").fetchone()[0], 0)
+
+    def test_queued_bytes_and_relay_rate_are_bounded(self):
+        client = self.signed_in(user(1003, "max"))
+        machine = self.pair(client)
+        workspace = client.get("/api/session").json()["workspace"]["id"]
+        hub = self.app.state.executors
+        small = executors.WorkspaceLimits(**{**executors.PERSONAL_LIMITS.__dict__, "pending_bytes": 1024 * 1024, "relayed_per_window": 3})
+        with patch.object(executors, "PERSONAL_LIMITS", small):
+            with self.store.connect() as db:
+                db.execute("INSERT INTO worker_commands(id,worker,request,response,created) VALUES(?,?,?,NULL,?)",
+                           (str(uuid.uuid4()), machine["id"], "x" * (1024 * 1024 - 10), time.time()))
+            with self.assertRaises(Exception) as full:
+                asyncio.run(hub.request(machine["id"], "POST", "/api/feedback/baseline", "", {"n": 1}, workspace=workspace, timeout=1))
+            self.assertEqual(full.exception.status_code, 429)
+            for _ in range(2):
+                with self.assertRaises(Exception): asyncio.run(hub.request(machine["id"], "GET", "/api/runs", "", None, workspace=workspace, timeout=.2))
+            with self.assertRaises(Exception) as limited:
+                asyncio.run(hub.request(machine["id"], "GET", "/api/runs", "", None, workspace=workspace, timeout=.2))
+            self.assertEqual(limited.exception.status_code, 429)
+            self.assertIn("five minutes", limited.exception.detail)
+
+    def test_anonymous_traffic_cannot_block_sign_in_or_pairing(self):
+        anonymous = self.browser()
+        for _ in range(650):
+            self.assertEqual(anonymous.post("/api/auth/github/start", headers={"Origin": ORIGIN}).status_code, 200)
+        with self.store.connect() as db:
+            self.assertLessEqual(db.execute("SELECT COUNT(*) FROM auth_flows").fetchone()[0], 2000)
+        self.signed_in(user(1004, "noor"))  # A real visitor still completes sign-in.
+        for _ in range(150):
+            self.assertEqual(anonymous.post("/api/worker/connect", json={"code": "x" * 32, "name": "M", "platform": "darwin", "workspaces": ["/p"]}).status_code, 401)
+        client = self.signed_in(user(1005, "omar"))
+        self.pair(client)  # A valid code still pairs.
+
+    def test_restarted_worker_replay_does_not_displace_newer_evidence(self):
+        client = self.signed_in(user(1006, "pat"))
+        machine = self.pair(client)
+        token = {"Authorization": "Bearer " + machine["token"]}
+        run_id = str(uuid.uuid4())
+        def batch(start, count):
+            return [{"run_id": run_id, "sequence": start + n, "timestamp": "t", "kind": "status", "data": {"pad": "y" * 500}} for n in range(count)]
+        small = executors.WorkspaceLimits(**{**executors.PERSONAL_LIMITS.__dict__, "evidence_bytes": 20_000})
+        with patch.object(executors, "PERSONAL_LIMITS", small):
+            for start in range(1, 101, 10):
+                self.browser().post("/api/worker/sync", headers=token, json={"runs": [], "events": batch(start, 10)})
+            with self.store.connect() as db:
+                kept = [r[0] for r in db.execute("SELECT sequence FROM worker_events WHERE worker=? ORDER BY sequence", (machine["id"],))]
+            # The worker restarts and replays its whole history from the beginning.
+            for start in range(1, 101, 10):
+                self.browser().post("/api/worker/sync", headers=token, json={"runs": [], "events": batch(start, 10)})
+            with self.store.connect() as db:
+                after = [r[0] for r in db.execute("SELECT sequence FROM worker_events WHERE worker=? ORDER BY sequence", (machine["id"],))]
+        self.assertEqual(after, kept)
+        self.assertEqual(after[-1], 100)
+
+    def test_previous_release_can_still_write_after_migration(self):
+        self.pair(self.signed_in(user(1007, "quinn")))
+        with self.store.connect() as db:  # The 4f1b5ec release's positional statements.
+            db.execute("INSERT INTO worker_pairs VALUES(?,?)", ("legacy-hash", time.time() + 300))
+            db.execute("INSERT INTO workers VALUES(?,?,?,?,0,?)", ("legacy-worker", "Old", "hash", time.time(), "{}"))
+            db.execute("INSERT INTO worker_cache VALUES(?,?,?)", ("legacy-worker", "/api/runs", "{}"))
+        operator = self.browser(); operator.post("/api/session", json={"token": KEY}, headers={"Origin": ORIGIN})
+        self.assertIn("legacy-worker", [m["id"] for m in operator.get("/api/executors").json()])
+
+    def test_low_disk_keeps_machines_controllable(self):
+        client = self.signed_in(user(1008, "rae"))
+        machine = self.pair(client)
+        workspace = client.get("/api/session").json()["workspace"]["id"]
+        hub = self.app.state.executors
+        full = type("Usage", (), {"free": 1024})()
+        with patch("parallax.executors.shutil.disk_usage", return_value=full):
+            with self.store.connect() as db: db.execute("UPDATE workers SET seen=0 WHERE id=?", (machine["id"],))
+            reply = self.browser().post("/api/worker/sync", headers={"Authorization": "Bearer " + machine["token"]},
+                                        json={"runs": [], "events": [{"run_id": str(uuid.uuid4()), "sequence": 1, "timestamp": "t", "kind": "status", "data": {}}]})
+            self.assertEqual(reply.json(), {"ok": True, "stored": False})
+            self.assertTrue(hub.worker(machine["id"], workspace)["online"])
+            with self.assertRaises(Exception) as large:
+                asyncio.run(hub.request(machine["id"], "POST", "/api/feedback/baseline", "", {"x": "y" * 70000}, workspace=workspace, timeout=.2))
+            self.assertEqual(large.exception.status_code, 507)
+            with self.assertRaises(Exception) as small:  # Small controls are still queued (and time out here only because no worker answers).
+                asyncio.run(hub.request(machine["id"], "POST", "/api/runs/" + str(uuid.uuid4()) + "/cancel", "", None, workspace=workspace, timeout=.2))
+            self.assertEqual(small.exception.status_code, 504)
+
+    def test_client_disconnect_mid_body_is_answered(self):
+        from parallax.server import BodyLimit
+        sent = []
+        async def app(scope, receive, send): raise AssertionError("must not route")
+        async def receive(): return {"type": "http.disconnect"}
+        async def send(message): sent.append(message)
+        asyncio.run(BodyLimit(app, lambda path: 1024)({"type": "http", "path": "/api/session", "headers": []}, receive, send))
+        self.assertEqual(sent[0]["status"], 400)
+
+    def test_machine_listing_names_its_workspace(self):
+        client = self.signed_in(user(1009, "sam"))
+        workspace = client.get("/api/session").json()["workspace"]["id"]
+        self.assertEqual(client.get("/api/executors").headers["x-parallax-workspace"], workspace)
 
 
 class ConfigurationTests(unittest.TestCase):

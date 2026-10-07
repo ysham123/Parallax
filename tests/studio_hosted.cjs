@@ -61,6 +61,9 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), "parallax-hosted-"));
     assert.equal(session.chooseMachine([machines[0]], null, false), "m1");
     assert.equal(session.chooseMachine([], null, true), "railway");
     assert.equal(session.chooseMachine(machines, "railway", true), "railway");
+    // The operator prefers a connected machine, then the hosted runtime, before an offline machine.
+    assert.equal(session.chooseMachine(machines, null, true), "m2");
+    assert.equal(session.chooseMachine([machines[0]], null, true), "railway");
     const commands = session.workerCommands("https://studio.example.com");
     assert.match(commands.start, /--url https:\/\/studio\.example\.com /);
     assert.match(commands.install, /github\.com\/ysham123\/Parallax\.git/);
@@ -82,6 +85,8 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), "parallax-hosted-"));
     };
     session.writeStored(session.executorKey("w3"), "m3");
     assert.equal(session.readStored(session.executorKey("w3")), "m3");
+    assert.equal(session.storedMachine("owner"), "legacy");
+    assert.equal(session.storedMachine("personal-workspace"), null);
     session.forgetMachines();
     assert.deepEqual([...stored.keys()], ["parallax-theme"]);
     global.window = { get localStorage() { throw new Error("blocked"); } };

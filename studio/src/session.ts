@@ -69,8 +69,17 @@ export function chooseMachine(
   if (stored && machines.some((machine) => machine.id === stored)) return stored;
   const online = machines.find((machine) => machine.online);
   if (online) return online.id;
-  if (machines.length) return machines[0].id;
-  return hostedExecution ? HOSTED_EXECUTOR : null;
+  // The operator's hosted runtime is always reachable; prefer it over an offline machine.
+  if (hostedExecution) return HOSTED_EXECUTOR;
+  return machines.length ? machines[0].id : null;
+}
+
+/** The previous release stored one unscoped choice; only the operator workspace may inherit it. */
+export function storedMachine(workspace: string): string | null {
+  return (
+    readStored(executorKey(workspace)) ??
+    (workspace === "owner" ? readStored("parallax-executor") : null)
+  );
 }
 
 export function platformLabel(platform: string): string {

@@ -74,7 +74,9 @@ class DeploymentTests(unittest.TestCase):
             response=self.client.post("/api/session",json={"token":"wrong-ü"},headers={"Origin":self.origin})
             self.assertEqual(response.status_code,401)
             self.assertNotIn("wrong",response.text)
-        self.assertEqual(self.sign_in().status_code,429)
+        self.assertEqual(self.client.post("/api/session",json={"token":"wrong-again"},headers={"Origin":self.origin}).status_code,429)
+        # Only failures are throttled: other clients' guesses never lock out the valid key.
+        self.assertEqual(self.sign_in().status_code,200)
 
     def test_configuration_fails_closed(self):
         base={"PARALLAX_ACCESS_TOKEN":self.token,"PARALLAX_STUDIO_ORIGINS":self.origin,"PARALLAX_ALLOWED_HOSTS":"runtime.example.com","PARALLAX_PROJECTS_ROOT":str(self.projects)}
