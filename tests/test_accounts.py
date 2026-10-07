@@ -286,7 +286,9 @@ class HostedAccountTests(HostedFixture):
                                    ("get", "/api/context", None), ("get", "/api/deployment", None), ("get", "/api/profiles", None),
                                    ("post", "/api/project/assess", {"workspace": str(self.projects)}), ("get", "/api/feedback/export", None),
                                    ("post", "/api/runs", {"workspace": str(self.projects), "prompt": "x"}), ("get", f"/api/runs/{run_id}/events", None),
-                                   ("get", f"/api/runs/{run_id}/patch", None), ("post", f"/api/runs/{run_id}/cancel", None), ("get", "/api/project-profiles", None)):
+                                   ("get", f"/api/runs/{run_id}/patch", None), ("post", f"/api/runs/{run_id}/cancel", None), ("get", "/api/project-profiles", None),
+                                   ("get", f"/api/memory?workspace={self.projects}", None), ("delete", f"/api/memory?workspace={self.projects}", None),
+                                   ("patch", "/api/memory/lessons/L-000000000000", {"workspace": str(self.projects), "status": "disabled"})):
             kwargs = {"headers": {"Origin": ORIGIN}}
             if body is not None: kwargs["json"] = body
             response = getattr(client, method)(path, **kwargs)
