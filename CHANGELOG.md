@@ -32,5 +32,11 @@
 - Server-enforced workspace boundary: personal workspaces reach only their own machines, pairing codes, relayed requests, mirrored evidence, and event replay; the hosted engine, its CLI sign-ins, and project clones stay with the operator workspace.
 - Durable limits for accounts, sign-in, pairing, machines, queued requests, and retained evidence; bounded request bodies including chunked uploads; additive migration of existing machines into the operator workspace.
 - Rollback-safe storage: the previous release sees personal machines as revoked and cannot redeem personal pairing codes. Pending GitHub sign-ins keep no server state. Workers resend evidence a relay low on storage declined.
+- Context engineering: every provider call receives a role-scoped packet compiled from durable state, with budgets, hash fences, path scrubbing and a recorded content-free manifest. Coordinator turns, repairs, reviews and synthesis start fresh sessions; only a crashed attempt is continued.
+- Evaluator isolation: reviewers judge the request, the original requirements, the candidate's own patch and its own evidence, never the implementer; review-mode synthesis is blind.
+- Exploration: the coordinator can try substantially different variants of a task in isolated checkouts, reviewed and checked independently, and merge one.
+- Project memory: a local per-project idea graph, coordinator-only retrieval with `search_ideas`, and post-run distillation of grounded, evidence-weighted lessons with local inspect, disable and forget controls.
+- Planner packets carry a complete task index with actionable detail first; plans are capped at 40 tasks; synthesis and worker packets are budgeted by encoded size; memory text is stored with runtime paths scrubbed and project paths relative.
+- Fixes: the integration reviewer sees the checks it just ran, merge conflicts consume the repair budget instead of looping, and a failed attempt is never re-run for free after a crash.
 
 Publication, remote CI, live API inference and the five-developer study remain separate validation gates.

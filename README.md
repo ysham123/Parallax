@@ -65,7 +65,7 @@ flowchart LR
   Checks --> Apply[Verified project patch]
 ```
 
-The runtime validates structured coordinator actions and owns scheduling, budgets, process cancellation, and integration. Native recursive teams are disabled. Workers have explicit relative file ownership. Antigravity uses gated edit/read tools; its project checks are executed by the runtime. Other providers expose scoped shell execution only when the installed platform can enforce it.
+The runtime validates structured coordinator actions and owns scheduling, budgets, process cancellation, and integration. Native recursive teams are disabled. Every agent receives a role-scoped context packet compiled from saved state rather than a growing transcript: workers see only their own task and history, reviewers never learn who implemented a change, and the coordinator can explore isolated variants of a task and consult this project's local memory of earlier runs. See [context isolation, exploration, and project memory](docs/ARCHITECTURE.md). Workers have explicit relative file ownership. Antigravity uses gated edit/read tools; its project checks are executed by the runtime. Other providers expose scoped shell execution only when the installed platform can enforce it.
 
 Build and Compare require a Git repository root. Parallax snapshots staged changes, unstaged changes, and nonignored untracked files without modifying your index. It uses private worktrees, merges accepted changes privately, and applies only the verified patch. Your existing staging and unrelated edits are preserved. Conflicting edits, failed checks, or unsupported configurations produce **Needs attention** with work preserved. Submodules and external symlinks currently need manual handling.
 
