@@ -256,3 +256,79 @@ def synthesis_packet(request: str, reviews: list[dict]) -> tuple[Packet, dict]:
         Section("Request", request, priority=MANDATORY),
         Section("Assessments", assessments, room, 90),
     ], "synthesis"), legend
+
+
+# Workers ---------------------------------------------------------------------
+
+WORKER_PREAMBLE = (
+    "Implement only this scoped task in the isolated project checkout. Preserve pre-existing changes. "
+    "Do not spawn agents, commit, push, deploy, or modify files outside the task's ownership. The runtime runs "
+    "verification and independent review. This is a fresh session: the sections below are the complete context "
+    "for this attempt."
+)
+
+
+def worker_packet(result: dict, task: dict, *, continuing: bool, fresh_checkout: bool, instructions: dict, limits) -> Packet:
+    """One implementer's view: its own task and its own history, nothing from sibling agents."""
+    spec, artifacts = result["spec"], result["artifacts"]
+    scoped = {key: task.get(key) for key in ("id", "title", "prompt", "files", "acceptance", "dependencies")}
+    scoped["prompt"] = clip(str(scoped.get("prompt") or ""), 20000)[0]
+    outcome = task.get("result") or {}
+    number = task.get("attempts", 0) if continuing else task.get("attempts", 0) + 1
+    total = limits.repairs + 1
+    if continuing:
+        mode = f"Continue interrupted attempt {number} of {total}. Its partial changes are already in this checkout."
+    elif outcome:
+        mode = f"Repair attempt {number} of {total}. Use the repair brief; it is the only record of the previous attempt."
+    else:
+        mode = f"First attempt of {total}."
+    brief = {}
+    if outcome and not continuing:
+        review = outcome.get("review") or {}
+        brief = {
+            "error": clip(str(outcome.get("error") or ""), 2000)[0],
+            "failure_category": task.get("failure_category"),
+            "checkout": ("Fresh checkout at the current integration candidate. The previous patch below is not applied."
+                         if fresh_checkout else "The previous attempt's changes are present in this checkout."),
+            "previous_patch": fit_patch(outcome.get("patch") or "", 12000),
+            "previous_changed_files": (outcome.get("changed_files") or [])[:40],
+            "review_findings": findings(review.get("findings"), limit=12),
+            "review_summary": clip(str(review.get("summary") or ""), 1000)[0],
+            "merge_error": clip(str((outcome.get("merge") or {}).get("error") or ""), 1000)[0],
+            "handoff": str((outcome.get("provider_result") or {}).get("answer") or "")[-2000:],
+        }
+        brief = {key: value for key, value in brief.items() if value not in (None, "", [])}
+    done = {t["id"]: t for t in result["tasks"]}
+    dependencies = [{"id": d, "title": done[d].get("title"),
+                     "changed_files": ((done[d].get("result") or {}).get("changed_files") or [])[:20]}
+                    for d in task.get("dependencies", []) if d in done]
+    baseline = artifacts.get("baseline_checks", [])
+    failed_at_baseline = {c.get("name") for c in baseline if not c.get("ok")}
+    combined = []
+    if spec["mode"] == "build" and not task.get("variant_of"):
+        # Objective evidence about the combined candidate this task feeds; never other agents' opinions.
+        combined = [{"name": c.get("name"), "cwd": c.get("cwd", "."), "exit_code": c.get("exit_code"),
+                     "failed_at_baseline": c.get("name") in failed_at_baseline, "output": (c.get("output") or "")[-3000:]}
+                    for c in result.get("checks", []) if not c.get("ok")]
+    kept, omitted, used = {}, [], 0
+    for name, text in instructions.items():
+        if used + len(text) <= 24000:
+            kept[name] = text
+            used += len(text)
+        else:
+            omitted.append(name)
+    sections = [
+        Section("Request", spec["prompt"], priority=MANDATORY),
+        Section("Task", scoped, priority=MANDATORY),
+        Section("Approach directive", task.get("directive") or "", priority=MANDATORY),
+        Section("Attempt", mode, 400, 95),
+        Section("Coordinator note", clip(task.get("coordinator_note") or "", 2000)[0], 2200, 85),
+        Section("Repair brief", brief, 20000, 80),
+        Section("Completed dependencies", dependencies, 4000, 60),
+        Section("Failing combined checks", combined, 8000, 55),
+        Section("Baseline checks", [{"name": c.get("name"), "ok": c.get("ok"), "exit_code": c.get("exit_code"),
+                                     **({"output": (c.get("output") or "")[-1500:]} if not c.get("ok") else {})} for c in baseline], 6000, 40),
+        Section("Project instructions", {"files": kept, "omitted": omitted} if kept or omitted else {}, 26000, 30),
+        Section("Steering", list(reversed(artifacts.get("steering", []))), 8000, 70),
+    ]
+    return Packet("worker", WORKER_PREAMBLE, sections, task["id"])

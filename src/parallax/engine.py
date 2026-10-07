@@ -16,7 +16,7 @@ from .store import Store
 from .assessment import assess_project, execution_capability, package_directory
 from .recovery import classify, recovery_options
 from .context import (PROMPT_LIMIT, REQUEST_LIMIT, Packet, consultant_packet, filter_patch, review_packet,
-                      synthesis_packet)
+                      synthesis_packet, worker_packet)
 
 TERMINAL = {"completed", "failed", "cancelled", "needs_attention"}
 
@@ -713,6 +713,10 @@ class Engine:
                 if task["status"] not in {"pending","failed","interrupted"}: raise ValueError("Task is not pending or repairable")
                 if not set(task["dependencies"])<=done: raise ValueError("Task dependencies are not complete")
                 if task["status"] != "interrupted" and task["attempts"]>spec.limits.repairs: raise ValueError("Task repair limit reached")
+            # The dispatch summary is the coordinator's brief to these workers.
+            for task in selected:
+                task["coordinator_note"]=(action.summary or "")[:2000]
+            self.store.save(result)
             self._status(run_id,"running")
             # Overlapping ownership runs serially; disjoint tasks share a bounded batch.
             batches=[]
@@ -838,26 +842,27 @@ class Engine:
                 return failed
         self._task_update(run_id,task["id"],status="running",attempts=attempt,active_attempt=active)
         saved = self.store.get(run_id)
-        bound = self._resume_session(run_id, task["id"], target, member, "edit") if reuse else None
+        # Only a crash continuation of the same interrupted attempt resumes its conversation. Repairs keep
+        # the code state (or start from a fresh checkout) but begin a new session from the repair brief.
+        continuing = reuse and task["status"] == "interrupted"
+        bound = self._resume_session(run_id, task["id"], target, member, "edit", attempt=attempt) if continuing else None
         session = bound["session_id"] if bound else None
-        resumed_member = self._session_participant(member, bound)
-        scoped = {key: task.get(key) for key in ("id", "title", "prompt", "files", "acceptance", "dependencies")}
+        if bound is None and previous.get("participant") == member.model_dump() and previous.get("effective_settings"):
+            # Keep the model and effort the earlier attempt actually ran with.
+            bound_settings = {"effective_settings": previous["effective_settings"]}
+        else:
+            bound_settings = bound
+        resumed_member = self._session_participant(member, bound_settings)
         instructions={}
         for name in saved["artifacts"].get("assessment",{}).get("instructions",[])[:32]:
             path=target/name
             if path.is_file() and not path.is_symlink() and path.resolve().is_relative_to(target.resolve()):
                 instructions[name]=path.read_text(errors="replace")[:8000]
-        prompt=("Implement only this scoped task in the isolated project. Preserve pre-existing changes. "
-            "Do not spawn agents, commit, push, deploy, or modify files outside ownership. Runtime runs verification.\n"
-            +json.dumps({"request":spec.prompt,"task":scoped,"continuation":reuse,
-                "previous_findings":task.get("result",{}).get("review",{}).get("findings",[]),
-                "previous_error":str(task.get("result",{}).get("error") or "")[:2000],
-                "baseline_checks":[{"name":c.get("name"),"ok":c.get("ok"),"output":c.get("output","")[-4000:]} for c in saved["artifacts"].get("baseline_checks",[])],
-                "failed_checks":[{"name": c.get("name"), "cwd": c.get("cwd", "."), "output": c.get("output", "")[-8000:]} for c in saved["checks"] if not c.get("ok")],
-                "combined_findings":[r for r in saved["reviews"][-4:] if not r.get("ok")],
-                "project_instructions":instructions,"steering":saved["artifacts"].get("steering",[])}) )
+        prompt=worker_packet(saved, task, continuing=continuing, fresh_checkout=(not reuse and bool(task.get("result"))),
+                             instructions=instructions, limits=spec.limits)
         try:
-            outcome=await self._provider(run_id,resumed_member,target,prompt,mode="edit",task_id=task["id"],session_id=session)
+            outcome=await self._provider(run_id,resumed_member,target,prompt,mode="edit",task_id=task["id"],session_id=session,
+                                         attempt=attempt,role="worker")
         except asyncio.CancelledError:
             active["state"] = "interrupted"
             self._task_update(run_id, task["id"], active_attempt=active)
@@ -873,17 +878,17 @@ class Engine:
         if self.cancel_flags[run_id].is_set():
             finish({**collected,"ok":False,"error":"Run stopped; partial work was preserved", "workspace":str(target)}, "interrupted")
             raise asyncio.CancelledError()
-        if not collected["ok"]: return finish({"ok":False,"error":collected["error"],"workspace":str(target),"provider_result":outcome}, resume_safe=False)
+        if not collected["ok"]: return finish({"ok":False,"error":collected["error"],"workspace":str(target),"provider_result":_handoff(outcome)}, resume_safe=False)
         outside=[name for name in collected["changed_files"] if not any(_owned(name,pattern) for pattern in task["files"])]
-        if outside: return finish({"ok":False,"error":"Changed files outside ownership: "+", ".join(outside),"workspace":str(target),"provider_result":outcome,"changed_files":collected["changed_files"]}, resume_safe=False)
-        if not outcome.get("ok"): return finish({**collected,"ok":False,"error":outcome.get("error"),"workspace":str(target),"provider_result":outcome})
-        if not collected["changed_files"]: return finish({"ok":False,"error":"Implementation produced no changes","workspace":str(target),"provider_result":outcome})
+        if outside: return finish({"ok":False,"error":"Changed files outside ownership: "+", ".join(outside),"workspace":str(target),"provider_result":_handoff(outcome),"changed_files":collected["changed_files"]}, resume_safe=False)
+        if not outcome.get("ok"): return finish({**collected,"ok":False,"error":outcome.get("error"),"workspace":str(target),"provider_result":_handoff(outcome)})
+        if not collected["changed_files"]: return finish({"ok":False,"error":"Implementation produced no changes","workspace":str(target),"provider_result":_handoff(outcome)})
         reviewer=next((p for p in spec.team if p.provider!=member.provider and p.role=="reviewer"),None) or next((p for p in [spec.coordinator,*spec.team] if p.provider!=member.provider),None)
         if reviewer is None: return finish({"ok":False,"error":"No independent reviewer","workspace":str(target)})
         review=await self._assess_patch(run_id,reviewer,target,spec.prompt,task,task["id"],patch=collected.get("patch") or "")
-        if not review["ok"]: return finish({**collected,"ok":False,"error":"Independent review rejected the change","workspace":str(target),"review":review,"provider_result":outcome})
+        if not review["ok"]: return finish({**collected,"ok":False,"error":"Independent review rejected the change","workspace":str(target),"review":review,"provider_result":_handoff(outcome)})
         active["reviewed_fingerprint"] = manager.fingerprint(target)
-        return finish({**collected,"ok":True,"workspace":str(target),"review":review,"provider_result":outcome}, "reviewed")
+        return finish({**collected,"ok":True,"workspace":str(target),"review":review,"provider_result":_handoff(outcome)}, "reviewed")
 
     async def _assess_patch(self,run_id,reviewer,target,request,task,task_id,*,evidence=None,patch="",patch_budget=40000):
         from .workspaces import fingerprint
@@ -1122,6 +1127,11 @@ class Engine:
         save_receipt(result)
         self.store.save(result)
         self.store.event(run_id,"integrated",{"applied":spec.integrate,"changed_files":result["changed_files"]})
+
+def _handoff(outcome):
+    """What a later repair may see of an attempt: its result and the tail of its own answer, nothing else."""
+    return {key: outcome.get(key) for key in ("ok", "error", "exit_code", "elapsed_seconds", "effective_settings", "session_id") if key in outcome} | \
+        {"answer": str(outcome.get("answer") or "")[-4000:]}
 
 def _owned(name,pattern):
     return name==pattern.rstrip("/") or name.startswith(pattern.rstrip("/")+"/") or fnmatch.fnmatchcase(name,pattern)

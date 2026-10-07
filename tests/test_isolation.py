@@ -166,7 +166,7 @@ class EvaluatorIsolationTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("IMPLEMENTER-NARRATIVE", review)
         self.assertNotIn("claude", review.lower())
         contexts = [e for e in self.store.events(run_id) if e["kind"] == "context"]
-        self.assertEqual([e["data"]["role"] for e in contexts], ["reviewer"])
+        self.assertEqual([e["data"]["role"] for e in contexts], ["worker", "reviewer"])
         self.assertNotIn("return a + b", json.dumps(contexts))
 
     async def test_resolution_review_sees_only_the_failed_tasks_files(self):
@@ -209,6 +209,135 @@ class EvaluatorIsolationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["summary"].endswith("Assessment labels: A = claude, B = grok"))
         roles = sorted(e["data"]["role"] for e in self.store.events(result["run_id"]) if e["kind"] == "context")
         self.assertEqual(roles, ["consultant", "consultant", "synthesizer"])
+
+
+class TaskFileRegistry(RecordingRegistry):
+    """Each worker writes its own task's file; reviews of task 'a' are rejected with a canary finding."""
+
+    def __init__(self, reject=("a",), **kwargs):
+        super().__init__(**kwargs)
+        self.reject = set(reject)
+
+    async def run(self, provider, **kwargs):
+        if kwargs["mode"] == "edit":
+            self.records.append({"provider": provider, "mode": "edit", "prompt": kwargs["prompt"], "session_id": kwargs.get("session_id"),
+                                 "workspace": kwargs["workspace"], "model": kwargs.get("model"), "schema": None})
+            task = Path(kwargs["workspace"]).name.rsplit("-", 1)[0]
+            (Path(kwargs["workspace"]) / f"{task}.py").write_text(f"VALUE = '{task}'\n")
+            return {"ok": True, "answer": "done", "session_id": str(uuid.uuid4()), "effective_settings": {"model": "fake", "effort": "high"}}
+        if kwargs.get("schema"):
+            self.records.append({"provider": provider, "mode": kwargs["mode"], "prompt": kwargs["prompt"], "session_id": None,
+                                 "workspace": kwargs["workspace"], "model": None, "schema": kwargs["schema"]})
+            rejected = any(f'"id":"{t}"' in kwargs["prompt"] for t in self.reject)
+            structured = {"approved": not rejected, "findings": ["CANARY-A: empty input is not handled"] if rejected else [], "summary": "checked"}
+            return {"ok": True, "answer": json.dumps(structured), "structured_output": structured, "session_id": None}
+        return await super().run(provider, **kwargs)
+
+
+class WorkerIsolationTests(unittest.IsolatedAsyncioTestCase):
+    asyncSetUp = test_engine.EngineTests.asyncSetUp
+    spec = test_engine.EngineTests.spec
+    seed = test_engine.EngineTests.seed
+    task = test_engine.EngineTests.task
+
+    def engine(self, registry, run_id):
+        engine = Engine(self.store, registry)
+        engine.cancel_flags[run_id] = asyncio.Event()
+        return engine
+
+    def saved_task(self, run_id, task_id="fix"):
+        return next(t for t in self.store.get(run_id)["tasks"] if t["id"] == task_id)
+
+    async def test_repair_starts_a_fresh_session_in_the_same_checkout_with_pinned_settings(self):
+        run_id, spec, manager = self.seed()
+        result = self.store.get(run_id); result["tasks"] = [self.task()]; self.store.save(result)
+        first = RecordingRegistry(fail_review=True)
+        await self.engine(first, run_id)._worker(run_id, spec, manager, self.saved_task(run_id))
+        result = self.store.get(run_id); result["tasks"][0]["status"] = "failed"; self.store.save(result)
+        second = RecordingRegistry()
+        outcome = await self.engine(second, run_id)._worker(run_id, spec, manager, self.saved_task(run_id))
+        self.assertTrue(outcome["ok"], outcome.get("error"))
+        [edit] = [r for r in second.records if r["mode"] == "edit"]
+        [original] = [r for r in first.records if r["mode"] == "edit"]
+        self.assertIsNone(edit["session_id"])
+        self.assertEqual(edit["workspace"], original["workspace"])
+        self.assertEqual(edit["model"], "fake")
+        self.assertIn("Repair attempt 2 of 3", edit["prompt"])
+        self.assertEqual(self.saved_task(run_id)["attempts"], 2)
+
+    async def test_interrupted_repair_resumes_only_its_own_attempt(self):
+        run_id, spec, manager = self.seed()
+        target = manager.create_worker("fix-1")
+        first, second = str(uuid.uuid4()), str(uuid.uuid4())
+        task = self.task()
+        task.update({"status": "interrupted", "attempts": 2, "result": {"ok": False, "error": "previous review"},
+                     "active_attempt": {"number": 2, "worker_id": "fix-1", "workspace": str(target),
+                                        "participant": spec.team[0].model_dump(), "state": "running"}})
+        result = self.store.get(run_id); result["tasks"] = [task]
+        result["sessions"] = [{"task_id": "fix", "provider": "claude", "transport": "cli", "connection_id": None, "workspace": str(target),
+                               "mode": "edit", "session_id": first, "effective_settings": {"model": "fake"}}]
+        self.store.save(result)
+        self.store.event(run_id, "provider", {"type": "system", "session_id": second, "provider": "claude", "mode": "edit",
+                                              "transport": "cli", "connection_id": None, "workspace": str(target), "attempt": 2}, "fix")
+        registry = RecordingRegistry()
+        await self.engine(registry, run_id)._worker(run_id, spec, manager, self.saved_task(run_id))
+        [edit] = [r for r in registry.records if r["mode"] == "edit"]
+        self.assertEqual(edit["session_id"], second)
+        self.assertIn("Continue interrupted attempt 2", edit["prompt"])
+
+    async def run_two_tasks(self, mode):
+        run_id, spec, manager = self.seed()
+        spec.mode = mode
+        a = {**self.task(), "id": "a", "title": "Task A", "files": ["a.py"]}
+        b = {**self.task(), "id": "b", "title": "Task B", "files": ["b.py"]}
+        result = self.store.get(run_id); result["spec"] = spec.model_dump(); result["tasks"] = [a, b]; self.store.save(result)
+        registry = TaskFileRegistry()
+        engine = self.engine(registry, run_id)
+        await engine._action(run_id, spec, manager, CoordinatorAction(id="d1", action="dispatch", task_ids=["a"]))
+        await engine._action(run_id, spec, manager, CoordinatorAction(id="d2", action="dispatch", task_ids=["b"]))
+        registry.reject = set()
+        await engine._action(run_id, spec, manager, CoordinatorAction(id="d3", action="dispatch", task_ids=["a"]))
+        edits = [r for r in registry.records if r["mode"] == "edit"]
+        return run_id, edits
+
+    async def test_no_findings_bleed_between_tasks_in_build(self):
+        run_id, edits = await self.run_two_tasks("build")
+        a_first, b_only, a_repair = edits
+        self.assertNotIn("CANARY-A", b_only["prompt"])
+        self.assertIn("CANARY-A", a_repair["prompt"])
+        self.assertNotIn("Task B", a_repair["prompt"])
+        self.assertNotIn("Task A", b_only["prompt"])
+        self.assertEqual(self.saved_task(run_id, "a")["status"], "completed")
+
+    async def test_no_findings_bleed_between_compare_alternatives(self):
+        run_id, edits = await self.run_two_tasks("compare")
+        self.assertNotIn("CANARY-A", edits[1]["prompt"])
+        self.assertIn("CANARY-A", edits[2]["prompt"])
+
+    async def test_worker_packet_fits_with_oversized_instructions_and_request(self):
+        for i in range(32):
+            folder = self.project / f"area{i}"; folder.mkdir()
+            (folder / "AGENTS.md").write_text(f"# Rules {i}\n" + "r" * 8000)
+        run_id, spec, manager = self.seed()
+        spec.prompt = "Fix the addition bug. " + "context " * 18000
+        result = self.store.get(run_id); result["spec"] = spec.model_dump(); result["tasks"] = [self.task()]
+        result["artifacts"]["assessment"] = {"instructions": [f"area{i}/AGENTS.md" for i in range(32)]}
+        self.store.save(result)
+        registry = RecordingRegistry()
+        outcome = await self.engine(registry, run_id)._worker(run_id, spec, manager, self.saved_task(run_id))
+        self.assertTrue(outcome["ok"], outcome.get("error"))
+        [edit] = [r for r in registry.records if r["mode"] == "edit"]
+        from parallax.context import PROMPT_LIMIT
+        self.assertLessEqual(len(edit["prompt"]), PROMPT_LIMIT)
+        self.assertIn('"omitted":["area', edit["prompt"])
+
+    async def test_dispatch_summary_reaches_its_workers(self):
+        run_id, spec, manager = self.seed()
+        result = self.store.get(run_id); result["tasks"] = [self.task()]; self.store.save(result)
+        registry = RecordingRegistry()
+        await self.engine(registry, run_id)._action(run_id, spec, manager, CoordinatorAction(id="d1", action="dispatch", task_ids=["fix"], summary="NOTE-123 keep the public API"))
+        [edit] = [r for r in registry.records if r["mode"] == "edit"]
+        self.assertIn("NOTE-123 keep the public API", edit["prompt"])
 
 
 class RequestLimitTests(unittest.IsolatedAsyncioTestCase):
