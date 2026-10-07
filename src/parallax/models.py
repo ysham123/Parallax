@@ -107,6 +107,7 @@ class CoordinatorAction(Contract):
     task_ids: list[str] = Field(default_factory=list)
     checks: list[CheckSpec] = Field(default_factory=list)
     selected_task: str | None = None
+    memo: str = ""  # Carried to the coordinator's next fresh turn (the engine shows at most 2,000 characters).
 
 class RunEvent(Contract):
     schema_version: Literal["1.0", "1.1"] = "1.1"

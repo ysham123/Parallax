@@ -28,6 +28,27 @@ def render_json(value) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
 
 
+def path_scrubber(run_dir: str | None):
+    """Replace the runtime's private paths in tool output (tracebacks, compiler errors) with placeholders.
+
+    Agents work in relative project paths; absolute run, worktree and state locations are runtime detail.
+    """
+    import os
+    import re
+    if not run_dir:
+        return lambda text: text
+    forms = {run_dir, os.path.realpath(run_dir)}
+    forms |= {form.removeprefix("/private") for form in list(forms) if form.startswith("/private/")}
+    pattern = re.compile("|".join(
+        re.escape(form) + r"(?P<rest%d>/(?:workers/[^/\s\"']+|integration(?:-[0-9a-f]+)?|review-source|review-[0-9]+))?" % index
+        for index, form in enumerate(sorted(forms, key=len, reverse=True))))
+    def scrub(text):
+        if not text:
+            return text
+        return pattern.sub(lambda m: "<checkout>" if any(v for k, v in m.groupdict().items() if v) else "<run>", str(text))
+    return scrub
+
+
 def clip(text: str, budget: int) -> tuple[str, int]:
     """Keep the first `budget` characters, marking how many were cut."""
     if len(text) <= budget:
@@ -56,6 +77,7 @@ class Packet:
     sections: list = field(default_factory=list)
     task_id: str | None = None
     limit: int = PROMPT_LIMIT
+    scrub: object = None  # Optional callable applied to every section's text before clipping and hashing.
     _cache: tuple | None = field(default=None, init=False, repr=False, compare=False)
 
     def _layout(self) -> tuple[str, list[dict]]:
@@ -66,6 +88,8 @@ class Packet:
             if section.body in (None, "", [], {}, ()):
                 continue
             text = section.body if isinstance(section.body, str) else render_json(section.body)
+            if self.scrub:
+                text = self.scrub(text)
             budget = len(text) if section.priority >= MANDATORY else section.budget
             clipped, cut = clip(text, budget)
             parts.append({"section": section, "text": clipped, "cut": cut, "full": len(text)})
@@ -223,7 +247,7 @@ def _check_rows(evidence, tail=4000):
 
 
 def review_packet(request: str, requirements: dict, *, patch: str = "", evidence=None, patch_budget: int = 40000,
-                  task_id: str | None = None) -> Packet:
+                  task_id: str | None = None, run_dir: str | None = None) -> Packet:
     allowed = {key: requirements.get(key) for key in ("id", "title", "prompt", "files", "acceptance", "dependencies")
                if requirements.get(key) not in (None, [], "")}
     return Packet("reviewer", REVIEW_PREAMBLE, [
@@ -231,14 +255,14 @@ def review_packet(request: str, requirements: dict, *, patch: str = "", evidence
         Section("Requirements", allowed, 24000, 90),
         Section("Candidate patch", fit_patch(patch, patch_budget), patch_budget + 2000, 70),
         Section("Check evidence", _check_rows(evidence), 16000, 60),
-    ], task_id)
+    ], task_id, scrub=path_scrubber(run_dir))
 
 
 def consultant_packet(request: str, *, task_id: str) -> Packet:
     return Packet("consultant", CONSULT_PREAMBLE, [Section("Request", request, priority=MANDATORY)], task_id)
 
 
-def synthesis_packet(request: str, reviews: list[dict]) -> tuple[Packet, dict]:
+def synthesis_packet(request: str, reviews: list[dict], run_dir: str | None = None) -> tuple[Packet, dict]:
     """Blind synthesis: assessments are labeled A, B, C in team order; the runtime keeps the legend."""
     labels = [chr(ord("A") + i) if i < 26 else f"Z{i}" for i in range(len(reviews))]
     room = max(1000, PROMPT_LIMIT - len(request) - 8000)
@@ -255,7 +279,7 @@ def synthesis_packet(request: str, reviews: list[dict]) -> tuple[Packet, dict]:
     return Packet("synthesizer", SYNTHESIS_PREAMBLE, [
         Section("Request", request, priority=MANDATORY),
         Section("Assessments", assessments, room, 90),
-    ], "synthesis"), legend
+    ], "synthesis", scrub=path_scrubber(run_dir)), legend
 
 
 # Workers ---------------------------------------------------------------------
@@ -331,4 +355,135 @@ def worker_packet(result: dict, task: dict, *, continuing: bool, fresh_checkout:
         Section("Project instructions", {"files": kept, "omitted": omitted} if kept or omitted else {}, 26000, 30),
         Section("Steering", list(reversed(artifacts.get("steering", []))), 8000, 70),
     ]
-    return Packet("worker", WORKER_PREAMBLE, sections, task["id"])
+    return Packet("worker", WORKER_PREAMBLE, sections, task["id"], scrub=path_scrubber(artifacts.get("directory")))
+
+
+# Coordinator -----------------------------------------------------------------
+
+COORDINATOR_PREAMBLE = (
+    "You coordinate a Parallax coding team. Return ONE structured action matching the schema. "
+    "Every turn is a fresh session: the sections below are the complete current state, and earlier turns are not "
+    "visible except through the action journal and your memo. Leave yourself a short memo in each action when it "
+    "will help the next turn. You may inspect source but cannot edit files or run project commands; the runtime owns "
+    "every action and enforces ownership, budgets, reviews, checks and integration.\n"
+    "Actions: plan (focused tasks with exact relative file or directory ownership, dependencies and acceptance "
+    "criteria, assigned only to configured implementers); dispatch (task_ids; its summary becomes those workers' "
+    "brief); validate (combined checks; checks are argv arrays, never shell strings); resolve_task (failed task_ids "
+    "plus a completed replacement as selected_task, after current combined verification); request_integration; "
+    "finish; inspect_results (task_ids; their patches appear in your next turn).\n"
+    "Repair a failed task by dispatching it again with a summary that says what to change; each task has a repair "
+    "budget. Use a new unique action id every turn (see next_id). Never replay an interrupted action blindly: inspect "
+    "the evidence and issue a new id. Dispatch an interrupted task to continue its partial work. Independent review "
+    "is automatic. Once integration_applied or verified_only is true, only inspect_results or finish is allowed. A "
+    "Build is complete only after final checks and request_integration. Compare tasks are alternative complete "
+    "solutions: choose selected_task in request_integration after every alternative is checked. Never claim a check "
+    "passed unless the evidence shows it."
+)
+
+
+def _review_brief(review, count=5, each=300):
+    if not review:
+        return None
+    return {"approved": bool(review.get("ok")), "findings": findings(review.get("findings"), count, each),
+            "summary": clip(str(review.get("summary") or ""), 400)[0]}
+
+
+def _task_checks(checks):
+    return [{"name": c.get("name"), "ok": c.get("ok"), **({"output": (c.get("output") or "")[-800:]} if not c.get("ok") else {})}
+            for c in checks or []]
+
+
+def _task_row(task, limits, variants=()):
+    outcome = task.get("result") or {}
+    row = {key: task.get(key) for key in ("id", "title", "provider", "files", "dependencies", "acceptance", "status", "attempts",
+                                         "failure_category", "resolved_by", "resolution")}
+    row["prompt"] = clip(str(task.get("prompt") or ""), 1500)[0]
+    row["repairs_left"] = max(0, limits["repairs"] + 1 - task.get("attempts", 0))
+    if outcome:
+        row["changed_files"] = (outcome.get("changed_files") or [])[:30]
+        row["error"] = clip(str(outcome.get("error") or ""), 600)[0]
+        row["review"] = _review_brief(outcome.get("review"))
+        merge = outcome.get("merge") or {}
+        if merge and not merge.get("ok"):
+            row["merge_error"] = clip(str(merge.get("error") or ""), 400)[0]
+    if task.get("checks"):
+        row["checks"] = _task_checks(task["checks"])
+    if variants:
+        row["variants"] = [{"id": v["id"], "directive": clip(str(v.get("directive") or ""), 300)[0], "status": v.get("status"),
+                            "provider": v.get("provider"), "review": _review_brief((v.get("result") or {}).get("review"), 3, 200),
+                            "checks": _task_checks(v.get("checks")), "error": clip(str((v.get("result") or {}).get("error") or ""), 300)[0]}
+                           for v in variants]
+    return {key: value for key, value in row.items() if value not in (None, "", [], {})}
+
+
+def coordinator_packet(result: dict, actions: list, *, turn: int, memory=(), search=()) -> Packet:
+    """The planner's whole world for one turn, compiled fresh from durable state.
+
+    Never included: attempt records, session ids, workspace paths, run ids, provider answers, transcripts,
+    reviewer identities, timestamps.
+    """
+    spec, artifacts = result["spec"], result["artifacts"]
+    limits = spec["limits"]
+    variants = {}
+    for task in result["tasks"]:
+        if task.get("variant_of"):
+            variants.setdefault(task["variant_of"], []).append(task)
+    tasks = [_task_row(t, limits, variants.get(t["id"], ())) for t in result["tasks"] if not t.get("variant_of")]
+    reviews = result.get("reviews", [])
+    integration = [r for r in reviews if r.get("task_id") == "integration"][-1:]
+    resolutions = [r for r in reviews if str(r.get("task_id", "")).startswith("resolution-")][-2:]
+    evidence = {
+        "combined_checks": [{"name": c.get("name"), "ok": c.get("ok"), "exit_code": c.get("exit_code"),
+                             **({"output": (c.get("output") or "")[-2000:]} if not c.get("ok") else {})} for c in result.get("checks", [])],
+        "integration_review": _review_brief(integration[0]) if integration else None,
+        "resolution_reviews": [{"task_id": r.get("task_id"), **(_review_brief(r) or {})} for r in resolutions],
+        "errors": [{"code": e.get("code"), "message": clip(str(e.get("message") or ""), 400)[0]}
+                   for e in result.get("errors", []) if e.get("code") != "invalid_action"][-5:],
+    }
+    evidence = {key: value for key, value in evidence.items() if value not in (None, [], {})}
+    newest = actions[-1] if actions else {}
+    inspected = {}
+    newest_action = newest.get("action") or {}
+    if newest_action.get("action") == "inspect_results" and newest_action.get("task_ids"):
+        wanted = set(newest_action["task_ids"])
+        for task in result["tasks"]:
+            if task["id"] in wanted:
+                outcome = task.get("result") or {}
+                inspected[task["id"]] = {"patch": fit_patch(outcome.get("patch") or "", 8000),
+                                         "review": _review_brief(outcome.get("review"), 12, 600), "checks": _task_checks(task.get("checks"))}
+    memo = next((row["action"].get("memo") for row in reversed(actions) if (row.get("action") or {}).get("memo")), "")
+    used = [row["id"] for row in actions]
+    next_id = next(f"a{n}" for n in range(1, len(used) + 2) if f"a{n}" not in set(used))
+    journal = [{"id": row["id"], "action": (row.get("action") or {}).get("action"), "task_ids": (row.get("action") or {}).get("task_ids") or [],
+                "selected_task": (row.get("action") or {}).get("selected_task"), "state": row.get("state"),
+                **({"error": clip(str(row.get("error")), 300)[0]} if row.get("error") else {})} for row in actions[-12:]]
+    finalized = bool(artifacts.get("integration_applied") or artifacts.get("verified_only"))
+    minutes_left = round(max(0, limits["minutes"] - artifacts.get("runtime_seconds", 0) / 60), 1)
+    sections = [
+        Section("Request", spec["prompt"], priority=MANDATORY),
+        Section("Team", [{key: p.get(key) for key in ("provider", "role", "model", "effort", "transport")}
+                         for p in [spec["coordinator"], *spec["team"]]], 2000, 95),
+        Section("Limits", limits, 1000, 95),
+        Section("Required checks", [{key: c.get(key) for key in ("name", "argv", "cwd", "timeout")}
+                                    for c in artifacts.get("required_checks", spec.get("checks", []))], 3000, 90),
+        Section("Baseline checks", [{"name": c.get("name"), "ok": c.get("ok"), "exit_code": c.get("exit_code"),
+                                     **({"output": (c.get("output") or "")[-1500:]} if not c.get("ok") else {})}
+                                    for c in artifacts.get("baseline_checks", [])], 6000, 30),
+        Section("Project memory", list(memory), 3000, 10),
+        Section("Tasks", tasks, 16000, 85),
+        Section("Combined evidence", evidence, 10000, 40),
+        Section("Diffstat", diffstat(result.get("diff", "")), 6000, 45),
+        Section("Diff excerpt", fit_patch(result.get("diff", ""), 6000), 6500, 20),
+        Section("Inspected", inspected, 24000, 25),
+        Section("Search results", list(search), 3000, 15),
+        Section("Actions", {"recent": journal, "used_ids": used, "next_id": next_id}, 4000, 80),
+        Section("Feedback", [*artifacts.get("coordinator_feedback", [])[-5:], *artifacts.get("interrupted_actions", [])[-5:]], 2000, 75),
+        Section("Memo", clip(str(memo or ""), 2000)[0], 2200, 75),
+        Section("Steering", list(reversed(artifacts.get("steering", []))), 20000, 88),
+        Section("Status", {"mode": spec["mode"], "integrate": spec.get("integrate", True),
+                           "integration_applied": bool(artifacts.get("integration_applied")),
+                           "verified_only": bool(artifacts.get("verified_only")), "finalized": finalized,
+                           "selected_task": artifacts.get("selected_task"), "turn": turn,
+                           "turns_left": max(0, limits["coordinator_turns"] - turn), "minutes_left": minutes_left}, 1000, 95),
+    ]
+    return Packet("coordinator", COORDINATOR_PREAMBLE, sections, "coordinator", scrub=path_scrubber(artifacts.get("directory")))

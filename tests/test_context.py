@@ -64,6 +64,18 @@ class PacketTests(unittest.TestCase):
         self.assertTrue(text.rstrip().endswith(f"<<<end Request {tag}>>>"))
 
 
+class ScrubTests(unittest.TestCase):
+    def test_private_run_paths_become_placeholders(self):
+        from parallax.context import path_scrubber
+        run = "/private/var/folders/x/T/state/runs/1234"
+        scrub = path_scrubber(run)
+        traceback = f'File "{run}/workers/fix-2/check.py", line 2\nFile "/var/folders/x/T/state/runs/1234/integration-abc123/a.py"\nlog at {run}/tmp/x'
+        self.assertEqual(scrub(traceback), 'File "<checkout>/check.py", line 2\nFile "<checkout>/a.py"\nlog at <run>/tmp/x')
+        self.assertEqual(path_scrubber(None)("unchanged /var/x"), "unchanged /var/x")
+        packet = Packet("worker", "P", [Section("Checks", [{"output": traceback}])], scrub=scrub)
+        self.assertNotIn("/runs/1234", packet.render())
+
+
 class PatchTests(unittest.TestCase):
     def test_split_and_diffstat_including_binary(self):
         diff = patch_for("a.py", 3) + "diff --git a/img.png b/img.png\nindex 1..2 100644\nBinary files a/img.png and b/img.png differ\n"
@@ -90,6 +102,33 @@ class PatchTests(unittest.TestCase):
         self.assertEqual(findings(["plain", {"file": "a.py", "issue": "empty"}]), ["plain", render_json({"file": "a.py", "issue": "empty"})])
         self.assertEqual(len(findings(["x"] * 20)), 8)
         self.assertLessEqual(len(findings(["z" * 5000])[0]), 600)
+
+
+class CoordinatorPacketSizeTests(unittest.TestCase):
+    def test_large_state_compiles_to_a_bounded_packet_with_the_request_intact(self):
+        from parallax.context import coordinator_packet
+        request = "Refactor the billing module. " * 300
+        long_review = {"ok": False, "findings": ["f" * 900] * 20, "summary": "s" * 3000}
+        tasks = [{"id": f"t{i}", "title": f"Task {i}", "provider": "claude", "prompt": "p" * 5000, "files": [f"src/m{i}.py"],
+                  "dependencies": [], "acceptance": ["a" * 500] * 5, "status": "failed", "attempts": 2,
+                  "active_attempt": {"workspace": "/secret/run/workers/t-1", "session_id": "s-123"},
+                  "result": {"ok": False, "error": "e" * 4000, "patch": "+x\n" * 20000, "changed_files": [f"src/m{i}.py"],
+                             "review": long_review, "provider_result": {"answer": "NARRATIVE " * 1000}},
+                  "checks": [{"name": "unit", "ok": False, "output": "o" * 8000}]} for i in range(10)]
+        diff = "".join(f"diff --git a/src/m{i}.py b/src/m{i}.py\n--- a/src/m{i}.py\n+++ b/src/m{i}.py\n@@ -1 +1 @@\n" + "+line\n" * 2000 for i in range(10))
+        result = {"run_id": "run-uuid", "spec": {"prompt": request, "mode": "build", "coordinator": {"provider": "codex"},
+                  "team": [{"provider": "claude"}, {"provider": "grok", "role": "reviewer"}], "checks": [],
+                  "limits": {"workers": 3, "repairs": 2, "minutes": 45, "attempt_seconds": 600, "coordinator_turns": 20}, "integrate": True},
+                  "tasks": tasks, "checks": [{"name": "unit", "ok": False, "output": "c" * 8000}] * 4,
+                  "reviews": [{**long_review, "task_id": "integration"}] * 8, "errors": [{"code": "x", "message": "m" * 2000}] * 10,
+                  "diff": diff, "artifacts": {"baseline_checks": [{"name": "unit", "ok": False, "output": "b" * 8000}] * 4,
+                                              "steering": ["steer " * 50] * 3}}
+        packet = coordinator_packet(result, [], turn=3)
+        text = packet.render()
+        self.assertIn(request, text)
+        self.assertLess(len(text) - len(request), 45000)
+        for leaked in ("NARRATIVE", "/secret/run", "s-123", "run-uuid"):
+            self.assertNotIn(leaked, text)
 
 
 if __name__ == "__main__":

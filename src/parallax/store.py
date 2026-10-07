@@ -140,6 +140,12 @@ class Store:
             row = db.execute("SELECT result FROM actions WHERE run_id=? AND id=?", (run_id, action_id)).fetchone()
         return json.loads(row[0]) if row else None
 
+    def actions(self, run_id: str) -> list[dict]:
+        """Journaled coordinator actions in the order they were issued."""
+        with self.connect() as db:
+            rows = db.execute("SELECT id,result FROM actions WHERE run_id=? ORDER BY rowid", (run_id,)).fetchall()
+        return [{"id": row[0], **json.loads(row[1])} for row in rows]
+
     def save_action(self, run_id: str, action_id: str, result: dict):
         with self.connect() as db:
             db.execute("INSERT INTO actions VALUES(?,?,?)", (run_id,action_id,json.dumps(result)))

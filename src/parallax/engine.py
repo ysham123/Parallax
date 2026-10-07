@@ -15,8 +15,8 @@ from .models import CheckEvidence, CoordinatorAction, Participant, RunResult, Ru
 from .store import Store
 from .assessment import assess_project, execution_capability, package_directory
 from .recovery import classify, recovery_options
-from .context import (PROMPT_LIMIT, REQUEST_LIMIT, Packet, consultant_packet, filter_patch, review_packet,
-                      synthesis_packet, worker_packet)
+from .context import (PROMPT_LIMIT, REQUEST_LIMIT, Packet, consultant_packet, coordinator_packet, filter_patch,
+                      review_packet, synthesis_packet, worker_packet)
 
 TERMINAL = {"completed", "failed", "cancelled", "needs_attention"}
 
@@ -583,7 +583,7 @@ class Engine:
             raise RunProblem("Every independent assessment failed; inspect provider diagnostics")
         await self.checkpoint(run_id)
         # Blind synthesis: assessments are lettered; the legend is attached only after the synthesis.
-        packet, legend = synthesis_packet(spec.prompt, reviews)
+        packet, legend = synthesis_packet(spec.prompt, reviews, str(run_dir))
         outcome = await self._provider(run_id,spec.coordinator,root,packet,task_id="synthesis",role="synthesizer")
         if not outcome.get("ok"):
             raise RunProblem(str(outcome.get("error")))
@@ -624,33 +624,20 @@ class Engine:
 
     async def _build_run(self,run_id,spec,manager):
         coordinator_dir = await self._workspace_call(manager.create_worker, "coordinator")
+        # Saved sessions only pin the model and effort; every turn starts a fresh session from a compiled packet.
         bound = self._resume_session(run_id, "coordinator", coordinator_dir, spec.coordinator, "coordinate")
-        session = bound["session_id"] if bound else None
         coordinator = self._session_participant(spec.coordinator, bound)
         while self.store.get(run_id)["artifacts"].get("coordinator_turns", 0) < spec.limits.coordinator_turns:
             await self.checkpoint(run_id)
             result = self.store.get(run_id)
-            prompt = ("You coordinate a Parallax coding team. Return ONE structured action matching the schema. "
-                "You may inspect source but cannot edit or execute project commands. Runtime owns all actions. "
-                "First plan focused implementation tasks with exact relative file/directory ownership, dependencies, and acceptance criteria. "
-                "Only assign configured implementers. Then dispatch pending task IDs, validate relevant checks, request_integration, and finish. "
-                "Repair failed tasks by dispatching the same task ID. If a completed replacement already covers a failed task, "
-                "validate the combined result, then resolve_task with task_ids containing the failed IDs and selected_task containing "
-                "the completed replacement ID. Runtime checks ownership, repair budget, and independently reviews the original requirements. "
-                "Use unique action IDs. Never replay an interrupted action blindly: inspect saved task and attempt evidence, "
-                "then issue a new action ID. Dispatch interrupted task IDs to continue their owned partial work. "
-                "Checks are direct argv arrays, never shell strings. Independent review is automatic. "
-                "Once integration_applied or verified_only is true, the candidate is finalized: use inspect_results or finish only. "
-                "A Build is complete only after final checks and request_integration. Compare tasks are alternative complete solutions; "
-                "select selected_task in request_integration after all alternatives are checked. "
-                "When validation fails, plan focused repair tasks; inspect result evidence. No invented successful checks.\n"
-                "User request:\n"+spec.prompt+"\nRun state:\n"+json.dumps(_coordinator_state(result),ensure_ascii=False))
+            turn = result["artifacts"].get("coordinator_turns", 0) + 1
+            prompt = coordinator_packet(result, self.store.actions(run_id), turn=turn)
             self._status(run_id,"planning")
             result = self.store.get(run_id)
             result["artifacts"]["coordinator_turns"] = result["artifacts"].get("coordinator_turns", 0) + 1
             self.store.save(result)
-            outcome = await self._provider(run_id,coordinator,coordinator_dir,prompt,mode="coordinate",task_id="coordinator",schema=CoordinatorAction.model_json_schema(),session_id=session)
-            session = outcome.get("session_id") or session
+            outcome = await self._provider(run_id,coordinator,coordinator_dir,prompt,mode="coordinate",task_id="coordinator",
+                                           schema=CoordinatorAction.model_json_schema(),session_id=None,role="coordinator")
             if outcome.get("effective_settings"):
                 coordinator = self._session_participant(coordinator, outcome)
             if not outcome.get("ok"):
@@ -660,10 +647,12 @@ class Engine:
                 action = CoordinatorAction.model_validate(raw)
             except (ValueError,TypeError) as exc:
                 self.store.event(run_id,"action_rejected",{"message":str(exc)})
+                self._coordinator_feedback(run_id, turn, "invalid_schema", None, str(exc))
                 continue
             prior = self.store.action(run_id,action.id)
             if prior is not None:
                 self.store.event(run_id,"action_rejected",{"message":"Duplicate action ID; saved result retained","id":action.id,"state":prior.get("state")})
+                self._coordinator_feedback(run_id, turn, "duplicate_id", action.id, "This action id was already used; the saved result was kept. Use next_id.")
                 continue
             tasks = action.task_ids or [t["id"] for t in self.store.get(run_id)["tasks"]
                 if t["status"] in {"pending", "interrupted"}]
@@ -687,6 +676,14 @@ class Engine:
             if self.store.get(run_id)["status"]=="completed":
                 return
         raise RunProblem("Coordinator decision limit reached; work and evidence are preserved")
+
+    def _coordinator_feedback(self, run_id, turn, kind, identifier, message):
+        """Rejections that never reach the action journal are shown on the next fresh turn."""
+        result = self.store.get(run_id)
+        feedback = result["artifacts"].setdefault("coordinator_feedback", [])
+        feedback.append({"turn": turn, "kind": kind, "id": identifier, "message": str(message)[:500]})
+        del feedback[:-5]
+        self.store.save(result)
 
     async def _action(self,run_id,spec,manager,action):
         result=self.store.get(run_id)
@@ -896,7 +893,8 @@ class Engine:
         schema={"type":"object","properties":{"approved":{"type":"boolean"},"findings":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}},"required":["approved","findings","summary"],"additionalProperties":False}
         # The evaluator sees the request, the original requirements, this candidate's patch, and this candidate's
         # evidence only: never the implementer's identity or narrative, prior reviews, or other candidates.
-        packet=review_packet(request,task,patch=patch,evidence=evidence,patch_budget=patch_budget,task_id="review-"+task_id)
+        packet=review_packet(request,task,patch=patch,evidence=evidence,patch_budget=patch_budget,task_id="review-"+task_id,
+                             run_dir=self.store.get(run_id)["artifacts"].get("directory"))
         outcome=await self._provider(run_id,reviewer,target,packet,task_id="review-"+task_id,schema=schema,role="reviewer")
         try:
             structured=outcome.get("structured_output") or json.loads(outcome.get("answer") or "{}")
@@ -1138,23 +1136,6 @@ def _owned(name,pattern):
 
 def _overlap(left,right):
     return any(_owned(a,b) or _owned(b,a) for a in left for b in right)
-
-def _coordinator_state(result):
-    tasks=[]
-    for task in result["tasks"]:
-        outcome=task.get("result",{})
-        tasks.append({**{k:v for k,v in task.items() if k not in {"result","checks"}},
-            "result":{k:outcome.get(k) for k in ("ok","error","changed_files","review","merge") if k in outcome},
-            "checks":[{"name":c["name"],"ok":c["ok"],"output":c.get("output","")[-4000:]} for c in task.get("checks",[])]})
-    return {"run_id":result["run_id"],"mode":result["spec"]["mode"],"coordinator":result["spec"]["coordinator"],
-        "team":result["spec"]["team"],"limits":result["spec"]["limits"],"tasks":tasks,
-        "required_checks":result["artifacts"].get("required_checks",result["spec"]["checks"]),
-        "baseline_checks":[{k:v for k,v in c.items() if k != "output"} | {"output":c.get("output","")[-4000:]} for c in result["artifacts"].get("baseline_checks",[])],
-        "checks":[{"name":c["name"],"ok":c["ok"],"output":c.get("output","")[-4000:]} for c in result["checks"]],
-        "reviews":result["reviews"][-8:],"errors":result["errors"][-8:],"diff":result["diff"][-30000:],
-        "steering":result["artifacts"].get("steering",[]),"integrate":result["spec"].get("integrate",True),
-        "integration_applied":result["artifacts"].get("integration_applied",False),
-        "verified_only":result["artifacts"].get("verified_only",False)}
 
 def _project_check(argv,workspace):
     command=Path(argv[0]).name

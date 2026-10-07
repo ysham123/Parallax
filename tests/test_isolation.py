@@ -340,6 +340,73 @@ class WorkerIsolationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("NOTE-123 keep the public API", edit["prompt"])
 
 
+class ScriptedCoordinator(RecordingRegistry):
+    """Plays a fixed list of coordinator actions and reports a pinned model on the first turn."""
+
+    def __init__(self, script, **kwargs):
+        super().__init__(**kwargs)
+        self.script = script
+        self.turns = 0
+
+    async def run(self, provider, **kwargs):
+        if kwargs["mode"] != "coordinate":
+            return await super().run(provider, **kwargs)
+        self.records.append({"provider": provider, "mode": "coordinate", "prompt": kwargs["prompt"], "session_id": kwargs.get("session_id"),
+                             "workspace": kwargs["workspace"], "model": kwargs.get("model"), "schema": kwargs.get("schema")})
+        action = self.script[min(self.turns, len(self.script) - 1)]
+        self.turns += 1
+        return {"ok": True, "answer": json.dumps(action), "structured_output": action, "session_id": str(uuid.uuid4()),
+                "effective_settings": {"model": "pinned-x", "effort": "high"}}
+
+
+class CoordinatorPacketTests(unittest.IsolatedAsyncioTestCase):
+    asyncSetUp = test_engine.EngineTests.asyncSetUp
+    spec = test_engine.EngineTests.spec
+    finish = test_engine.EngineTests.finish
+
+    def section(self, prompt, name):
+        if f"### {name}\n" not in prompt:
+            return ""
+        return prompt.split(f"### {name}\n", 1)[1].split("<<<end ", 1)[0]
+
+    async def test_fresh_turns_carry_journal_memo_feedback_and_inspection(self):
+        fix = {"id": "fix", "title": "Fix addition", "provider": "claude", "prompt": "Fix addition", "files": ["maths.py"], "acceptance": ["2+3 returns 5"]}
+        script = [
+            {"id": "bad", "action": "plan", "tasks": [{**fix, "id": "x", "provider": "nobody"}]},
+            {"id": "plan", "action": "plan", "tasks": [fix], "memo": "MEMO-42 remember the edge case"},
+            {"id": "plan", "action": "dispatch", "task_ids": ["fix"]},
+            {"id": "go", "action": "dispatch", "task_ids": ["fix"]},
+            {"id": "look", "action": "inspect_results", "task_ids": ["fix"]},
+            {"id": "check", "action": "validate"},
+            {"id": "ship", "action": "request_integration"},
+            {"id": "done", "action": "finish", "summary": "Fixed"},
+        ]
+        registry = ScriptedCoordinator(script)
+        engine = Engine(self.store, registry)
+        result = await self.finish(engine, await engine.start(self.spec()))
+        self.assertEqual(result["status"], "completed", result["errors"])
+        turns = [r for r in registry.records if r["mode"] == "coordinate"]
+        self.assertEqual(len(turns), 8)
+        self.assertTrue(all(r["session_id"] is None for r in turns))
+        self.assertEqual([r["model"] for r in turns[1:]], ["pinned-x"] * 7)
+        prompts = [r["prompt"] for r in turns]
+        self.assertIn('"id":"bad"', self.section(prompts[1], "Actions"))
+        self.assertIn("not an enabled implementer", self.section(prompts[1], "Actions"))
+        self.assertIn("MEMO-42 remember the edge case", self.section(prompts[2], "Memo"))
+        self.assertIn("duplicate_id", self.section(prompts[3], "Feedback"))
+        self.assertIn("+    return a + b", self.section(prompts[5], "Inspected"))
+        self.assertEqual(self.section(prompts[6], "Inspected"), "")
+        self.assertIn('"next_id":"a1"', self.section(prompts[0], "Actions"))
+        run_dir = result["artifacts"]["directory"]
+        for prompt in prompts:
+            self.assertNotIn(run_dir, prompt)
+            self.assertNotIn("session_id", prompt)
+            self.assertNotIn("active_attempt", prompt)
+            self.assertNotIn(result["run_id"], prompt)
+        # Rejections that never reach the journal leave exactly one journal row per accepted action id.
+        self.assertEqual([row["id"] for row in self.store.actions(result["run_id"])], ["bad", "plan", "go", "look", "check", "ship", "done"])
+
+
 class RequestLimitTests(unittest.IsolatedAsyncioTestCase):
     asyncSetUp = test_engine.EngineTests.asyncSetUp
     spec = test_engine.EngineTests.spec
