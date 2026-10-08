@@ -10,10 +10,13 @@ import { ProviderMark } from "./Brand";
 import { RunWorkspace } from "./RunWorkspace";
 import { Connections as ConnectionsPanel } from "./Connections";
 import { ProjectReadiness } from "./ProjectReadiness";
+import { ProjectMemory } from "./ProjectMemory";
 import { Recovery } from "./Recovery";
 import { Baseline } from "./Baseline";
 import { AlphaFeedback } from "./AlphaFeedback";
 import { Verification } from "./Verification";
+import { ContextDetails, ExplorationDetail, VariantDetail } from "./Exploration";
+import { contextManifest, explorations } from "./run-inspection";
 import {
   INITIAL_SPEC,
   connectionProvider,
@@ -672,14 +675,22 @@ function CheckEditor({
 function TaskDetail({
   task,
   tasks = [],
+  events = [],
   onClose,
   onSelect,
 }: {
   task: Data;
   tasks?: Data[];
+  events?: RunEvent[];
   onClose: () => void;
   onSelect: (id: string) => void;
 }) {
+  const manifest = contextManifest(
+    [...events].reverse().find((event) => event.kind === "context" && event.task_id === text(task.id)),
+  );
+  // A task resolved by one of its own variants was explored, not repaired.
+  const explored = explorations(tasks).get(text(task.id));
+  const repaired = text(task.resolved_by) && !explored?.selected;
   const result =
     task.result && typeof task.result === "object" ? (task.result as Data) : {};
   const providerResult =
@@ -752,6 +763,9 @@ function TaskDetail({
           })}
         </div>
       )}
+      {task.variant_of ? <VariantDetail task={task} tasks={tasks} onSelect={onSelect} /> : null}
+      {explored && <ExplorationDetail task={task} tasks={tasks} onSelect={onSelect} />}
+      {manifest && <ContextDetails manifest={manifest} label="Latest context packet" />}
       {Array.isArray(task.acceptance) && task.acceptance.length > 0 && (
         <div className="task-acceptance">
           <span className="eyebrow">ACCEPTANCE CRITERIA</span>
@@ -767,7 +781,7 @@ function TaskDetail({
           </ul>
         </div>
       )}
-      {text(task.resolved_by) && (
+      {repaired && (
         <div className="task-resolution">
           <span className="eyebrow">REPAIR HISTORY</span>
           <p>
@@ -1961,6 +1975,7 @@ export default function App({
                 providers={providers}
                 connections={connections}
               />
+              <ProjectMemory workspace={spec.workspace} />
               <div className="team-section-heading">
                 <div>
                   <h2>
@@ -2338,6 +2353,7 @@ export default function App({
                 <TaskDetail
                   task={task}
                   tasks={run?.tasks}
+                  events={events}
                   onSelect={setSelectedTask}
                   onClose={() => setSelectedTask(null)}
                 />

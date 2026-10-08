@@ -16,15 +16,81 @@ export const graphTone = (
     graphText(value),
   )
     ? "bad"
-    : /\b(?:complete|completed|accepted|success|succeeded|resolved|approved|passed|integrated)\b|^verified candidate(?: ready)?$/i.test(
+    : /\b(?:complete|completed|accepted|success|succeeded|resolved|approved|passed|integrated|candidate)\b|^verified candidate(?: ready)?$/i.test(
           graphText(value),
         )
       ? "good"
-      : /\b(?:running|reviewing|working|active|implementing|coordinating)\b/i.test(
+      : /\b(?:running|reviewing|working|active|implementing|coordinating|exploring)\b/i.test(
             graphText(value),
           )
         ? "active"
         : "pending";
+
+/** Why the runtime set a variant aside. */
+export const DISCARD_REASONS: Record<string, string> = {
+  not_selected: "Another variant was selected",
+  round_failed: "Its round produced no selectable candidate",
+  superseded: "Superseded by a newer exploration round",
+};
+
+export type Exploration = {
+  parent: string;
+  rounds: number;
+  variants: Data[];
+  selected?: string;
+};
+
+/** Variants grouped under the task they explore, oldest round first, with the selected variant if any. */
+export function explorations(tasks: Data[]): Map<string, Exploration> {
+  const result = new Map<string, Exploration>();
+  tasks.forEach((task) => {
+    const parent = graphText(task.variant_of);
+    if (!parent) return;
+    const entry = result.get(parent) || { parent, rounds: 0, variants: [] };
+    entry.variants.push(task);
+    entry.rounds = Math.max(entry.rounds, Number(task.variant_round) || 0);
+    result.set(parent, entry);
+  });
+  tasks.forEach((task) => {
+    const entry = result.get(graphText(task.id));
+    const chosen = graphText(task.resolved_by);
+    if (entry && entry.variants.some((variant) => graphText(variant.id) === chosen))
+      entry.selected = chosen;
+  });
+  result.forEach((entry) =>
+    entry.variants.sort(
+      (a, b) => (Number(a.variant_round) || 0) - (Number(b.variant_round) || 0),
+    ),
+  );
+  return result;
+}
+
+/** A content-free context manifest: what each section of an agent's packet contained, by size. */
+export type ContextManifest = {
+  role: string;
+  chars: number;
+  sections: { name: string; chars: number; truncated: number }[];
+};
+
+export function contextManifest(event: RunEvent | undefined): ContextManifest | undefined {
+  if (!event || event.kind !== "context") return undefined;
+  const sections = Array.isArray(event.data.sections) ? event.data.sections : [];
+  return {
+    role: graphText(event.data.role, "agent"),
+    chars: Number(event.data.chars) || 0,
+    sections: sections.map((item) => {
+      const section = recordOf(item);
+      return {
+        name: graphText(section.name, "Section"),
+        chars: Number(section.chars) || 0,
+        truncated: Number(section.truncated_chars) || 0,
+      };
+    }),
+  };
+}
+
+const sizeText = (chars: number) =>
+  chars >= 1000 ? `${(chars / 1000).toFixed(chars >= 10000 ? 0 : 1)}k chars` : `${chars} chars`;
 
 const connectionOf = (member: Participant | Data) =>
   graphText(member.connection_id) ||
@@ -98,7 +164,32 @@ export function describeRunEvent(event: RunEvent): string {
     const line = value.replace(/\s+/g, " ").trim();
     return line.length > 120 ? `${line.slice(0, 117)}…` : line;
   };
+  if (event.kind === "context") {
+    const manifest = contextManifest(event)!;
+    const trimmed = manifest.sections.filter((section) => section.truncated).length;
+    const role = manifest.role.charAt(0).toUpperCase() + manifest.role.slice(1);
+    return `${role} context · ${sizeText(manifest.chars)} in ${manifest.sections.length} ${manifest.sections.length === 1 ? "section" : "sections"}${trimmed ? ` · ${trimmed} trimmed` : ""}`;
+  }
+  if (event.kind === "memory_distilled") {
+    const accepted = Number(data.accepted) || 0;
+    const rejected = Array.isArray(data.rejected) ? data.rejected.length : 0;
+    return `Project memory · ${accepted ? `${accepted} ${accepted === 1 ? "lesson" : "lessons"} recorded` : "no new lessons"}${rejected ? ` · ${rejected} rejected` : ""}`;
+  }
+  if (event.kind === "memory_distill_failed")
+    return "Project memory · distillation did not complete";
+  if (event.kind === "memory_unavailable")
+    return "Project memory unavailable for this run";
   if (event.kind === "task") {
+    if (graphText(data.status) === "pending" && data.variant_of)
+      return `Variant queued for exploration round ${graphText(data.variant_round, "1")}`;
+    if (graphText(data.status) === "exploring")
+      return `Exploring alternative approaches · round ${graphText(data.explore_round, "1")}`;
+    if (graphText(data.status) === "failed" && data.explore_round)
+      return `Exploration round ${graphText(data.explore_round)} produced no selectable candidate`;
+    if (graphText(data.status) === "resolved" && data.resolved_by)
+      return `Resolved by ${graphText(data.resolved_by)}`;
+    if (graphText(data.status) === "discarded")
+      return `Variant set aside${DISCARD_REASONS[graphText(data.discarded_reason)] ? ` · ${DISCARD_REASONS[graphText(data.discarded_reason)].toLowerCase()}` : ""}`;
     const attempt = recordOf(data.active_attempt);
     const phases: Record<string, string> = {
       running: "Implementation started",
@@ -116,6 +207,7 @@ export function describeRunEvent(event: RunEvent): string {
       failed: "Task failed",
       resolved: "Task resolved by its verified replacement",
       interrupted: "Task interrupted",
+      candidate: "Variant passed review and checks; awaiting selection",
     };
     if (states[graphText(data.status)]) return states[graphText(data.status)];
   }
@@ -345,15 +437,20 @@ export function getRunAgents(
       agent.assignment = graphText(working[0].title, graphText(working[0].id));
     } else if (agent.tasks.length) {
       const states = agent.tasks.map((task) => graphText(task.status));
-      agent.state = states.every((state) =>
-        ["completed", "resolved"].includes(state),
-      )
-        ? "assignments complete"
-        : states.some((state) => state === "failed")
-          ? "failed assignment"
-          : working.length && terminal
-            ? run.status
-            : "pending assignments";
+      // A discarded variant is settled work: exploration kept another approach.
+      const settled = (state: string) =>
+        ["completed", "resolved", "discarded"].includes(state);
+      agent.state = states.every((state) => state === "discarded")
+        ? "variants set aside"
+        : states.every(settled)
+          ? "assignments complete"
+          : states.some((state) => state === "failed")
+            ? "failed assignment"
+            : states.every((state) => settled(state) || state === "candidate")
+              ? "awaiting selection"
+              : working.length && terminal
+                ? run.status
+                : "pending assignments";
       agent.assignment =
         agent.tasks.length === 1
           ? graphText(agent.tasks[0].title, graphText(agent.tasks[0].id))

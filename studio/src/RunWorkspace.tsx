@@ -14,7 +14,9 @@ import {
   graphTone,
   reviewLabel,
   describeRunEvent,
+  contextManifest,
 } from "./run-inspection";
+import { ContextDetails } from "./Exploration";
 import { LABELS, type Data, type RunEvent, type RunResult } from "./types";
 
 const value = (input: unknown, fallback = "") =>
@@ -391,7 +393,9 @@ export function RunWorkspace(props: Props) {
   const inspectorName = agent
     ? LABELS[agent.participant.provider] || agent.participant.provider
     : task
-      ? value(task.title, value(task.id))
+      ? task.variant_of
+        ? value(task.id)
+        : value(task.title, value(task.id))
       : review
         ? `${LABELS[value(review.provider)] || value(review.provider)} review`
         : selected === "evidence:checks"
@@ -832,10 +836,15 @@ export function RunWorkspace(props: Props) {
                             size={26}
                           />
                           <span>
-                            <strong>{value(item.title, value(item.id))}</strong>
+                            <strong>
+                              {item.variant_of
+                                ? value(item.id)
+                                : value(item.title, value(item.id))}
+                            </strong>
                             <small>
-                              {items(item.files).length} owned files · attempt{" "}
-                              {value(item.attempts, "0")}
+                              {item.variant_of
+                                ? `Variant of ${value(item.variant_of)} · round ${value(item.variant_round, "1")}`
+                                : `${items(item.files).length} owned files · attempt ${value(item.attempts, "0")}`}
                             </small>
                           </span>
                           <State state={value(item.status, "planned")} />
@@ -1084,6 +1093,18 @@ export function RunWorkspace(props: Props) {
                               <dd>{stamp(agent.latestEvent?.timestamp)}</dd>
                             </div>
                           </dl>
+                          {agent.coordinator &&
+                            (() => {
+                              // Coordinator turns are fresh sessions; this is what the latest turn was given.
+                              const manifest = contextManifest(
+                                [...events]
+                                  .reverse()
+                                  .find((item) => item.kind === "context" && item.task_id === "coordinator"),
+                              );
+                              return manifest ? (
+                                <ContextDetails manifest={manifest} label="Latest turn's context" />
+                              ) : null;
+                            })()}
                           {agent.latestEvent && (
                             <div className="work-observation">
                               <span>LAST REPORTED EVENT</span>

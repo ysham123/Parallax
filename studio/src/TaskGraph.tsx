@@ -15,6 +15,7 @@ import "@xyflow/react/dist/style.css";
 import { ProviderMark } from "./Brand";
 import { LABELS, type Data, type RunEvent, type RunResult } from "./types";
 import {
+  explorations,
   getRunAgents,
   graphText as label,
   graphTone as tone,
@@ -33,6 +34,7 @@ type GraphData = {
   files?: string[];
   id: string;
   inspect: (id: string) => void;
+  dimmed?: boolean;
   [key: string]: unknown;
 };
 type GraphNode = Node<GraphData, "record">;
@@ -48,7 +50,7 @@ function RecordCard({ data, selected }: NodeProps<GraphNode>) {
           : "Task";
   return (
     <article
-      className={`graph-task graph-record graph-${data.kind} ${selected ? "selected" : ""}`}
+      className={`graph-task graph-record graph-${data.kind} ${selected ? "selected" : ""} ${data.dimmed ? "graph-dimmed" : ""}`}
     >
       <Handle type="target" position={Position.Left} isConnectable={false} />
       <button
@@ -96,15 +98,31 @@ function RecordCard({ data, selected }: NodeProps<GraphNode>) {
 }
 const nodeTypes = { record: RecordCard };
 
-function taskData(task: Data, onSelect: (id: string) => void): GraphData {
+function taskData(
+  task: Data,
+  onSelect: (id: string) => void,
+  rounds = 0,
+): GraphData {
   const attempts = Number(task.attempts || 0);
+  const directive = label(task.directive).replace(/\s+/g, " ").trim();
   return {
     kind: "task",
     id: label(task.id),
-    title: label(task.title, label(task.id)),
+    // Variants share their task's title; their ids are how reviews and the coordinator name them.
+    title: task.variant_of ? label(task.id) : label(task.title, label(task.id)),
     provider: label(task.provider),
     status: label(task.status, "pending"),
-    subtitle: attempts ? `Attempt ${attempts}` : "Planned assignment",
+    subtitle: task.variant_of
+      ? `Variant · round ${label(task.variant_round, "1")}`
+      : rounds
+        ? `Explored · ${rounds} ${rounds === 1 ? "round" : "rounds"}`
+        : attempts
+          ? `Attempt ${attempts}`
+          : "Planned assignment",
+    detail: task.variant_of && directive
+      ? directive.length > 90 ? `${directive.slice(0, 87)}…` : directive
+      : undefined,
+    dimmed: label(task.status) === "discarded",
     files: Array.isArray(task.files)
       ? task.files.map((file) => label(file))
       : [],
@@ -266,6 +284,7 @@ export function TaskGraph({
 }) {
   const graph = useMemo(() => {
     const byId = new Map(tasks.map((task) => [label(task.id), task]));
+    const explored = explorations(tasks);
     const nodes: GraphNode[] = [];
     const edges: Edge[] = [];
     const agents = run ? getRunAgents(run, events) : [];
@@ -415,6 +434,12 @@ export function TaskGraph({
         if (seen.has(id)) return 0;
         if (cache.has(id)) return cache.get(id)!;
         const task = byId.get(id);
+        const parent = label(task?.variant_of);
+        if (parent && byId.has(parent)) {
+          const level = Math.min(20, rank(parent, new Set([...seen, id])) + 1);
+          cache.set(id, level);
+          return level;
+        }
         const deps = Array.isArray(task?.dependencies)
           ? task.dependencies
               .map((dep) => label(dep))
@@ -423,10 +448,13 @@ export function TaskGraph({
         const result = Math.min(
           20,
           deps.length
-            ? 1 +
-                Math.max(
-                  ...deps.map((dep) => rank(dep, new Set([...seen, id]))),
-                )
+            ? Math.max(
+                ...deps.map(
+                  (dep) =>
+                    rank(dep, new Set([...seen, id])) +
+                    (explored.has(dep) ? 2 : 1),
+                ),
+              )
             : 0,
         );
         cache.set(id, result);
@@ -446,7 +474,7 @@ export function TaskGraph({
           nodes.push(
             makeNode(
               label(task.id),
-              taskData(task, onSelect),
+              taskData(task, onSelect, explored.get(label(task.id))?.rounds || 0),
               level * 340,
               row * 215 + (maxRows - column.length) * 107.5,
               selected,
@@ -464,7 +492,20 @@ export function TaskGraph({
               makeEdge(label(dep), label(task.id), "Depends on", selected),
             );
         });
-      if (byId.has(label(task.resolved_by)))
+      const exploration = explored.get(label(task.id));
+      exploration?.variants.forEach((variant) => {
+        const chosen = exploration.selected === label(variant.id);
+        edges.push(
+          makeEdge(
+            label(task.id),
+            label(variant.id),
+            chosen ? "Selected" : `Round ${label(variant.variant_round, "1")}`,
+            selected,
+            chosen,
+          ),
+        );
+      });
+      if (byId.has(label(task.resolved_by)) && !exploration?.selected)
         edges.push(
           makeEdge(
             label(task.id),

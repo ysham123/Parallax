@@ -86,7 +86,7 @@ See [architecture](docs/ARCHITECTURE.md) for the full design and [real-project d
 
 ## Studio
 
-Studio opens on your active or most recent run. The agent graph shows who coordinates, implements and reviews. The task graph shows dependencies, repairs, reviews and checks. You can steer a run at its next checkpoint, pause it, stop it or resume it. **Review** brings together baseline and final checks, the combined diff, findings and the verification record.
+Studio opens on your active or most recent run. The agent graph shows who coordinates, implements and reviews. The task graph shows dependencies, repairs, reviews and checks. When the coordinator explores alternatives, the task graph shows each variant by round and marks the one it kept. Inspectors show what each agent's context packet contained, by section and size. New run shows what project memory has learned, with controls to disable a lesson or forget it all. You can steer a run at its next checkpoint, pause it, stop it or resume it. **Review** brings together baseline and final checks, the combined diff, findings and the verification record.
 
 Studio binds to loopback only. Its launch link exchanges a local access token for an HttpOnly session cookie and removes the token from the address bar, and Studio rejects cross-origin requests.
 
