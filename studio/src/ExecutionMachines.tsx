@@ -1,32 +1,30 @@
 import { useEffect, useRef, useState } from "react";
 import { relayApi, messageOf } from "./api";
+import { PairingCode } from "./Onboarding";
+import {
+  HOSTED_EXECUTOR,
+  platformLabel,
+  workerCommands,
+  type ExecutionMachine,
+} from "./session";
 
-export type ExecutionMachine = {
-  id: string;
-  name: string;
-  online: boolean;
-  platform: string;
-  workspaces: string[];
-  last_seen: number;
-};
+export type { ExecutionMachine } from "./session";
 
 export function ExecutionMachines({
   machines,
   selected,
   onSelect,
   refresh,
+  hostedExecution,
 }: {
   machines: ExecutionMachine[];
   selected: string;
   onSelect: (id: string) => void;
   refresh: () => Promise<void>;
+  hostedExecution: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const [pair, setPair] = useState<{ code: string; expires_in: number } | null>(
-    null,
-  );
-  const [expires, setExpires] = useState(0);
-  const [now, setNow] = useState(Date.now());
+  const [confirming, setConfirming] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const close = useRef<HTMLButtonElement>(null);
@@ -43,7 +41,7 @@ export function ExecutionMachines({
       if (event.key === "Tab") {
         const items = Array.from(
           dialog.current?.querySelectorAll<HTMLElement>(
-            "button:not([disabled]), select",
+            "button:not([disabled]), select, summary, a[href]",
           ) || [],
         );
         const first = items[0],
@@ -58,30 +56,12 @@ export function ExecutionMachines({
       }
     };
     document.addEventListener("keydown", keys, true);
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => {
       document.removeEventListener("keydown", keys, true);
-      window.clearInterval(timer);
+      setConfirming(null);
       previous?.focus();
     };
   }, [open]);
-  async function createPair() {
-    setBusy(true);
-    setError("");
-    try {
-      const value = await relayApi<{ code: string; expires_in: number }>(
-        "/executors/pair",
-        { method: "POST" },
-      );
-      setPair(value);
-      setExpires(Date.now() + value.expires_in * 1000);
-      setNow(Date.now());
-    } catch (failure) {
-      setError(messageOf(failure));
-    } finally {
-      setBusy(false);
-    }
-  }
   async function revoke(id: string) {
     setBusy(true);
     setError("");
@@ -89,6 +69,7 @@ export function ExecutionMachines({
       await relayApi("/executors/" + encodeURIComponent(id), {
         method: "DELETE",
       });
+      setConfirming(null);
       await refresh();
     } catch (failure) {
       setError(messageOf(failure));
@@ -97,6 +78,7 @@ export function ExecutionMachines({
     }
   }
   const current = machines.find((m) => m.id === selected);
+  const command = workerCommands(location.origin).start;
   return (
     <>
       <label className="execution-picker">
@@ -106,14 +88,14 @@ export function ExecutionMachines({
           value={selected}
           onChange={(e) => onSelect(e.target.value)}
         >
-          <option value="railway">Railway</option>
+          {hostedExecution && <option value={HOSTED_EXECUTOR}>Railway</option>}
           {machines.map((machine) => (
             <option key={machine.id} value={machine.id}>
               {machine.name}
               {machine.online ? "" : " · Offline"}
             </option>
           ))}
-          {selected !== "railway" && !current && (
+          {selected !== HOSTED_EXECUTOR && !current && (
             <option value={selected}>Machine unavailable</option>
           )}
         </select>
@@ -127,7 +109,7 @@ export function ExecutionMachines({
       >
         Machines
       </button>
-      {selected !== "railway" && !current?.online && (
+      {selected !== HOSTED_EXECUTOR && !current?.online && (
         <span className="machine-offline" role="status">
           Offline · saved evidence
         </span>
@@ -161,26 +143,26 @@ export function ExecutionMachines({
               </button>
             </header>
             <p>
-              Studio controls the run. Your chosen machine owns project files,
+              Studio controls the run. The chosen machine owns project files,
               CLI sign-ins, checks, and integration.
             </p>
             <div className="machine-list">
-              <article>
-                <div>
-                  <strong>Railway</strong>
-                  <small>Hosted projects and CLI connections</small>
-                </div>
-                <span>Cloud</span>
-              </article>
+              {hostedExecution && (
+                <article>
+                  <div>
+                    <strong>Railway</strong>
+                    <small>Hosted projects and CLI connections · operator only</small>
+                  </div>
+                  <span>Cloud</span>
+                </article>
+              )}
               {machines.map((machine) => (
                 <article key={machine.id}>
                   <div>
                     <strong>{machine.name}</strong>
                     <small>
-                      {machine.platform === "darwin"
-                        ? "macOS"
-                        : machine.platform}{" "}
-                      · {machine.online ? "Connected" : "Offline"}
+                      {platformLabel(machine.platform)} ·{" "}
+                      {machine.online ? "Connected" : "Offline"}
                     </small>
                     <details>
                       <summary>
@@ -191,56 +173,69 @@ export function ExecutionMachines({
                         <code key={path}>{path}</code>
                       ))}
                     </details>
+                    {confirming === machine.id && (
+                      <p className="machine-confirm" role="alert">
+                        Disconnecting revokes this machine and deletes its
+                        mirrored evidence from Parallax. Its local history
+                        stays on the machine.
+                      </p>
+                    )}
                   </div>
-                  <button
-                    className="text-button"
-                    disabled={busy}
-                    onClick={() => void revoke(machine.id)}
-                  >
-                    Disconnect
-                  </button>
+                  {confirming === machine.id ? (
+                    <span className="machine-confirm-actions">
+                      <button
+                        className="text-button"
+                        disabled={busy}
+                        onClick={() => setConfirming(null)}
+                      >
+                        Keep
+                      </button>
+                      <button
+                        className="danger-button"
+                        disabled={busy}
+                        onClick={() => void revoke(machine.id)}
+                      >
+                        {busy ? "Disconnecting…" : "Disconnect"}
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      className="text-button"
+                      disabled={busy}
+                      onClick={() => setConfirming(machine.id)}
+                    >
+                      Disconnect
+                    </button>
+                  )}
                 </article>
               ))}
+              {!machines.length && !hostedExecution && (
+                <article>
+                  <div>
+                    <strong>No machines yet</strong>
+                    <small>Pair one below to start a run.</small>
+                  </div>
+                </article>
+              )}
             </div>
             <section className="pair-machine">
-              <h3>Connect a local worker</h3>
+              <h3>Connect another machine</h3>
               <p>
-                Install Parallax on the machine, then run this command with a
+                From a Parallax checkout on that machine, run this with a
                 project you approve. It connects outward over HTTPS; no inbound
-                port or provider credentials are shared.
+                port is opened and provider credentials stay on the machine.
               </p>
-              <code>
-                parallax worker --url {location.origin} --workspace
-                /absolute/path/to/project
-              </code>
+              <pre className="machine-command">
+                <code>{command}</code>
+              </pre>
               <p>
-                Paste the one-time code into the worker’s hidden prompt. Anyone
-                with access to this private Studio can operate that approved
-                project. Disconnect revokes future commands; an offline machine
-                receives the revocation when it reconnects.
+                {hostedExecution
+                  ? "Anyone signed in to the operator workspace can operate approved projects on its machines."
+                  : "Only your account can see or operate machines in this workspace."}{" "}
+                Disconnect revokes future commands; an offline machine receives
+                the revocation when it reconnects.
               </p>
-              <button
-                className="primary-button"
-                disabled={busy}
-                onClick={() => void createPair()}
-              >
-                {busy ? "Working…" : "Generate pairing code"}
-              </button>
-              {pair && (
-                <div className="pair-code" role="status">
-                  {expires > now ? (
-                    <>
-                      <code>{pair.code}</code>
-                      <small>
-                        Expires in {Math.ceil((expires - now) / 1000)} seconds ·
-                        usable once
-                      </small>
-                    </>
-                  ) : (
-                    <p>Code expired. Generate a fresh code.</p>
-                  )}
-                </div>
-              )}
+              <PairingCode />
             </section>
             {error && (
               <p role="alert" className="machine-error">

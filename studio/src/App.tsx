@@ -5,7 +5,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { api, apiUrl, messageOf } from "./api";
+import { api, apiUrl, messageOf, viaMachine } from "./api";
 import { ProviderMark } from "./Brand";
 import { RunWorkspace } from "./RunWorkspace";
 import { Connections as ConnectionsPanel } from "./Connections";
@@ -1105,6 +1105,7 @@ function ReviewContent({ run, tab }: { run: RunResult; tab: ReviewTab }) {
 export default function App({
   execution,
   executionControls,
+  accountControl,
 }: {
   execution?: {
     name: string;
@@ -1114,6 +1115,7 @@ export default function App({
     paired?: boolean;
   };
   executionControls?: ReactNode;
+  accountControl?: ReactNode;
 } = {}) {
   const hostedWorkspace = import.meta.env.MODE === "cloud";
   const [tab, setTab] = useState<Tab>("run");
@@ -1389,8 +1391,12 @@ export default function App({
             next,
           ].sort((a, b) => a.sequence - b.sequence),
         );
+        // Locally, refresh shortly after events settle. Through a paired machine, refresh at most every
+        // two seconds instead, so busy runs and several tabs stay within the workspace's relay rate.
+        if (viaMachine() && debounce.current) return;
         window.clearTimeout(debounce.current);
         debounce.current = window.setTimeout(() => {
+          debounce.current = undefined;
           void api<RunResult>(`/runs/${encodeURIComponent(id)}`)
             .then((result) => {
               if (!disposed && activeId.current === id) updateRun(result);
@@ -1398,7 +1404,7 @@ export default function App({
             .catch((err) => {
               if (!disposed) setError(messageOf(err));
             });
-        }, 220);
+        }, viaMachine() ? 2000 : 220);
       } catch {
         setStreamStatus("invalid event");
       }
@@ -1418,6 +1424,7 @@ export default function App({
       source.close();
       window.clearInterval(poll);
       window.clearTimeout(debounce.current);
+      debounce.current = undefined;
     };
   }, [run?.run_id, updateRun]);
 
@@ -1830,6 +1837,7 @@ export default function App({
                   ? "On Railway"
                   : "On your machine"}
             </span>
+            {accountControl}
           </div>
         </header>
         <main id="main" className="main-content" ref={mainRef} tabIndex={-1}>

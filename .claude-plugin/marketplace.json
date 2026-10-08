@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "parallax",
+  "description": "Parallax: verified coding teams for Claude Code.",
+  "owner": {
+    "name": "Yosef Shammout",
+    "url": "https://github.com/ysham123"
+  },
+  "plugins": [
+    {
+      "name": "parallax",
+      "source": "./",
+      "description": "Run reviewed, checked coding teams across Codex, Claude Code, Grok Build and Antigravity from Claude Code.",
+      "category": "development",
+      "tags": ["code-review", "agents", "verification"],
+      "skills": [
+        "./claude-code/skills/parallax",
+        "./claude-code/skills/review",
+        "./claude-code/skills/build",
+        "./claude-code/skills/studio"
+      ]
+    }
+  ]
+}

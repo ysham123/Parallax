@@ -12,6 +12,7 @@ root=Path(__file__).resolve().parents[1]
 if sys.version_info < (3,10):
     raise SystemExit("Parallax requires Python 3.10 or newer")
 sys.path.insert(0,str(root/"src"))
+from parallax import __version__
 from parallax.store import state_directory
 home=state_directory();home.mkdir(parents=True,exist_ok=True,mode=0o700)
 digest=hashlib.sha256()
@@ -20,7 +21,7 @@ for path in sources:
     if path.is_file(): digest.update(str(path.relative_to(root)).encode());digest.update(path.read_bytes())
 fingerprint=digest.hexdigest()
 python_minor=f"py{sys.version_info.major}.{sys.version_info.minor}"
-environment=home/"environments"/("1.1.0-"+python_minor+"-"+fingerprint[:12])
+environment=home/"environments"/(__version__+"-"+python_minor+"-"+fingerprint[:12])
 executable=environment/"bin"/"python"
 ready=environment/"ready"
 with (home/"bootstrap.lock").open("a") as lock:

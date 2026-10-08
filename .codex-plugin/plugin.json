@@ -1,6 +1,6 @@
 {
   "name": "codex-claude-team",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Parallax Constellation coordinates autonomous teams across Codex, Claude Code, Grok Build, and Antigravity.",
   "author": {
     "name": "Yosef Shammout"
@@ -16,7 +16,7 @@
       "Read",
       "Write"
     ],
-    "websiteURL": "https://github.com/ysham123/codex-claude-team",
+    "websiteURL": "https://github.com/ysham123/Parallax",
     "defaultPrompt": [
       "Use Parallax to build this feature with my Quality preset.",
       "Open Parallax Studio for this project.",

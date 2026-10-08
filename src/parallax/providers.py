@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from .models import Participant
+from .deployment import HOSTED_SECRETS
 
 PROVIDERS = ("codex", "claude", "grok", "antigravity")
 LABELS = {"codex": "Codex", "claude": "Claude Code", "grok": "Grok Build", "antigravity": "Antigravity"}
@@ -156,6 +157,10 @@ async def _capture(argv: list[str], *, cwd: Path, env: dict[str, str], timeout: 
     output, errors, events = bytearray(), bytearray(), []
     failures: list[str] = []
     failure_signal = asyncio.Event()
+    # Recovery reads the started identity first; output arriving while it is computed waits for it.
+    announced = asyncio.Event()
+    if not on_event:
+        announced.set()
 
     def fail(code: str) -> None:
         if not failures:
@@ -187,6 +192,7 @@ async def _capture(argv: list[str], *, cwd: Path, env: dict[str, str], timeout: 
         events.append(event)
         public = _public_event(event)
         if public is not None:
+            await announced.wait()
             await publish(public)
 
     async def drain_stdout() -> None:
@@ -261,6 +267,7 @@ async def _capture(argv: list[str], *, cwd: Path, env: dict[str, str], timeout: 
     try:
         if on_event:
             await publish({"type": "parallax.process_started", "pid": process.pid, "process_group": process.pid if os.name == "posix" else None, "cwd": str(cwd), "identity": await process_identity(process.pid)})
+            announced.set()
         done, _ = await asyncio.wait([completion, *watches], timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
         if not done:
             fail("timeout")
@@ -279,6 +286,7 @@ async def _capture(argv: list[str], *, cwd: Path, env: dict[str, str], timeout: 
         externally_cancelled = True
         await terminate()
     finally:
+        announced.set()
         for watch in [*watches, completion]:
             watch.cancel()
         await asyncio.wait([*watches, completion], timeout=0.5)
@@ -365,7 +373,8 @@ class ProviderRegistry:
 
     async def _metadata(self, executable: str, args: list[str], *, timeout: int = 20) -> Captured:
         env = os.environ.copy()
-        env.pop("PARALLAX_ACCESS_TOKEN", None)
+        for secret in HOSTED_SECRETS:
+            env.pop(secret, None)
         env["GROK_DISABLE_AUTOUPDATER"] = "1"
         return await _capture([executable, *args], cwd=self.home, env=env, timeout=timeout,
                               max_output=self.max_output)
@@ -682,7 +691,8 @@ class ProviderRegistry:
                  settings: dict, mode: str, session: str | None, timeout: int,
                  schema: dict | None, scratch: Path, customization: dict) -> tuple[list[str], str, dict, set[str]]:
         env = os.environ.copy()
-        env.pop("PARALLAX_ACCESS_TOKEN", None)
+        for secret in HOSTED_SECRETS:
+            env.pop(secret, None)
         env["PARALLAX_OWNED_WORKSPACE"] = str(workspace)
         env["GROK_DISABLE_AUTOUPDATER"] = "1"
         env["GROK_MEMORY"] = "0"

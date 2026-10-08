@@ -1,0 +1,737 @@
+{
+  "release": "1.2.0",
+  "date": "2026-10-07",
+  "validation": "Actual native CLI inference on a disposable copy of tests/fixtures/python-service. Not a user study; small fixture.",
+  "providers": [
+    {
+      "provider": "codex",
+      "status": "ready",
+      "version": "codex-cli 0.160.1",
+      "default_model": "gpt-6.1-sol"
+    },
+    {
+      "provider": "claude",
+      "status": "ready",
+      "version": "2.1.293 (Claude Code)",
+      "default_model": "sonnet"
+    },
+    {
+      "provider": "grok",
+      "status": "ready",
+      "version": "grok 1.0.46 (2765805b9442) [stable]",
+      "default_model": "grok-4.7"
+    },
+    {
+      "provider": "antigravity",
+      "status": "ready",
+      "version": "1.3.1",
+      "default_model": "gemini-3.8-flash-high"
+    }
+  ],
+  "scenarios": [
+    {
+      "scenario": "review",
+      "note": "Blind review-mode synthesis with two reviewers.",
+      "mode": "review",
+      "status": "completed",
+      "requested": [
+        {
+          "provider": "codex",
+          "model": "gpt-6.1-sol",
+          "effort": "low",
+          "role": "generalist",
+          "transport": "cli"
+        },
+        {
+          "provider": "claude",
+          "model": "sonnet",
+          "effort": "medium",
+          "role": "reviewer",
+          "transport": "cli"
+        },
+        {
+          "provider": "grok",
+          "model": "grok-4.7",
+          "effort": "medium",
+          "role": "reviewer",
+          "transport": "cli"
+        }
+      ],
+      "limits": {
+        "workers": 2,
+        "repairs": 1,
+        "minutes": 15,
+        "attempt_seconds": 400,
+        "coordinator_turns": 10
+      },
+      "runtime_seconds": 44.4,
+      "coordinator_turns": 0,
+      "fresh_coordinator_sessions": true,
+      "context_manifests": {
+        "consultant": {
+          "calls": 2,
+          "max_chars": 382,
+          "truncated_sections": 0
+        },
+        "synthesizer": {
+          "calls": 1,
+          "max_chars": 2807,
+          "truncated_sections": 0
+        }
+      },
+      "actions": [],
+      "rejected_actions": [],
+      "tasks": [],
+      "reviews": [
+        {
+          "task": null,
+          "provider": "claude",
+          "approved": true,
+          "findings": 0
+        },
+        {
+          "task": null,
+          "provider": "grok",
+          "approved": true,
+          "findings": 0
+        }
+      ],
+      "final_checks": [],
+      "memory_events": [],
+      "synthesis_labels": "A = claude, B = grok"
+    },
+    {
+      "scenario": "build",
+      "note": "Fix the invoice total bug; a staged file and an untracked file were present and preserved (staged index hash identical before and after).",
+      "mode": "build",
+      "status": "completed",
+      "requested": [
+        {
+          "provider": "codex",
+          "model": "gpt-6.1-sol",
+          "effort": "low",
+          "role": "generalist",
+          "transport": "cli"
+        },
+        {
+          "provider": "claude",
+          "model": "sonnet",
+          "effort": "medium",
+          "role": "implementer",
+          "transport": "cli"
+        },
+        {
+          "provider": "antigravity",
+          "model": "gemini-3.8-flash-medium",
+          "effort": "medium",
+          "role": "implementer",
+          "transport": "cli"
+        },
+        {
+          "provider": "grok",
+          "model": "grok-4.7",
+          "effort": "medium",
+          "role": "reviewer",
+          "transport": "cli"
+        }
+      ],
+      "limits": {
+        "workers": 2,
+        "repairs": 2,
+        "minutes": 20,
+        "attempt_seconds": 400,
+        "coordinator_turns": 15
+      },
+      "runtime_seconds": 235.5,
+      "coordinator_turns": 12,
+      "fresh_coordinator_sessions": true,
+      "context_manifests": {
+        "coordinator": {
+          "calls": 12,
+          "max_chars": 11361,
+          "truncated_sections": 0
+        },
+        "worker": {
+          "calls": 2,
+          "max_chars": 3915,
+          "truncated_sections": 0
+        },
+        "reviewer": {
+          "calls": 6,
+          "max_chars": 2233,
+          "truncated_sections": 0
+        },
+        "distiller": {
+          "calls": 1,
+          "max_chars": 3029,
+          "truncated_sections": 0
+        }
+      },
+      "actions": [
+        "plan:completed",
+        "dispatch:completed",
+        "validate:failed",
+        "inspect_results:completed",
+        "validate:failed",
+        "validate:failed",
+        "plan:completed",
+        "dispatch:completed",
+        "validate:failed",
+        "validate:completed",
+        "request_integration:completed",
+        "finish:completed"
+      ],
+      "rejected_actions": [
+        "Combined integration review failed",
+        "Coordinator proposed a command outside project verification. Configure an explicit check in Studio: Invoice behavior verification",
+        "Combined integration review failed",
+        "Combined integration review failed"
+      ],
+      "tasks": [
+        {
+          "id": "fix_invoice_total",
+          "status": "completed",
+          "attempts": 1,
+          "variant_of": null
+        },
+        {
+          "id": "explicit_invoice_adjustments",
+          "status": "completed",
+          "attempts": 1,
+          "variant_of": null
+        }
+      ],
+      "reviews": [
+        {
+          "task": "fix_invoice_total",
+          "provider": "grok",
+          "approved": true,
+          "findings": 0
+        },
+        {
+          "task": "integration",
+          "provider": "grok",
+          "approved": false,
+          "findings": 2
+        },
+        {
+          "task": "integration",
+          "provider": "grok",
+          "approved": false,
+          "findings": 2
+        },
+        {
+          "task": "explicit_invoice_adjustments",
+          "provider": "grok",
+          "approved": true,
+          "findings": 0
+        },
+        {
+          "task": "integration",
+          "provider": "grok",
+          "approved": false,
+          "findings": 0
+        },
+        {
+          "task": "integration",
+          "provider": "grok",
+          "approved": true,
+          "findings": 0
+        }
+      ],
+      "final_checks": [
+        {
+          "name": "Acceptance tests",
+          "ok": true,
+          "exit_code": 0
+        }
+      ],
+      "memory_events": [
+        {
+          "accepted": 0,
+          "rejected": [
+            "length"
+          ],
+          "kind": "memory_distilled"
+        }
+      ],
+      "gates": [
+        {
+          "id": "current_verification",
+          "status": "passed"
+        },
+        {
+          "id": "independent_review",
+          "status": "passed"
+        },
+        {
+          "id": "project_checks",
+          "status": "passed"
+        },
+        {
+          "id": "integration",
+          "status": "passed"
+        },
+        {
+          "id": "preservation",
+          "status": "passed"
+        }
+      ],
+      "changed_files": [
+        "service.py"
+      ]
+    },
+    {
+      "scenario": "build-explore",
+      "note": "Related discount feature inviting two designs. Exposed process criteria in acceptance and request blocking isolated reviews; cancelled after the coordinator looped on unverifiable criteria.",
+      "mode": "build",
+      "status": "cancelled",
+      "requested": [
+        {
+          "provider": "codex",
+          "model": "gpt-6.1-sol",
+          "effort": "low",
+          "role": "generalist",
+          "transport": "cli"
+        },
+        {
+          "provider": "claude",
+          "model": "sonnet",
+          "effort": "medium",
+          "role": "implementer",
+          "transport": "cli"
+        },
+        {
+          "provider": "antigravity",
+          "model": "gemini-3.8-flash-medium",
+          "effort": "medium",
+          "role": "implementer",
+          "transport": "cli"
+        },
+        {
+          "provider": "grok",
+          "model": "grok-4.7",
+          "effort": "medium",
+          "role": "reviewer",
+          "transport": "cli"
+        }
+      ],
+      "limits": {
+        "workers": 2,
+        "repairs": 2,
+        "minutes": 25,
+        "attempt_seconds": 500,
+        "coordinator_turns": 20
+      },
+      "runtime_seconds": 1192.6,
+      "coordinator_turns": 19,
+      "fresh_coordinator_sessions": true,
+      "context_manifests": {
+        "coordinator": {
+          "calls": 19,
+          "max_chars": 27650,
+          "truncated_sections": 0
+        },
+        "worker": {
+          "calls": 13,
+          "max_chars": 4178,
+          "truncated_sections": 0
+        },
+        "reviewer": {
+          "calls": 12,
+          "max_chars": 7430,
+          "truncated_sections": 0
+        }
+      },
+      "actions": [
+        "plan:completed",
+        "explore:completed",
+        "inspect_results:completed",
+        "explore:failed",
+        "explore:completed",
+        "inspect_results:completed",
+        "inspect_results:completed",
+        "dispatch:failed",
+        "explore:completed",
+        "inspect_results:completed",
+        "select_variant:completed",
+        "validate:failed",
+        "plan:completed",
+        "explore:completed",
+        "explore:completed",
+        "explore:completed",
+        "finish:failed",
+        "plan:completed",
+        "dispatch:interrupted"
+      ],
+      "rejected_actions": [
+        "Variant directives must describe substantially different approaches",
+        "Variants can be dispatched only to continue pending or interrupted variants of one task in its current exploration round",
+        "Combined integration review failed",
+        "Verification and request_integration are required before finishing"
+      ],
+      "tasks": [
+        {
+          "id": "discount",
+          "status": "resolved",
+          "attempts": 3,
+          "variant_of": null
+        },
+        {
+          "id": "discount_keyword",
+          "status": "discarded",
+          "attempts": 1,
+          "variant_of": "discount"
+        },
+        {
+          "id": "discount_helper",
+          "status": "discarded",
+          "attempts": 1,
+          "variant_of": "discount"
+        },
+        {
+          "id": "discount_keyword_v2",
+          "status": "discarded",
+          "attempts": 1,
+          "variant_of": "discount"
+        },
+        {
+          "id": "discount_helper_v2",
+          "status": "discarded",
+          "attempts": 1,
+          "variant_of": "discount"
+        },
+        {
+          "id": "discount_keyword_v3",
+          "status": "completed",
+          "attempts": 1,
+          "variant_of": "discount"
+        },
+        {
+          "id": "discount_helper_v3",
+          "status": "discarded",
+          "attempts": 1,
+          "variant_of": "discount"
+        },
+        {
+          "id": "discount_comparison",
+          "status": "failed",
+          "attempts": 3,
+          "variant_of": null
+        },
+        {
+          "id": "comparison_keyword",
+          "status": "discarded",
+          "attempts": 1,
+          "variant_of": "discount_comparison"
+        },
+        {
+          "id": "comparison_helper",
+          "status": "discarded",
+          "attempts": 1,
+          "variant_of": "discount_comparison"
+        },
+        {
+          "id": "comparison_keyword_verified",
+          "status": "discarded",
+          "attempts": 1,
+          "variant_of": "discount_comparison"
+        },
+        {
+          "id": "comparison_helper_verified",
+          "status": "discarded",
+          "attempts": 1,
+          "variant_of": "discount_comparison"
+        },
+        {
+          "id": "comparison_keyword_final",
+          "status": "discarded",
+          "attempts": 1,
+          "variant_of": "discount_comparison"
+        },
+        {
+          "id": "comparison_helper_final",
+          "status": "discarded",
+          "attempts": 1,
+          "variant_of": "discount_comparison"
+        },
+        {
+          "id": "helper_discount_recovery",
+          "status": "interrupted",
+          "attempts": 1,
+          "variant_of": null
+        }
+      ],
+      "reviews": [
+        {
+          "task": "discount_keyword",
+          "provider": "grok",
+          "approved": false,
+          "findings": 0
+        },
+        {
+          "task": "discount_helper_v2",
+          "provider": "grok",
+          "approved": false,
+          "findings": 1
+        },
+        {
+          "task": "discount_keyword_v2",
+          "provider": "grok",
+          "approved": true,
+          "findings": 0
+        },
+        {
+          "task": "discount_helper_v3",
+          "provider": "grok",
+          "approved": false,
+          "findings": 0
+        },
+        {
+          "task": "discount_keyword_v3",
+          "provider": "grok",
+          "approved": true,
+          "findings": 0
+        },
+        {
+          "task": "integration",
+          "provider": "grok",
+          "approved": false,
+          "findings": 2
+        },
+        {
+          "task": "comparison_helper",
+          "provider": "grok",
+          "approved": false,
+          "findings": 3
+        },
+        {
+          "task": "comparison_keyword_verified",
+          "provider": "grok",
+          "approved": false,
+          "findings": 4
+        },
+        {
+          "task": "comparison_helper_verified",
+          "provider": "grok",
+          "approved": false,
+          "findings": 3
+        },
+        {
+          "task": "comparison_keyword_final",
+          "provider": "grok",
+          "approved": false,
+          "findings": 4
+        },
+        {
+          "task": "comparison_helper_final",
+          "provider": "grok",
+          "approved": false,
+          "findings": 3
+        },
+        {
+          "task": "helper_discount_recovery",
+          "provider": "grok",
+          "approved": false,
+          "findings": 0
+        }
+      ],
+      "final_checks": [],
+      "memory_events": []
+    },
+    {
+      "scenario": "claude-code-plugin-review",
+      "note": "/parallax:review from a local marketplace install of the Claude Code plugin (parallax@parallax 1.2.0), driven by a non-interactive Claude Code session with the plugin's MCP tools allowed. The plugin was removed afterwards.",
+      "host": {
+        "claude_code": "2.1.293",
+        "turns": 4,
+        "is_error": false
+      },
+      "mode": "review",
+      "status": "completed",
+      "workspace_was_repository_root": true,
+      "requested": [
+        {
+          "provider": "codex",
+          "model": null,
+          "effort": "low",
+          "role": "generalist",
+          "transport": "cli"
+        },
+        {
+          "provider": "claude",
+          "model": "sonnet",
+          "effort": "medium",
+          "role": "reviewer",
+          "transport": "cli"
+        },
+        {
+          "provider": "grok",
+          "model": "grok-4.7",
+          "effort": "medium",
+          "role": "reviewer",
+          "transport": "cli"
+        }
+      ],
+      "context_manifests": {
+        "consultant": {
+          "calls": 2,
+          "max_chars": 643,
+          "truncated_sections": 0
+        },
+        "synthesizer": {
+          "calls": 1,
+          "max_chars": 6083,
+          "truncated_sections": 0
+        }
+      },
+      "reviews": [
+        {
+          "provider": "claude",
+          "approved": true
+        },
+        {
+          "provider": "grok",
+          "approved": true
+        }
+      ],
+      "synthesis_labels": "A = claude, B = grok"
+    },
+    {
+      "scenario": "build-explore-after-fixes",
+      "note": "The discount scenario rerun with this release's fixes, same prompt and team.",
+      "mode": "build",
+      "status": "completed",
+      "runtime_seconds": 535.6,
+      "coordinator_turns": 8,
+      "fresh_coordinator_sessions": true,
+      "context_manifests": {
+        "coordinator": {
+          "calls": 8,
+          "max_chars": 16949,
+          "truncated_sections": 0
+        },
+        "worker": {
+          "calls": 4,
+          "max_chars": 3467,
+          "truncated_sections": 0
+        },
+        "reviewer": {
+          "calls": 4,
+          "max_chars": 5160,
+          "truncated_sections": 0
+        },
+        "distiller": {
+          "calls": 1,
+          "max_chars": 8210,
+          "truncated_sections": 0
+        }
+      },
+      "actions": [
+        "plan:completed",
+        "explore:completed",
+        "explore:completed",
+        "inspect_results:completed",
+        "select_variant:completed",
+        "validate:completed",
+        "request_integration:completed",
+        "finish:completed"
+      ],
+      "rejected_actions": [],
+      "tasks": [
+        {
+          "id": "discount_api",
+          "status": "resolved",
+          "attempts": 2,
+          "variant_of": null
+        },
+        {
+          "id": "keyword_discount",
+          "status": "discarded",
+          "attempts": 1,
+          "variant_of": "discount_api"
+        },
+        {
+          "id": "separate_helper",
+          "status": "discarded",
+          "attempts": 1,
+          "variant_of": "discount_api"
+        },
+        {
+          "id": "keyword_discount_retry",
+          "status": "discarded",
+          "attempts": 1,
+          "variant_of": "discount_api"
+        },
+        {
+          "id": "separate_helper_retry",
+          "status": "completed",
+          "attempts": 1,
+          "variant_of": "discount_api"
+        }
+      ],
+      "reviews": [
+        {
+          "task": "keyword_discount",
+          "provider": "grok",
+          "approved": true
+        },
+        {
+          "task": "separate_helper_retry",
+          "provider": "grok",
+          "approved": true
+        },
+        {
+          "task": "keyword_discount_retry",
+          "provider": "grok",
+          "approved": true
+        },
+        {
+          "task": "integration",
+          "provider": "grok",
+          "approved": true
+        }
+      ],
+      "final_checks": [
+        {
+          "name": "Acceptance tests",
+          "ok": true,
+          "exit_code": 0
+        }
+      ],
+      "gates": [
+        {
+          "id": "current_verification",
+          "status": "passed"
+        },
+        {
+          "id": "independent_review",
+          "status": "passed"
+        },
+        {
+          "id": "project_checks",
+          "status": "passed"
+        },
+        {
+          "id": "integration",
+          "status": "passed"
+        },
+        {
+          "id": "preservation",
+          "status": "passed"
+        }
+      ],
+      "changed_files": [
+        "service.py",
+        "tests/test_discount.py"
+      ],
+      "memory_events": [
+        {
+          "accepted": 1,
+          "rejected": [],
+          "kind": "memory_distilled"
+        }
+      ]
+    }
+  ]
+}

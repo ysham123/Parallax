@@ -5,6 +5,7 @@ import os
 import sqlite3
 import sys
 import hashlib
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,6 +19,19 @@ def state_directory() -> Path:
     if sys.platform == "darwin":
         return Path.home() / "Library" / "Application Support" / "Parallax"
     return Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))) / "parallax"
+
+def allow_rate(db, bucket: str, limit: int, window: float) -> bool:
+    """Durable sliding-window limit, evaluated inside the caller's transaction.
+
+    The first statement writes, so concurrent callers serialize on SQLite's
+    write lock instead of both observing room for one more event.
+    """
+    stamp = time.time()
+    db.execute("DELETE FROM rate_events WHERE created<? OR (bucket=? AND created<?)", (stamp - 86400, bucket, stamp - window))
+    if db.execute("SELECT COUNT(*) FROM rate_events WHERE bucket=?", (bucket,)).fetchone()[0] >= limit:
+        return False
+    db.execute("INSERT INTO rate_events(bucket,created) VALUES(?,?)", (bucket, stamp))
+    return True
 
 class Store:
     def __init__(self, home: Path | None = None):
@@ -39,6 +53,8 @@ class Store:
             CREATE TABLE IF NOT EXISTS project_locks(workspace TEXT PRIMARY KEY, run_id TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS project_profiles(name TEXT PRIMARY KEY, profile TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS feedback(run_id TEXT PRIMARY KEY, metrics TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS rate_events(bucket TEXT NOT NULL, created REAL NOT NULL);
+            CREATE INDEX IF NOT EXISTS rate_buckets ON rate_events(bucket, created);
             """)
         self.path.chmod(0o600)
 
@@ -139,6 +155,12 @@ class Store:
         with self.connect() as db:
             row = db.execute("SELECT result FROM actions WHERE run_id=? AND id=?", (run_id, action_id)).fetchone()
         return json.loads(row[0]) if row else None
+
+    def actions(self, run_id: str) -> list[dict]:
+        """Journaled coordinator actions in the order they were issued."""
+        with self.connect() as db:
+            rows = db.execute("SELECT id,result FROM actions WHERE run_id=? ORDER BY rowid", (run_id,)).fetchall()
+        return [{"id": row[0], **json.loads(row[1])} for row in rows]
 
     def save_action(self, run_id: str, action_id: str, result: dict):
         with self.connect() as db:

@@ -28,7 +28,7 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         self.cloud = Store(self.root / "cloud")
         self.local = Store(self.root / "local")
         self.hub = ExecutorHub(self.cloud)
-        self.credentials = self.hub.connect(self.hub.pair()["code"], "Test Mac", {"platform":"darwin", "workspaces":[str(self.project)]})
+        self.credentials = self.hub.connect(self.hub.pair("owner")["code"], "Test Mac", {"platform":"darwin", "workspaces":[str(self.project)]})
         self.worker = self.credentials["id"]
         self.registry = FakeRegistry()
 
@@ -36,7 +36,7 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         return {"id":str(uuid.uuid4()), "method":method, "path":path, "query":"", "body":body, "expires_at":time.time()+60, **extra}
 
     async def roundtrip(self, runtime, method, path, body=None):
-        pending = asyncio.create_task(self.hub.request(self.worker, method, path, "", body, timeout=10))
+        pending = asyncio.create_task(self.hub.request(self.worker, method, path, "", body, workspace="owner", timeout=10))
         await asyncio.sleep(.01)
         commands = self.hub.pending(self.worker)
         self.assertEqual(len(commands), 1)
@@ -71,7 +71,7 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
             self.hub.sync(self.worker,runs,events)
             self.assertEqual(self.hub.cached(self.worker,"/api/runs/"+run_id)["body"]["status"],"completed")
             cursor = events[0]["sequence"]
-            self.assertTrue(all(e["sequence"]>cursor for e in self.hub.events(self.worker,run_id,cursor)))
+            self.assertTrue(all(e["sequence"]>cursor for e in self.hub.events(self.worker,run_id,cursor,"owner")))
 
     async def test_duplicate_dispatch_and_lost_reply_never_start_twice(self):
         async with WorkerRuntime(self.local,[self.project],registry=self.registry) as runtime:
@@ -125,15 +125,15 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         async with WorkerRuntime(self.local,[self.project],registry=self.registry) as runtime:
             await self.roundtrip(runtime,"GET","/api/context")
         with self.cloud.connect() as db: db.execute("UPDATE workers SET seen=0")
-        response=await self.hub.request(self.worker,"GET","/api/context","",None)
+        response=await self.hub.request(self.worker,"GET","/api/context","",None,workspace="owner")
         self.assertTrue(response["offline"])
-        with self.assertRaises(HTTPException) as failure: await self.hub.request(self.worker,"POST","/api/runs","",{})
+        with self.assertRaises(HTTPException) as failure: await self.hub.request(self.worker,"POST","/api/runs","",{},workspace="owner")
         self.assertEqual(failure.exception.status_code,503)
         self.assertEqual(self.hub.pending(self.worker),[])
 
     async def test_timeout_is_retained_and_not_redispatched_automatically(self):
         with self.assertRaises(HTTPException) as failure:
-            await self.hub.request(self.worker,"POST","/api/runs","",{},timeout=.001)
+            await self.hub.request(self.worker,"POST","/api/runs","",{},workspace="owner",timeout=.001)
         self.assertEqual(failure.exception.status_code,504)
         pending=self.hub.pending(self.worker)
         self.assertEqual(len(pending),1)
@@ -147,12 +147,12 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         self.hub.sync(self.worker,[],events)
         restarted=ExecutorHub(Store(self.cloud.home))
         restarted.sync(self.worker,[],events)
-        self.assertEqual([e["sequence"] for e in restarted.events(self.worker,run_id,1)],[2,3])
+        self.assertEqual([e["sequence"] for e in restarted.events(self.worker,run_id,1,"owner")],[2,3])
 
     async def test_worker_response_scope_and_immutability(self):
-        pending=asyncio.create_task(self.hub.request(self.worker,"GET","/api/context","",None,timeout=10))
+        pending=asyncio.create_task(self.hub.request(self.worker,"GET","/api/context","",None,workspace="owner",timeout=10))
         await asyncio.sleep(.01); command=self.hub.pending(self.worker)[0]
-        other=self.hub.connect(self.hub.pair()["code"],"Other",{"platform":"linux","workspaces":[]})
+        other=self.hub.connect(self.hub.pair("owner")["code"],"Other",{"platform":"linux","workspaces":[]})
         response={"status":200,"body":{},"content_type":"application/json"}
         with self.assertRaises(HTTPException): self.hub.complete(other["id"],command["id"],response)
         self.hub.complete(self.worker,command["id"],response)
@@ -177,6 +177,36 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(PermissionError):
                 await run_worker("https://relay.example.com",state,[self.project],name="Test")
         self.assertEqual(requests,["/api/worker/sync","/api/worker/sync"])
+
+
+class WorkerEvidenceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_evidence_declined_by_a_relay_low_on_storage_is_resent(self):
+        root = Path(tempfile.mkdtemp()).resolve(); self.addCleanup(lambda: __import__("shutil").rmtree(root, ignore_errors=True))
+        project = root / "project"; project.mkdir(); state = root / "state"; state.mkdir()
+        (state / "worker-connection.json").write_text(encode({"id": str(uuid.uuid4()), "token": "worker-secret", "url": "https://relay.example.com",
+                                                              "workspaces": [str(project)]}))
+        run_id = str(uuid.uuid4())
+        events = [{"run_id": run_id, "sequence": n, "kind": "status", "data": {}} for n in (1, 2)]
+        sent = []
+        def handle(request):
+            if request.url.path == "/api/worker/next":
+                return httpx.Response(200, json=[])
+            sent.append([e["sequence"] for e in json.loads(request.content)["events"]])
+            if len(sent) == 1:
+                return httpx.Response(200, json={"ok": True, "stored": False})
+            if len(sent) == 2:
+                return httpx.Response(200, json={"ok": True, "stored": True})
+            return httpx.Response(401, json={"detail": "stop"})
+        original = httpx.AsyncClient
+        def client(**kwargs):
+            kwargs.setdefault("transport", httpx.MockTransport(handle))
+            return original(**kwargs)
+        snapshot = lambda self, hashes, cursor: ([], [e for e in events if e["sequence"] > cursor])
+        with patch("parallax.worker.httpx.AsyncClient", side_effect=client), patch("parallax.worker.asyncio.sleep", new_callable=AsyncMock), \
+                patch.object(WorkerRuntime, "snapshot", snapshot):
+            with self.assertRaises(PermissionError):
+                await run_worker("https://relay.example.com", state, [project], name="Test")
+        self.assertEqual(sent, [[1, 2], [1, 2], []])
 
 
 class WorkerProtocolTests(unittest.TestCase):
@@ -208,7 +238,7 @@ class WorkerProtocolTests(unittest.TestCase):
         self.assertNotIn(response.json()["token"],self.store.path.read_bytes().decode("latin1"))
 
     def test_expired_pair_and_browser_worker_protocol_are_rejected(self):
-        with patch("parallax.executors.time.time",return_value=0): code=self.hub.pair()["code"]
+        with patch("parallax.executors.time.time",return_value=0): code=self.hub.pair("owner")["code"]
         body={"code":code,"name":"Mac","platform":"darwin","workspaces":["/project"]}
         self.assertEqual(self.client.post("/api/worker/connect",json=body).status_code,401)
         self.assertEqual(self.client.post("/api/worker/connect",json=body,headers={"Origin":"https://studio.example.com"}).status_code,403)

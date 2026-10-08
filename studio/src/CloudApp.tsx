@@ -1,189 +1,346 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import App from "./App";
-import { relayApi, setApiExecutor, messageOf } from "./api";
-import { ExecutionMachines, type ExecutionMachine } from "./ExecutionMachines";
+import { onUnauthorized, setApiExecutor, messageOf } from "./api";
+import { ExecutionMachines } from "./ExecutionMachines";
+import Onboarding from "./Onboarding";
+import OperatorGate from "./OperatorGate";
+import PublicEntry from "./PublicEntry";
+import { AccountMenu, DeleteAccountDialog, Mark, applyStoredTheme } from "./PublicChrome";
+import {
+  HOSTED_EXECUTOR,
+  chooseMachine,
+  executorKey,
+  forgetMachines,
+  signInError,
+  storedMachine,
+  writeStored,
+  type AuthConfig,
+  type ExecutionMachine,
+  type Session,
+} from "./session";
 import "./hosted.css";
+import "./public.css";
+
+type View =
+  | { kind: "checking" }
+  | { kind: "signed-out"; notice?: string }
+  | { kind: "unavailable" }
+  | { kind: "ready"; session: Session };
+
+const OPERATOR_SESSION: Session["workspace"] = {
+  id: "owner",
+  name: "Operator workspace",
+  kind: "operator",
+  hosted_execution: true,
+};
+
+/** Accept older runtimes, whose session response only reported that a session exists. */
+function normalize(value: Partial<Session>): Session {
+  if (value.workspace && value.auth) return value as Session;
+  return { ok: true, mode: "hosted", auth: "operator", account: null, workspace: OPERATOR_SESSION };
+}
 
 export default function CloudApp() {
-  const [state, setState] = useState<"checking" | "locked" | "ready">(
-    "checking",
-  );
-  const [key, setKey] = useState("");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [view, setView] = useState<View>({ kind: "checking" });
+  const [config, setConfig] = useState<AuthConfig | null>(null);
   const [machines, setMachines] = useState<ExecutionMachine[]>([]);
-  const [selected, setSelected] = useState(
-    () => localStorage.getItem("parallax-executor") || "railway",
+  const [machinesLoaded, setMachinesLoaded] = useState(false);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  // Set while a workspace with no machines is onboarding, so a newly paired machine is
+  // announced in place and Studio opens only when the user chooses it.
+  const [onboarding, setOnboarding] = useState(false);
+  const [error, setError] = useState("");
+  const [authError] = useState(() => signInError(location.search));
+  const operatorRoute = location.pathname === "/operator";
+  const session = view.kind === "ready" ? view.session : null;
+  const workspace = session?.workspace.id || "";
+  const hosted = session?.workspace.hosted_execution === true;
+  const workspaceRef = useRef(workspace);
+  workspaceRef.current = workspace;
+  // The execution target is derived on every render: the explicit or remembered choice for
+  // this workspace while it still exists, otherwise a connected machine. Personal
+  // workspaces never fall back to the hosted runtime.
+  const resolved =
+    workspace && machinesLoaded
+      ? chooseMachine(machines, selected ?? storedMachine(workspace), hosted)
+      : null;
+  // Tracks the view outside React state so late responses can be ignored after an intentional exit.
+  const viewRef = useRef<View["kind"]>(view.kind);
+  viewRef.current = view.kind;
+  const exiting = useRef(false);
+
+  useEffect(() => {
+    applyStoredTheme();
+    if (authError) window.history.replaceState(null, "", location.pathname);
+  }, [authError]);
+
+  const endSession = useCallback((notice?: string) => {
+    viewRef.current = "signed-out";
+    forgetMachines();
+    setApiExecutor(null);
+    setMachines([]);
+    setMachinesLoaded(false);
+    setSelected(null);
+    setOnboarding(false);
+    setView({ kind: "signed-out", notice });
+  }, []);
+
+  /** `background` checks run while Studio is open: they end or switch the session, but a transient
+   *  failure leaves Studio as it is for the next poll or focus to retry. */
+  const checkSession = useCallback(
+    async (background = false) => {
+      try {
+        const response = await fetch("/api/session", { credentials: "same-origin" });
+        if (background && (viewRef.current !== "ready" || exiting.current)) return;
+        if (response.status === 401) {
+          if (background) return endSession("Your session has ended. Sign in again to continue.");
+          return setView({ kind: "signed-out" });
+        }
+        if (!response.ok) throw new Error(String(response.status));
+        const next = normalize(await response.json());
+        if (background && (viewRef.current !== "ready" || exiting.current)) return;
+        exiting.current = false;
+        if (workspaceRef.current && workspaceRef.current !== next.workspace.id) {
+          // A different account now owns this browser's session: drop every trace of the previous one.
+          setApiExecutor(null);
+          setMachines([]);
+          setMachinesLoaded(false);
+          setSelected(null);
+          setDeleting(false);
+          setOnboarding(false);
+        }
+        setView({ kind: "ready", session: next });
+        if (location.pathname === "/operator") window.history.replaceState(null, "", "/");
+      } catch {
+        if (background) return;
+        // The public page never dead-ends on the runtime; visitors keep the plugin install path.
+        setView(
+          location.pathname === "/operator"
+            ? { kind: "unavailable" }
+            : {
+                kind: "signed-out",
+                notice:
+                  "Hosted workspaces are unavailable right now. The Claude Code and Codex plugins work as usual.",
+              },
+        );
+      }
+    },
+    [endSession],
   );
-  async function refreshMachines() {
+
+  useEffect(() => {
+    void checkSession();
+    onUnauthorized(() => {
+      // A poll that lands after an intentional sign-out or deletion must not replace its message.
+      if (viewRef.current === "ready" && !exiting.current)
+        endSession("Your session has ended. Sign in again to continue.");
+    });
+    return () => onUnauthorized(null);
+  }, [checkSession, endSession]);
+
+  // Another tab may have signed out or switched accounts; re-check when this tab returns.
+  useEffect(() => {
+    const recheck = () => {
+      if (document.visibilityState === "visible" && viewRef.current === "ready" && !exiting.current)
+        void checkSession(true);
+    };
+    document.addEventListener("visibilitychange", recheck);
+    window.addEventListener("focus", recheck);
+    return () => {
+      document.removeEventListener("visibilitychange", recheck);
+      window.removeEventListener("focus", recheck);
+    };
+  }, [checkSession]);
+
+  useEffect(() => {
+    if (view.kind !== "signed-out" || config) return;
+    fetch("/api/auth/config", { credentials: "same-origin" })
+      .then(async (response) =>
+        setConfig(response.ok ? await response.json() : { github: false, signup: "closed" }),
+      )
+      .catch(() => setConfig({ github: false, signup: "closed" }));
+  }, [view.kind, config]);
+
+  const refreshMachines = useCallback(async () => {
+    if (exiting.current) return;
     try {
-      setMachines(await relayApi<ExecutionMachine[]>("/executors"));
+      const response = await fetch("/api/executors", { credentials: "same-origin" });
+      if (response.status === 401) {
+        if (viewRef.current === "ready" && !exiting.current)
+          endSession("Your session has ended. Sign in again to continue.");
+        return;
+      }
+      if (!response.ok) throw new Error("Machines could not be loaded. Retrying.");
+      const scope = response.headers.get("X-Parallax-Workspace");
+      if (scope && scope !== workspaceRef.current) {
+        // The cookie now belongs to a different workspace (another tab switched accounts).
+        void checkSession(true);
+        return;
+      }
+      setMachines((await response.json()) as ExecutionMachine[]);
+      setMachinesLoaded(true);
+      setError("");
     } catch (failure) {
       setError(messageOf(failure));
     }
-  }
+  }, [checkSession, endSession]);
+
   useEffect(() => {
-    if (state !== "ready") return;
+    if (!workspace) return;
     void refreshMachines();
-    const timer = window.setInterval(() => void refreshMachines(), 5000);
+    const timer = window.setInterval(() => void refreshMachines(), 4000);
     return () => window.clearInterval(timer);
-  }, [state]);
-  function selectMachine(id: string) {
-    localStorage.setItem("parallax-executor", id);
-    setApiExecutor(id === "railway" ? null : id);
+  }, [workspace, refreshMachines]);
+
+  useEffect(() => {
+    if (workspace && machinesLoaded) writeStored(executorKey(workspace), resolved);
+  }, [workspace, machinesLoaded, resolved]);
+
+  useEffect(() => {
+    if (machinesLoaded && resolved === null) setOnboarding(true);
+  }, [machinesLoaded, resolved]);
+
+  function select(id: string) {
+    writeStored(executorKey(workspace), id);
     setSelected(id);
   }
-  setApiExecutor(selected === "railway" ? null : selected);
-  const machine = machines.find((m) => m.id === selected);
-  async function check() {
-    setError("");
-    setState("checking");
-    try {
-      const response = await fetch("/api/session", {
-        credentials: "same-origin",
-      });
-      if (response.ok && (await response.json()).ok) setState("ready");
-      else {
-        setState("locked");
-        if (response.status !== 401)
-          setError(
-            "The hosted runtime is unavailable. Check the Railway service and its domain settings.",
-          );
-      }
-    } catch {
-      setState("locked");
-      setError("Unable to reach the hosted runtime. Check Railway and retry.");
-    }
-  }
-  useEffect(() => {
-    void check();
-  }, []);
-  async function signIn(event: FormEvent) {
-    event.preventDefault();
-    setBusy(true);
-    setError("");
-    try {
-      const response = await fetch("/api/session", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token: key }),
-      });
-      if (!response.ok)
-        throw new Error(
-          response.status === 401
-            ? "The access key was not accepted."
-            : response.status === 429
-              ? "Too many attempts. Try again in one minute."
-              : "Sign-in failed. Check the Railway service configuration.",
-        );
-      setKey("");
-      setState("ready");
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : "Sign-in failed.");
-    } finally {
-      setBusy(false);
-    }
-  }
+
   async function signOut() {
-    setBusy(true);
+    exiting.current = true;
+    let response: Response;
     try {
-      const response = await fetch("/api/session", {
-        method: "DELETE",
-        credentials: "same-origin",
-      });
-      if (!response.ok) throw new Error("Sign-out failed. Please retry.");
-      setState("locked");
-      setError("");
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : "Sign-out failed.");
-    } finally {
-      setBusy(false);
+      response = await fetch("/api/session", { method: "DELETE", credentials: "same-origin" });
+    } catch {
+      exiting.current = false;
+      throw new Error("Sign-out did not reach Parallax. Check your connection and try again.");
     }
+    // Only a confirmed revocation (or an already ended session) counts as signed out.
+    if (!response.ok && response.status !== 401) {
+      exiting.current = false;
+      throw new Error("Sign-out failed. Try again.");
+    }
+    endSession();
   }
-  if (state === "ready")
+
+  async function deleteAccount() {
+    const login = view.kind === "ready" ? view.session.account?.login || "" : "";
+    exiting.current = true;
+    const response = await fetch("/api/account?confirm=" + encodeURIComponent(login), {
+      method: "DELETE",
+      credentials: "same-origin",
+    }).catch(() => null);
+    if (!response || !response.ok) {
+      exiting.current = false;
+      const body = response ? await response.json().catch(() => ({})) : {};
+      if (response?.status === 409) void checkSession(true);
+      throw new Error(
+        typeof body.detail === "string" ? body.detail : "The account could not be deleted. Try again.",
+      );
+    }
+    setDeleting(false);
+    endSession("Your account, workspace, and mirrored evidence were deleted.");
+  }
+
+  if (view.kind === "checking")
+    return (
+      <div className="pub-splash" role="status" aria-label="Opening Parallax">
+        <Mark size={30} />
+      </div>
+    );
+
+  if (view.kind === "unavailable")
+    return (
+      <div className="pub-splash">
+        <Mark size={30} />
+        <p role="alert">Parallax could not reach its runtime.</p>
+        <button type="button" className="pub-secondary" onClick={() => void checkSession()}>
+          Retry
+        </button>
+      </div>
+    );
+
+  if (view.kind === "signed-out")
+    return operatorRoute ? (
+      <OperatorGate onSignedIn={() => void checkSession()} />
+    ) : (
+      <PublicEntry config={config} error={authError} notice={view.notice} />
+    );
+
+  const active = view.session;
+  const account = (
+    <AccountMenu session={active} onSignOut={signOut} onDelete={() => setDeleting(true)} />
+  );
+  const dialog = deleting && active.account && (
+    <DeleteAccountDialog
+      login={active.account.login}
+      onCancel={() => setDeleting(false)}
+      onConfirm={deleteAccount}
+    />
+  );
+
+  if (!machinesLoaded)
+    return (
+      <div className="pub-splash" role="status" aria-label="Opening your workspace">
+        <Mark size={30} />
+        {error && (
+          <>
+            <p role="alert">{error}</p>
+            <button type="button" className="pub-secondary" onClick={() => void refreshMachines()}>
+              Retry
+            </button>
+          </>
+        )}
+      </div>
+    );
+
+  if (resolved === null || onboarding)
     return (
       <>
-        <App
-          key={selected}
-          execution={
-            selected === "railway"
-              ? undefined
-              : {
-                  name: machine?.name || "paired machine",
-                  workspace: machine?.workspaces[0],
-                  platform: machine?.platform,
-                  online: machine?.online,
-                  paired: true,
-                }
-          }
-          executionControls={
-            <ExecutionMachines
-              machines={machines}
-              selected={selected}
-              onSelect={selectMachine}
-              refresh={refreshMachines}
-            />
-          }
+        <Onboarding
+          workspaceName={active.account ? `@${active.account.login}` : active.workspace.name}
+          machines={machines}
+          loading={!machinesLoaded}
+          account={account}
+          onOpen={(id) => {
+            setOnboarding(false);
+            select(id);
+          }}
         />
-        <div className="cloud-session">
-          <button onClick={signOut} disabled={busy}>
-            Sign out of hosted workspace
-          </button>
-          <span role="alert">{error}</span>
-        </div>
+        {dialog}
       </>
     );
+
+  // Requests made while rendering Studio go to the selected machine.
+  setApiExecutor(resolved === HOSTED_EXECUTOR ? null : resolved);
+  const machine = machines.find((m) => m.id === resolved);
   return (
-    <main className="cloud-gate">
-      <section className="hosted-launch" aria-labelledby="cloud-title">
-        <span className="hosted-eyebrow">
-          PARALLAX · DEDICATED TEAM WORKSPACE
-        </span>
-        <h1 id="cloud-title">Open your Studio</h1>
-        <p>
-          Open your private workspace, then choose Railway or an approved local
-          execution machine.
-        </p>
-        {state === "checking" ? (
-          <p role="status">Checking your session…</p>
-        ) : (
-          <form onSubmit={signIn}>
-            <label htmlFor="access-key">Workspace access key</label>
-            <input
-              id="access-key"
-              type="password"
-              autoComplete="off"
-              value={key}
-              onChange={(event) => setKey(event.target.value)}
-              aria-describedby="access-help"
-            />
-            <p id="access-help" className="hosted-help">
-              Ask the workspace owner for access. Your key is exchanged for a
-              secure session cookie.
-            </p>
-            <button
-              className="hosted-open"
-              disabled={busy || !key}
-              type="submit"
-            >
-              {busy ? "Signing in…" : "Open Studio"}
-            </button>
-          </form>
-        )}
-        <p role="alert" className="hosted-error">
-          {error}
-        </p>
-        {error && (
-          <button
-            className="hosted-copy"
-            onClick={() => void check()}
-            disabled={busy}
-          >
-            Retry connection
-          </button>
-        )}
-      </section>
-    </main>
+    <>
+      <App
+        key={`${workspace}:${resolved}`}
+        execution={
+          resolved === HOSTED_EXECUTOR
+            ? undefined
+            : {
+                name: machine?.name || "paired machine",
+                workspace: machine?.workspaces[0],
+                platform: machine?.platform,
+                online: machine?.online,
+                paired: true,
+              }
+        }
+        executionControls={
+          <ExecutionMachines
+            machines={machines}
+            selected={resolved}
+            onSelect={select}
+            refresh={refreshMachines}
+            hostedExecution={hosted}
+          />
+        }
+        accountControl={account}
+      />
+      {dialog}
+    </>
   );
 }

@@ -5,6 +5,7 @@ import fnmatch
 import hashlib
 import json
 import os
+import re
 import shutil
 import signal
 import sys
@@ -15,16 +16,26 @@ from .models import CheckEvidence, CoordinatorAction, Participant, RunResult, Ru
 from .store import Store
 from .assessment import assess_project, execution_capability, package_directory
 from .recovery import classify, recovery_options
+from .context import (PROMPT_LIMIT, REQUEST_LIMIT, Packet, consultant_packet, coordinator_packet, distiller_packet,
+                      filter_patch, memory_scrubber, review_packet, synthesis_packet, worker_packet)
 
 TERMINAL = {"completed", "failed", "cancelled", "needs_attention"}
+TASK_DONE = {"completed", "resolved"}
+INTEGRABLE = {"completed", "resolved", "discarded"}
+VARIANT_LIVE = {"pending", "running", "interrupted"}
+RESERVED_IDS = {"coordinator", "baseline", "integration", "distill", "synthesis"}
+MAX_TASKS = 40
 
 class RunProblem(Exception):
     pass
 
 class Engine:
-    def __init__(self, store: Store, registry=None):
+    def __init__(self, store: Store, registry=None, *, memory: bool | None = None):
         from .connections import ConnectionRegistry
         self.store = store
+        # Project memory is on for real providers unless PARALLAX_MEMORY=off; injected registries opt in explicitly.
+        self.memory = (registry is None and os.environ.get("PARALLAX_MEMORY", "on").lower() != "off") if memory is None else memory
+        self._memory_failed: set[str] = set()
         self.registry = registry or ConnectionRegistry(store)
         self.jobs: dict[str, asyncio.Task] = {}
         self.cancel_flags: dict[str, asyncio.Event] = {}
@@ -59,6 +70,16 @@ class Engine:
             db.execute("UPDATE actions SET result=? WHERE run_id=? AND id=?",
                        (json.dumps(saved), run_id, action_id))
 
+    def _normalize_tasks(self, run_id: str):
+        """No job for this run is alive here, so a task saved as running was interrupted."""
+        result = self.store.get(run_id)
+        if any(task["status"] == "running" for task in result["tasks"]):
+            self._interrupt_tasks(result)
+            self.store.save(result)
+        for task in result["tasks"]:
+            if task["status"] == "exploring":
+                self._close_round(run_id, task["id"])
+
     def _reconcile_actions(self, run_id: str):
         """Recognize durable effects; interrupted actions require a new decision."""
         result = self.store.get(run_id)
@@ -72,23 +93,28 @@ class Engine:
             action = saved.get("action", {})
             kind = action.get("action")
             complete = False
+            persisted = {task["id"]: task for task in result["tasks"]}
             if kind == "plan":
-                persisted = {task["id"]: task for task in result["tasks"]}
                 complete = bool(action.get("tasks")) and all(
                     task["id"] in persisted and all(persisted[task["id"]].get(key) == value
                                                    for key, value in task.items())
                     for task in action["tasks"])
             elif kind == "dispatch":
                 ids = action.get("task_ids") or saved.get("task_ids", [])
-                persisted = {task["id"]: task for task in result["tasks"]}
                 complete = bool(ids) and all(identifier in persisted and persisted[identifier]["status"]
-                    in {"completed", "failed"} for identifier in ids)
+                    in {"completed", "failed", "candidate", "discarded"} for identifier in ids)
+            elif kind == "explore":
+                variants = [v.get("id") for v in action.get("variants", [])]
+                complete = bool(variants) and all(v in persisted and persisted[v]["status"] not in VARIANT_LIVE for v in variants)
+            elif kind == "select_variant":
+                parent = persisted.get((action.get("task_ids") or [None])[0]) or {}
+                complete = parent.get("status") == "resolved" and parent.get("resolved_by") == action.get("selected_task")
             elif kind == "request_integration":
                 complete = bool(result["artifacts"].get("integration_applied")
                                 or result["artifacts"].get("verified_only"))
             elif kind == "finish":
                 complete = result["status"] == "completed"
-            elif kind == "inspect_results":
+            elif kind in {"inspect_results", "search_ideas"}:
                 complete = True
             state = "completed" if complete else "interrupted"
             self._action_state(run_id, identifier, state, recovered=True)
@@ -208,8 +234,11 @@ class Engine:
 
     @staticmethod
     def _bound_session(result: dict, task_id: str, workspace: Path, participant: Participant,
-                       mode: str) -> dict | None:
+                       mode: str, *, attempt: int | None = None) -> dict | None:
         for session in reversed(result["sessions"]):
+            # Repairs share a checkout, so only the same attempt's conversation may be continued.
+            if attempt is not None and session.get("attempt", 1) != attempt:
+                continue
             if (session.get("task_id") == task_id and session.get("provider") == participant.provider
                     and Path(session.get("workspace", "")).resolve() == workspace.resolve()
                     and session.get("transport", "cli") == participant.transport
@@ -230,8 +259,8 @@ class Engine:
         return participant.model_copy(update=settings)
 
     def _resume_session(self, run_id: str, task_id: str, workspace: Path,
-                        participant: Participant, mode: str) -> dict | None:
-        completed = self._bound_session(self.store.get(run_id), task_id, workspace, participant, mode)
+                        participant: Participant, mode: str, *, attempt: int | None = None) -> dict | None:
+        completed = self._bound_session(self.store.get(run_id), task_id, workspace, participant, mode, attempt=attempt)
         if completed is not None:
             return completed
         with self.store.connect() as db:
@@ -239,6 +268,8 @@ class Engine:
                 "SELECT data FROM events WHERE run_id=? AND kind='provider' AND task_id=? ORDER BY sequence DESC",
                 (run_id, task_id))]
         for event in events:
+            if attempt is not None and event.get("attempt", 1) != attempt:
+                continue
             if (event.get("provider") != participant.provider or event.get("mode") != mode
                     or event.get("transport", "cli") != participant.transport
                     or event.get("connection_id") != participant.connection_id
@@ -299,6 +330,8 @@ class Engine:
 
     def recover_run(self, run_id: str, action: str) -> dict:
         result = self.store.get(run_id)
+        if run_id in self.jobs and result["status"] != "paused":
+            raise ValueError("Run is finishing post-run memory work; retry shortly")
         choices = recovery_options(result)
         if action not in {item["id"] for item in choices["actions"]} or action not in {"repair_candidate", "retry_interrupted"}:
             raise ValueError("This recovery action is not available for the recorded failure")
@@ -314,6 +347,11 @@ class Engine:
         if not workspace.is_dir():
             raise ValueError("Workspace does not exist")
         spec.workspace = str(workspace)
+        # Every role packet carries the full request, so it must leave room for the rest of the packet.
+        if spec.mode != "review" and len(spec.prompt) > REQUEST_LIMIT:
+            raise ValueError(f"Build and Compare requests are limited to {REQUEST_LIMIT:,} characters")
+        if spec.mode == "review" and len(spec.prompt) > PROMPT_LIMIT - 9000:
+            raise ValueError(f"Review requests are limited to {PROMPT_LIMIT - 9000:,} characters")
         await self.validate_settings(spec)
         assessment = None
         if spec.mode != "review":
@@ -353,7 +391,8 @@ class Engine:
                 raise ValueError("A completed run cannot be stopped")
             self.cancel_flags.setdefault(run_id,asyncio.Event()).set()
             self.wakeup.setdefault(run_id,asyncio.Event()).set()
-            if run_id not in self.jobs:
+            # A settled run whose job is still recording memory stops now; the in-flight distiller sees the flag.
+            if run_id not in self.jobs or result["status"] in TERMINAL - {"completed"}:
                 result["status"] = "cancelled"
                 self.store.save(result)
                 self.store.release(run_id)
@@ -363,6 +402,9 @@ class Engine:
                 raise ValueError("Only paused, interrupted, or needs-attention runs can resume")
             if result["artifacts"].get("integration_applied"):
                 raise ValueError("Integration was already applied; start a new run")
+            if run_id in self.jobs and result["status"] != "paused":
+                # The run has settled but its job is still recording project memory; a resume now would be dropped.
+                raise ValueError("Run is finishing post-run memory work; retry shortly")
             if result["spec"]["mode"] != "review":
                 self.store.claim(result["spec"]["workspace"],run_id)
             self.pause_flags.discard(run_id)
@@ -416,12 +458,24 @@ class Engine:
         self.store.save(result)
         self.store.event(run_id,"task",updates,task_id)
 
-    async def _provider(self, run_id: str, participant: Participant, workspace: Path, prompt: str,
-                        *, mode="consult", task_id=None, schema=None, session_id=None) -> dict:
+    async def _provider(self, run_id: str, participant: Participant, workspace: Path, prompt,
+                        *, mode="consult", task_id=None, schema=None, session_id=None, attempt=None,
+                        role=None, timeout=None, quiet=False) -> dict:
         spec = RunSpec.model_validate(self.store.get(run_id)["spec"])
+        tagged = {"attempt": attempt} if attempt is not None else {}
+        manifest = None
+        if isinstance(prompt, Packet):
+            # Record what this agent is given (section names, sizes, hashes; never content) before it runs.
+            manifest = prompt.manifest()
+            role = role or manifest["role"]
+            prompt = prompt.render()
+            self.store.event(run_id, "context", {**manifest, "provider": participant.provider, "mode": mode,
+                                                 "fresh_session": session_id is None, **tagged}, task_id)
         async def emit(event):
+            if quiet and not (str(event.get("type", "")).startswith("parallax.") or event.get("type") == "api.session"):
+                return  # Quiet calls keep only process and session bookkeeping, never streamed text.
             self.store.event(run_id,"provider",{**event,"provider":participant.provider,"workspace":str(workspace),"mode":mode,
-                "transport":participant.transport,"connection_id":participant.connection_id},task_id)
+                "transport":participant.transport,"connection_id":participant.connection_id,**tagged},task_id)
         extra={}
         from .connections import ConnectionRegistry
         if isinstance(self.registry,ConnectionRegistry):
@@ -431,14 +485,17 @@ class Engine:
                 extra["allowed_files"]=task["files"] if task else []
         outcome = await self.registry.run(participant.provider, workspace=workspace, prompt=prompt,
             model=participant.model,effort=participant.effort,mode=mode,session_id=session_id,
-            timeout=spec.limits.attempt_seconds,schema=schema,on_event=emit,cancel_event=self.cancel_flags[run_id],**extra)
+            timeout=timeout or spec.limits.attempt_seconds,schema=schema,on_event=emit,cancel_event=self.cancel_flags[run_id],**extra)
         result = self.store.get(run_id)
         result["sessions"].append({"provider":participant.provider,"task_id":task_id,"transport":participant.transport,"connection_id":participant.connection_id,"mode":mode,
             "workspace":str(workspace),"session_id":outcome.get("session_id"),
-            "requested_settings":outcome.get("requested_settings",{}),"effective_settings":outcome.get("effective_settings",{})})
+            "requested_settings":outcome.get("requested_settings",{}),"effective_settings":outcome.get("effective_settings",{}),**tagged,
+            **({"role":role} if role else {}),
+            **({"context_sha256":manifest["sha256"],"context_chars":manifest["chars"]} if manifest else {})})
         usage = outcome.get("usage") or {}
         if usage:
-            result["usage"].setdefault("reports",[]).append({"provider":participant.provider,"task_id":task_id,**usage})
+            result["usage"].setdefault("reports",[]).append({"provider":participant.provider,"task_id":task_id,**usage,
+                **({"role":role} if role else {}),**({"context_sha256":manifest["sha256"]} if manifest else {})})
         self.store.save(result)
         return outcome
 
@@ -452,6 +509,7 @@ class Engine:
         try:
             run_dir.mkdir(parents=True,exist_ok=True)
             manager = WorkspaceManager(Path(spec.workspace),run_dir)
+            self._normalize_tasks(run_id)
             self._reconcile_actions(run_id)
             await self._reconcile_processes(run_id)
             self._status(run_id,"planning")
@@ -515,6 +573,8 @@ class Engine:
             self._clocks.pop(run_id, None)
             if self.store.get(run_id)["status"] in TERMINAL:
                 self.store.release(run_id)
+        if not self.shutting_down and self.store.get(run_id)["status"] in TERMINAL:
+            await self._after_run(run_id, spec)
 
     async def _review_run(self, run_id, spec, manager, run_dir):
         try:
@@ -536,7 +596,7 @@ class Engine:
                 (target / ".parallax-owned").write_text(run_id)
                 from .workspaces import fingerprint
                 before=fingerprint(target)
-                outcome = await self._provider(run_id,member,target,"Give an independent assessment. Do not change files. Ground findings in source and state uncertainty.\n\n"+spec.prompt,task_id=f"review-{index}")
+                outcome = await self._provider(run_id,member,target,consultant_packet(spec.prompt,task_id=f"review-{index}"),task_id=f"review-{index}",role="consultant")
                 if fingerprint(target)!=before:
                     outcome={**outcome,"ok":False,"error":{"code":"readonly_changed","message":"Consultation changed its isolated workspace"}}
                 return {"provider":member.provider,"ok":outcome.get("ok",False),"answer":outcome.get("answer"),"error":outcome.get("error")}
@@ -547,12 +607,13 @@ class Engine:
         if not any(r["ok"] for r in reviews):
             raise RunProblem("Every independent assessment failed; inspect provider diagnostics")
         await self.checkpoint(run_id)
-        outcome = await self._provider(run_id,spec.coordinator,root,
-            "Synthesize independent assessments. Cite file evidence, explain meaningful disagreements, and distinguish facts from uncertainty.\nRequest: "+spec.prompt+"\nAssessments:\n"+json.dumps(reviews))
+        # Blind synthesis: assessments are lettered; the legend is attached only after the synthesis.
+        packet, legend = synthesis_packet(spec.prompt, reviews, str(run_dir))
+        outcome = await self._provider(run_id,spec.coordinator,root,packet,task_id="synthesis",role="synthesizer")
         if not outcome.get("ok"):
             raise RunProblem(str(outcome.get("error")))
         result = self.store.get(run_id)
-        result["summary"] = outcome.get("answer") or ""
+        result["summary"] = (outcome.get("answer") or "") + "\n\nAssessment labels: " + ", ".join(f"{label} = {provider}" for label, provider in legend.items())
         result["status"] = "completed"
         self.store.save(result)
         self.store.event(run_id,"completed",{"summary":result["summary"]})
@@ -565,7 +626,16 @@ class Engine:
         all_ids = ids | {t.id for t in tasks}
         graph = {t["id"]:t["dependencies"] for t in existing}
         graph.update({t.id:t.dependencies for t in tasks})
+        variant_ids = {t["id"] for t in existing if t.get("variant_of")}
+        if len(ids - variant_ids) + len(tasks) > MAX_TASKS:
+            raise ValueError(f"A run holds at most {MAX_TASKS} planned tasks; extend or resolve existing tasks instead")
         for task in tasks:
+            if len(task.title) > 200 or len(task.acceptance) > 20 or any(len(a) > 500 for a in task.acceptance) or len(task.files) > 100 or any(len(f) > 200 for f in task.files):
+                raise ValueError(f"Task {task.id} is too large: titles are limited to 200 characters, acceptance to 20 items of 500 characters, and ownership to 100 paths of 200 characters")
+            if task.id in RESERVED_IDS:
+                raise ValueError(f"Task id {task.id} is reserved")
+            if set(task.dependencies) & variant_ids:
+                raise ValueError("Tasks cannot depend on an exploration variant; depend on the explored task instead")
             if task.provider not in implementers:
                 raise ValueError(f"{task.provider} is not an enabled implementer")
             if not task.files:
@@ -588,33 +658,23 @@ class Engine:
 
     async def _build_run(self,run_id,spec,manager):
         coordinator_dir = await self._workspace_call(manager.create_worker, "coordinator")
+        # Saved sessions only pin the model and effort; every turn starts a fresh session from a compiled packet.
         bound = self._resume_session(run_id, "coordinator", coordinator_dir, spec.coordinator, "coordinate")
-        session = bound["session_id"] if bound else None
         coordinator = self._session_participant(spec.coordinator, bound)
+        ideas = await self._ideas(run_id, spec)
         while self.store.get(run_id)["artifacts"].get("coordinator_turns", 0) < spec.limits.coordinator_turns:
             await self.checkpoint(run_id)
             result = self.store.get(run_id)
-            prompt = ("You coordinate a Parallax coding team. Return ONE structured action matching the schema. "
-                "You may inspect source but cannot edit or execute project commands. Runtime owns all actions. "
-                "First plan focused implementation tasks with exact relative file/directory ownership, dependencies, and acceptance criteria. "
-                "Only assign configured implementers. Then dispatch pending task IDs, validate relevant checks, request_integration, and finish. "
-                "Repair failed tasks by dispatching the same task ID. If a completed replacement already covers a failed task, "
-                "validate the combined result, then resolve_task with task_ids containing the failed IDs and selected_task containing "
-                "the completed replacement ID. Runtime checks ownership, repair budget, and independently reviews the original requirements. "
-                "Use unique action IDs. Never replay an interrupted action blindly: inspect saved task and attempt evidence, "
-                "then issue a new action ID. Dispatch interrupted task IDs to continue their owned partial work. "
-                "Checks are direct argv arrays, never shell strings. Independent review is automatic. "
-                "Once integration_applied or verified_only is true, the candidate is finalized: use inspect_results or finish only. "
-                "A Build is complete only after final checks and request_integration. Compare tasks are alternative complete solutions; "
-                "select selected_task in request_integration after all alternatives are checked. "
-                "When validation fails, plan focused repair tasks; inspect result evidence. No invented successful checks.\n"
-                "User request:\n"+spec.prompt+"\nRun state:\n"+json.dumps(_coordinator_state(result),ensure_ascii=False))
+            turn = result["artifacts"].get("coordinator_turns", 0) + 1
+            actions = self.store.actions(run_id)
+            memory, search = await self._memory_context(run_id, ideas, result, actions, coordinator_dir)
+            prompt = coordinator_packet(result, actions, turn=turn, memory=memory, search=search)
             self._status(run_id,"planning")
             result = self.store.get(run_id)
             result["artifacts"]["coordinator_turns"] = result["artifacts"].get("coordinator_turns", 0) + 1
             self.store.save(result)
-            outcome = await self._provider(run_id,coordinator,coordinator_dir,prompt,mode="coordinate",task_id="coordinator",schema=CoordinatorAction.model_json_schema(),session_id=session)
-            session = outcome.get("session_id") or session
+            outcome = await self._provider(run_id,coordinator,coordinator_dir,prompt,mode="coordinate",task_id="coordinator",
+                                           schema=CoordinatorAction.model_json_schema(),session_id=None,role="coordinator")
             if outcome.get("effective_settings"):
                 coordinator = self._session_participant(coordinator, outcome)
             if not outcome.get("ok"):
@@ -624,13 +684,15 @@ class Engine:
                 action = CoordinatorAction.model_validate(raw)
             except (ValueError,TypeError) as exc:
                 self.store.event(run_id,"action_rejected",{"message":str(exc)})
+                self._coordinator_feedback(run_id, turn, "invalid_schema", None, str(exc))
                 continue
             prior = self.store.action(run_id,action.id)
             if prior is not None:
                 self.store.event(run_id,"action_rejected",{"message":"Duplicate action ID; saved result retained","id":action.id,"state":prior.get("state")})
+                self._coordinator_feedback(run_id, turn, "duplicate_id", action.id, "This action id was already used; the saved result was kept. Use next_id.")
                 continue
             tasks = action.task_ids or [t["id"] for t in self.store.get(run_id)["tasks"]
-                if t["status"] in {"pending", "interrupted"}]
+                if t["status"] in {"pending", "interrupted"} and not t.get("variant_of")]
             self.store.save_action(run_id,action.id,{"state":"issued","action":action.model_dump(), "task_ids":tasks})
             try:
                 await self._action(run_id,spec,manager,action)
@@ -652,9 +714,17 @@ class Engine:
                 return
         raise RunProblem("Coordinator decision limit reached; work and evidence are preserved")
 
+    def _coordinator_feedback(self, run_id, turn, kind, identifier, message):
+        """Rejections that never reach the action journal are shown on the next fresh turn."""
+        result = self.store.get(run_id)
+        feedback = result["artifacts"].setdefault("coordinator_feedback", [])
+        feedback.append({"turn": turn, "kind": kind, "id": identifier, "message": str(message)[:500]})
+        del feedback[:-5]
+        self.store.save(result)
+
     async def _action(self,run_id,spec,manager,action):
         result=self.store.get(run_id)
-        if (result["artifacts"].get("integration_applied") or result["artifacts"].get("verified_only")) and action.action not in {"inspect_results","finish"}:
+        if (result["artifacts"].get("integration_applied") or result["artifacts"].get("verified_only")) and action.action not in {"inspect_results","finish","search_ideas"}:
             raise ValueError("This candidate is finalized; only inspect_results or finish is allowed. Start a new run for further changes")
         self.store.event(run_id,"action",action.model_dump())
         if action.action=="plan":
@@ -669,14 +739,31 @@ class Engine:
             result["artifacts"].pop("validated_fingerprint",None)
             self.store.save(result)
         elif action.action=="dispatch":
-            ids=action.task_ids or [t["id"] for t in result["tasks"] if t["status"] in {"pending", "interrupted"}]
+            ids=action.task_ids or [t["id"] for t in result["tasks"] if t["status"] in {"pending", "interrupted"} and not t.get("variant_of")]
             selected=[t for t in result["tasks"] if t["id"] in ids]
             if len(selected)!=len(set(ids)) or not selected: raise ValueError("Choose known pending tasks")
+            if any(t.get("variant_of") for t in selected):
+                parents={t.get("variant_of") for t in selected}
+                parent=next((t for t in result["tasks"] if t["id"] in parents),None)
+                if (len(parents)!=1 or not all(t.get("variant_of") for t in selected) or parent is None or parent["status"]!="exploring"
+                        or parent.get("selecting") or any(t["status"] not in {"pending","interrupted","failed"} or t.get("variant_round")!=parent.get("explore_round") for t in selected)):
+                    raise ValueError("Variants can be dispatched only to continue or repair variants of one task in its current exploration round")
+                # A failed variant is repaired within its round, so one weak candidate does not cost a whole new round.
+                if any(t["status"]=="failed" and t["attempts"]>spec.limits.repairs for t in selected):
+                    raise ValueError("Variant repair limit reached; explore a new round instead")
+                await self._run_variants(run_id,spec,manager,parent["id"],[t["id"] for t in selected])
+                return
             done={t["id"] for t in result["tasks"] if t["status"] in {"completed","resolved"}}
             for task in selected:
                 if task["status"] not in {"pending","failed","interrupted"}: raise ValueError("Task is not pending or repairable")
                 if not set(task["dependencies"])<=done: raise ValueError("Task dependencies are not complete")
-                if task["status"] != "interrupted" and task["attempts"]>spec.limits.repairs: raise ValueError("Task repair limit reached")
+                # Only an attempt that was still in progress may continue past the budget; a finished failure may not.
+                continuing=task["status"]=="interrupted" and (task.get("active_attempt") or {}).get("state","running") in {"running","implemented","interrupted","reviewed"}
+                if not continuing and task["attempts"]>spec.limits.repairs: raise ValueError("Task repair limit reached")
+            # The dispatch summary is the coordinator's brief to these workers.
+            for task in selected:
+                task["coordinator_note"]=(action.summary or "")[:2000]
+            self.store.save(result)
             self._status(run_id,"running")
             # Overlapping ownership runs serially; disjoint tasks share a bounded batch.
             batches=[]
@@ -696,13 +783,34 @@ class Engine:
                         self._task_update(run_id,task["id"],status="completed",result=outcome)
                     else:
                         merged=await self._workspace_call(manager.merge, Path(outcome["workspace"]))
-                        self._task_update(run_id,task["id"],status="completed" if merged["ok"] else "failed",result={**outcome,"merge":merged})
+                        if merged["ok"]:
+                            self._task_update(run_id,task["id"],status="completed",result={**outcome,"merge":merged})
+                        else:
+                            # A conflicting attempt must not be reused: the next dispatch counts against the
+                            # repair budget and starts from the current integration candidate.
+                            saved=next(t for t in self.store.get(run_id)["tasks"] if t["id"]==task["id"])
+                            self._task_update(run_id,task["id"],status="failed",
+                                result={**outcome,"ok":False,"error":"Merge conflict with the integration candidate: "+str(merged.get("error") or "")[:1000],"merge":merged},
+                                active_attempt={**(saved.get("active_attempt") or {}),"state":"merge_failed","resume_safe":False})
                 result=self.store.get(run_id)
                 result["diff"]=manager.diff()
                 result["artifacts"].pop("validated_fingerprint",None)
                 self.store.save(result)
         elif action.action=="inspect_results":
             pass
+        elif action.action=="explore":
+            parent_id,variant_ids=self._prepare_exploration(run_id,spec,action)
+            await self._run_variants(run_id,spec,manager,parent_id,variant_ids)
+        elif action.action=="select_variant":
+            await self._select_variant(run_id,manager,action)
+        elif action.action=="search_ideas":
+            ideas=await self._ideas(run_id,spec)
+            if ideas is None: raise ValueError("Project memory is not available for this run")
+            files=sorted({f for t in result["tasks"] if t["id"] in action.task_ids for f in t["files"]})
+            hits=await asyncio.to_thread(ideas.search,action.query or spec.prompt,files,6,run_id)
+            # Results stay in the local action journal (never mirrored) and appear in the next packet only.
+            self._action_state(run_id,action.id,"issued",memory_results=hits)
+            await asyncio.to_thread(ideas.expose,run_id,[h["id"] for h in hits],"search")
         elif action.action=="validate":
             checks=action.checks or spec.checks or _discover_checks(manager.integration_path)
             if not checks: raise ValueError("No meaningful checks configured. Supply project check argv commands")
@@ -730,11 +838,13 @@ class Engine:
                 candidates=[p for p in spec.team if p.role=="reviewer"]+[*spec.team,spec.coordinator]
                 reviewer=next((p for p in candidates if p.provider not in {task["provider"],replacement["provider"]}),None)
                 if reviewer is None: raise ValueError("Resolve needs an independent reviewer")
-                review=await self._assess_patch(run_id,reviewer,manager.integration_path,spec.prompt,task,"resolution-"+task["id"])
+                owned=filter_patch(manager.diff(),lambda path,scopes=task["files"]:any(_owned(path,scope) for scope in scopes))
+                review=await self._assess_patch(run_id,reviewer,manager.integration_path,spec.prompt,task,"resolution-"+task["id"],
+                    evidence=result["checks"],patch=owned)
                 if not review["ok"]: raise ValueError("Replacement does not satisfy the failed task's original requirements")
                 self._task_update(run_id,task["id"],status="resolved",resolved_by=replacement["id"],resolution_review=review)
         elif action.action=="request_integration":
-            if any(t["status"] in {"pending","running","failed","interrupted"} for t in result["tasks"]):
+            if any(t["status"] not in INTEGRABLE for t in result["tasks"]):
                 raise ValueError("Unfinished tasks block integration")
             if not result["tasks"]: raise ValueError("No implementation tasks")
             if spec.mode=="compare":
@@ -756,9 +866,252 @@ class Engine:
             self.store.save(result)
             self.store.event(run_id,"completed",{"summary":result["summary"]})
 
+    async def _ideas(self, run_id, spec):
+        """The project's idea graph, or None when memory is off, in review mode, or unavailable."""
+        if not self.memory or spec.mode == "review":
+            return None
+        try:
+            from .ideas import IdeaStore
+            return await asyncio.to_thread(IdeaStore, self.store.home, spec.workspace)
+        except Exception as exc:
+            self._memory_unavailable(run_id, exc)
+            return None
+
+    def _memory_unavailable(self, run_id, exc):
+        if run_id not in self._memory_failed:
+            self._memory_failed.add(run_id)
+            self.store.event(run_id, "memory_unavailable", {"reason": type(exc).__name__})
+
+    async def _memory_context(self, run_id, ideas, result, actions, workspace):
+        """Primer (computed once per run, ids only in the run) and the latest search, rendered fresh from local memory."""
+        if ideas is None:
+            return [], []
+        try:
+            primer = (result["artifacts"].get("memory") or {}).get("primer")
+            if primer is None:
+                text = " ".join([result["spec"]["prompt"], *(t.get("title", "") for t in result["tasks"])])
+                files = sorted({f for t in result["tasks"] for f in t.get("files", [])})
+                primer = [hit["id"] for hit in await asyncio.to_thread(ideas.search, text, files, 6, run_id)]
+                saved = self.store.get(run_id)
+                saved["artifacts"]["memory"] = {**(saved["artifacts"].get("memory") or {}), "primer": primer}
+                self.store.save(saved)
+                await asyncio.to_thread(ideas.expose, run_id, primer, "primer")
+            memory = await asyncio.to_thread(ideas.render, primer, str(workspace))
+            newest = actions[-1] if actions else {}
+            search = []
+            if (newest.get("action") or {}).get("action") == "search_ideas":
+                search = await asyncio.to_thread(ideas.render, [h["id"] for h in newest.get("memory_results", [])], str(workspace))
+            return memory, search
+        except Exception as exc:
+            self._memory_unavailable(run_id, exc)
+            return [], []
+
+    async def _after_run(self, run_id, spec):
+        """Project the finished run's facts into project memory. Never changes the run's status."""
+        ideas = await self._ideas(run_id, spec)
+        if ideas is None:
+            return
+        try:
+            with self.store.connect() as db:
+                checks = [{"sequence": row[0], "task_id": row[1], "data": json.loads(row[2])} for row in db.execute(
+                    "SELECT sequence,task_id,data FROM events WHERE run_id=? AND kind='check' ORDER BY sequence", (run_id,))]
+            await asyncio.to_thread(ideas.project, self.store.get(run_id), checks)
+        except Exception as exc:
+            self._memory_unavailable(run_id, exc)
+            return
+        await self._distill(run_id, spec, ideas)
+
+    async def _distill(self, run_id, spec, ideas):
+        """Meta-agent distillation: one fresh, quiet session turns this run's facts into at most three grounded lessons."""
+        result = self.store.get(run_id)
+        errors = result.get("errors") or []
+        if (spec.mode not in {"build", "compare"} or result["status"] not in {"completed", "failed", "needs_attention"}
+                or (errors and errors[-1].get("code") == "budget_exceeded") or self.cancel_flags.get(run_id, asyncio.Event()).is_set()
+                or not any(t.get("attempts") for t in result["tasks"])):
+            return
+        try:
+            digest = await asyncio.to_thread(ideas.digest, run_id)
+            if not digest or not digest["evidence"] or digest["sha256"] == await asyncio.to_thread(ideas.distilled, run_id):
+                return
+            directory = Path(result["artifacts"]["directory"]) / "distill"
+            directory.mkdir(parents=True, exist_ok=True)
+            (directory / ".parallax-owned").write_text(run_id)
+            candidates = [p for p in spec.team if p.role == "reviewer"] + [p for p in spec.team if p.role != "reviewer"]
+            distiller = next((p for p in candidates if p.provider != spec.coordinator.provider), spec.coordinator)
+            from .ideas import DISTILL_SCHEMA
+            outcome = await self._provider(run_id, distiller, directory, distiller_packet(digest, memory_scrubber(result["artifacts"]["directory"], spec.workspace)), mode="consult", task_id="distill",
+                                           role="distiller", schema=DISTILL_SCHEMA, timeout=min(spec.limits.attempt_seconds, 180), quiet=True)
+            if not outcome.get("ok"):
+                raise RunProblem("distiller_failed")
+            payload = outcome.get("structured_output")
+            if payload is None:
+                payload = json.loads(outcome.get("answer") or "{}")
+            applied = await asyncio.to_thread(ideas.apply_distillation, run_id, payload, digest, distiller.provider)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            code = str(exc) if isinstance(exc, RunProblem) else type(exc).__name__
+            self.store.event(run_id, "memory_distill_failed", {"code": code[:80]})
+            return
+        saved = self.store.get(run_id)
+        saved["artifacts"]["memory"] = {**(saved["artifacts"].get("memory") or {}), "distilled": len(applied["accepted"]),
+                                        "rejected": len(applied["rejected"])}
+        self.store.save(saved)
+        # Counts and reason codes only: lesson text stays in local memory.
+        self.store.event(run_id, "memory_distilled", {"accepted": len(applied["accepted"]),
+                                                      "rejected": [r["reason"] for r in applied["rejected"]]})
+
+    def _prepare_exploration(self, run_id, spec, action):
+        """Validate an explore action and persist its variants in one write. No engine loop decides what to try."""
+        result = self.store.get(run_id)
+        tasks = {t["id"]: t for t in result["tasks"]}
+        if spec.mode != "build":
+            raise ValueError("Exploration is available in Build runs")
+        if len(action.task_ids) != 1 or action.task_ids[0] not in tasks:
+            raise ValueError("Explore exactly one known task")
+        parent = tasks[action.task_ids[0]]
+        if parent.get("variant_of"):
+            raise ValueError("Variants cannot be explored further; explore their task")
+        live = [t for t in result["tasks"] if t.get("variant_of") == parent["id"] and t["status"] in VARIANT_LIVE]
+        if not (parent["status"] in {"pending", "failed"} or (parent["status"] == "exploring" and not live and not parent.get("selecting"))):
+            raise ValueError("Only a pending or failed task, or a finished exploration round, can be explored")
+        if not all(tasks.get(d, {}).get("status") in TASK_DONE for d in parent["dependencies"]):
+            raise ValueError("Task dependencies are not complete")
+        if parent["attempts"] > spec.limits.repairs:
+            raise ValueError("Task repair limit reached")
+        if spec.limits.workers < 2 or not 2 <= len(action.variants) <= spec.limits.workers:
+            raise ValueError(f"Explore between 2 and {spec.limits.workers} variants; it needs at least 2 concurrent workers")
+        ids = [v.id for v in action.variants]
+        if len(set(ids)) != len(ids) or set(ids) & set(tasks) or set(ids) & RESERVED_IDS:
+            raise ValueError("Variant ids must be new, unique, and not reserved")
+        tokens = []
+        for variant in action.variants:
+            if len(variant.directive) > 4000:
+                raise ValueError("A variant directive is limited to 4,000 characters")
+            words = set(re.findall(r"[a-z0-9]+", variant.directive.lower()))
+            if any(not words or len(words & other) / len(words | other) >= 0.8 for other in tokens):
+                raise ValueError("Variant directives must describe substantially different approaches")
+            tokens.append(words)
+        implementers = {p.provider for p in spec.team if p.role != "reviewer"}
+        reviewers = [p.provider for p in spec.team if p.role == "reviewer"] + [spec.coordinator.provider, *[p.provider for p in spec.team]]
+        for variant in action.variants:
+            provider = variant.provider or parent["provider"]
+            if provider not in implementers:
+                raise ValueError(f"{provider} is not an enabled implementer")
+            if not any(r != provider for r in reviewers):
+                raise ValueError(f"No independent reviewer is available for {provider}")
+        required = result["artifacts"].get("required_checks", [])
+        keys = {(tuple(c.argv), c.cwd, c.timeout) for c in spec.checks}
+        if not spec.checks or any((tuple(c["argv"]), c.get("cwd", "."), c.get("timeout", 120)) not in keys for c in required):
+            raise ValueError("Exploration needs the configured project checks to compare variants")
+        round_number = parent.get("explore_round", 0) + 1
+        for task in result["tasks"]:
+            if task.get("variant_of") == parent["id"] and task["status"] != "completed":
+                task.update(status="discarded", discarded_reason="superseded")
+        spec_fields = {key: parent[key] for key in ("title", "prompt", "files", "acceptance", "dependencies")}
+        for variant in action.variants:
+            result["tasks"].append({**spec_fields, "id": variant.id, "provider": variant.provider or parent["provider"],
+                                    "variant_of": parent["id"], "variant_round": round_number, "directive": variant.directive,
+                                    "status": "pending", "attempts": 0})
+        parent.update(status="exploring", attempts=parent["attempts"] + 1, explore_round=round_number)
+        parent.pop("selecting", None)
+        self.store.save(result)
+        for variant in action.variants:
+            self.store.event(run_id, "task", {"status": "pending", "variant_of": parent["id"], "variant_round": round_number}, variant.id)
+        self.store.event(run_id, "task", {"status": "exploring", "explore_round": round_number}, parent["id"])
+        return parent["id"], ids
+
+    async def _run_variants(self, run_id, spec, manager, parent_id, ids):
+        """Run variants in parallel isolated checkouts, then check each in its own sandbox. Nothing is merged."""
+        self._status(run_id, "running")
+        await self.checkpoint(run_id)
+        records = [t for t in self.store.get(run_id)["tasks"] if t["id"] in ids]
+        try:
+            outcomes = await self._worker_batch(run_id, spec, manager, records)
+            for record, outcome in zip(records, outcomes):
+                if not outcome["ok"]:
+                    self._task_update(run_id, record["id"], status="failed", result=outcome)
+                    continue
+                await self.checkpoint(run_id)
+                try:
+                    evidence = await self._checks(run_id, Path(outcome["workspace"]), spec.checks, record["id"], phase="alternative")
+                except ValueError as exc:
+                    # A variant that breaks its own check environment fails alone; its siblings keep their results.
+                    self._task_update(run_id, record["id"], status="failed",
+                                      result={**outcome, "ok": False, "error": "Variant checks could not run: " + str(exc)[:1000]})
+                    continue
+                failing = [c["name"] for c in evidence if not c["ok"]]
+                if failing:
+                    self._task_update(run_id, record["id"], status="failed", checks=evidence,
+                                      result={**outcome, "ok": False, "error": "Variant checks failed: " + ", ".join(failing)})
+                else:
+                    self._task_update(run_id, record["id"], status="candidate", checks=evidence, result=outcome)
+        finally:
+            result = self.store.get(run_id)
+            stranded = [t for t in result["tasks"] if t["id"] in ids and t["status"] == "running"]
+            if stranded:
+                for task in stranded:
+                    task["status"] = "interrupted"
+                self.store.save(result)
+            self._close_round(run_id, parent_id)
+
+    def _close_round(self, run_id, parent_id):
+        """A round with no candidate and nothing still running returns its task to failed."""
+        result = self.store.get(run_id)
+        parent = next((t for t in result["tasks"] if t["id"] == parent_id), None)
+        if parent is None or parent["status"] != "exploring":
+            return
+        current = [t for t in result["tasks"] if t.get("variant_of") == parent_id and t.get("variant_round") == parent.get("explore_round")]
+        if any(t["status"] in VARIANT_LIVE | {"candidate"} for t in current):
+            return
+        for task in current:
+            task.update(status="discarded", discarded_reason="round_failed")
+        parent.update(status="failed", result={"ok": False, "error": f"Exploration round {parent.get('explore_round')} produced no selectable candidate"})
+        parent.pop("selecting", None)
+        self.store.save(result)
+        self.store.event(run_id, "task", {"status": "failed", "explore_round": parent.get("explore_round")}, parent_id)
+
+    async def _select_variant(self, run_id, manager, action):
+        result = self.store.get(run_id)
+        tasks = {t["id"]: t for t in result["tasks"]}
+        parent = tasks.get((action.task_ids or [None])[0])
+        chosen = tasks.get(action.selected_task or "")
+        if parent is None or parent["status"] != "exploring" or len(action.task_ids) != 1:
+            raise ValueError("Select a variant of a task that is being explored")
+        if (chosen is None or chosen.get("variant_of") != parent["id"] or chosen["status"] != "candidate"
+                or chosen.get("variant_round") != parent.get("explore_round")):
+            raise ValueError("Choose a candidate variant from the current exploration round")
+        if parent.get("selecting") not in (None, chosen["id"]):
+            raise ValueError(f"Variant {parent['selecting']} is already being selected; select it again to finish")
+        parent["selecting"] = chosen["id"]
+        self.store.save(result)
+        merged = await self._workspace_call(manager.merge, Path(chosen["result"]["workspace"]))
+        result = self.store.get(run_id)
+        tasks = {t["id"]: t for t in result["tasks"]}
+        parent, chosen = tasks[parent["id"]], tasks[chosen["id"]]
+        if not merged["ok"]:
+            parent.pop("selecting", None)
+            self.store.save(result)
+            raise ValueError("The selected variant conflicts with the integration candidate: " + str(merged.get("error") or "")[:500])
+        chosen.update(status="completed", result={**chosen["result"], "merge": merged})
+        parent.update(status="resolved", resolved_by=chosen["id"], resolution="variant_selection")
+        parent.pop("selecting", None)
+        for task in result["tasks"]:
+            if task.get("variant_of") == parent["id"] and task["id"] != chosen["id"] and task["status"] != "discarded":
+                task.update(status="discarded", discarded_reason="not_selected")
+        result["diff"] = manager.diff()
+        result["artifacts"].pop("validated_fingerprint", None)
+        self.store.save(result)
+        self.store.event(run_id, "task", {"status": "resolved", "resolved_by": chosen["id"]}, parent["id"])
+
     async def _worker(self,run_id,spec,manager,task):
         member=next(p for p in spec.team if p.provider==task["provider"] and p.role!="reviewer")
         previous = task.get("active_attempt") or {}
+        if (task["status"] == "interrupted" and previous.get("state") in {"failed", "merge_failed"}
+                and task.get("result", {}).get("ok") is False):
+            # The attempt already finished and failed before the crash; report it instead of re-running it.
+            self._task_update(run_id, task["id"], status="running", active_attempt=previous)
+            return task["result"]
         reuse = bool(previous.get("workspace") and previous.get("worker_id")
                      and previous.get("participant") == member.model_dump()
                      and previous.get("resume_safe", True)
@@ -787,26 +1140,27 @@ class Engine:
                 return failed
         self._task_update(run_id,task["id"],status="running",attempts=attempt,active_attempt=active)
         saved = self.store.get(run_id)
-        bound = self._resume_session(run_id, task["id"], target, member, "edit") if reuse else None
+        # Only a crash continuation of the same interrupted attempt resumes its conversation. Repairs keep
+        # the code state (or start from a fresh checkout) but begin a new session from the repair brief.
+        continuing = reuse and task["status"] == "interrupted"
+        bound = self._resume_session(run_id, task["id"], target, member, "edit", attempt=attempt) if continuing else None
         session = bound["session_id"] if bound else None
-        resumed_member = self._session_participant(member, bound)
-        scoped = {key: task.get(key) for key in ("id", "title", "prompt", "files", "acceptance", "dependencies")}
+        if bound is None and previous.get("participant") == member.model_dump() and previous.get("effective_settings"):
+            # Keep the model and effort the earlier attempt actually ran with.
+            bound_settings = {"effective_settings": previous["effective_settings"]}
+        else:
+            bound_settings = bound
+        resumed_member = self._session_participant(member, bound_settings)
         instructions={}
         for name in saved["artifacts"].get("assessment",{}).get("instructions",[])[:32]:
             path=target/name
             if path.is_file() and not path.is_symlink() and path.resolve().is_relative_to(target.resolve()):
                 instructions[name]=path.read_text(errors="replace")[:8000]
-        prompt=("Implement only this scoped task in the isolated project. Preserve pre-existing changes. "
-            "Do not spawn agents, commit, push, deploy, or modify files outside ownership. Runtime runs verification.\n"
-            +json.dumps({"request":spec.prompt,"task":scoped,"continuation":reuse,
-                "previous_findings":task.get("result",{}).get("review",{}).get("findings",[]),
-                "previous_error":str(task.get("result",{}).get("error") or "")[:2000],
-                "baseline_checks":[{"name":c.get("name"),"ok":c.get("ok"),"output":c.get("output","")[-4000:]} for c in saved["artifacts"].get("baseline_checks",[])],
-                "failed_checks":[{"name": c.get("name"), "cwd": c.get("cwd", "."), "output": c.get("output", "")[-8000:]} for c in saved["checks"] if not c.get("ok")],
-                "combined_findings":[r for r in saved["reviews"][-4:] if not r.get("ok")],
-                "project_instructions":instructions,"steering":saved["artifacts"].get("steering",[])}) )
+        prompt=worker_packet(saved, task, continuing=continuing, fresh_checkout=(not reuse and bool(task.get("result"))),
+                             instructions=instructions, limits=spec.limits)
         try:
-            outcome=await self._provider(run_id,resumed_member,target,prompt,mode="edit",task_id=task["id"],session_id=session)
+            outcome=await self._provider(run_id,resumed_member,target,prompt,mode="edit",task_id=task["id"],session_id=session,
+                                         attempt=attempt,role="worker")
         except asyncio.CancelledError:
             active["state"] = "interrupted"
             self._task_update(run_id, task["id"], active_attempt=active)
@@ -822,30 +1176,46 @@ class Engine:
         if self.cancel_flags[run_id].is_set():
             finish({**collected,"ok":False,"error":"Run stopped; partial work was preserved", "workspace":str(target)}, "interrupted")
             raise asyncio.CancelledError()
-        if not collected["ok"]: return finish({"ok":False,"error":collected["error"],"workspace":str(target),"provider_result":outcome}, resume_safe=False)
+        if not collected["ok"]: return finish({"ok":False,"error":collected["error"],"workspace":str(target),"provider_result":_handoff(outcome)}, resume_safe=False)
         outside=[name for name in collected["changed_files"] if not any(_owned(name,pattern) for pattern in task["files"])]
-        if outside: return finish({"ok":False,"error":"Changed files outside ownership: "+", ".join(outside),"workspace":str(target),"provider_result":outcome,"changed_files":collected["changed_files"]}, resume_safe=False)
-        if not outcome.get("ok"): return finish({**collected,"ok":False,"error":outcome.get("error"),"workspace":str(target),"provider_result":outcome})
-        if not collected["changed_files"]: return finish({"ok":False,"error":"Implementation produced no changes","workspace":str(target),"provider_result":outcome})
+        if outside: return finish({"ok":False,"error":"Changed files outside ownership: "+", ".join(outside),"workspace":str(target),"provider_result":_handoff(outcome),"changed_files":collected["changed_files"]}, resume_safe=False)
+        if not outcome.get("ok"): return finish({**collected,"ok":False,"error":outcome.get("error"),"workspace":str(target),"provider_result":_handoff(outcome)})
+        if not collected["changed_files"]: return finish({"ok":False,"error":"Implementation produced no changes","workspace":str(target),"provider_result":_handoff(outcome)})
         reviewer=next((p for p in spec.team if p.provider!=member.provider and p.role=="reviewer"),None) or next((p for p in [spec.coordinator,*spec.team] if p.provider!=member.provider),None)
         if reviewer is None: return finish({"ok":False,"error":"No independent reviewer","workspace":str(target)})
-        review=await self._assess_patch(run_id,reviewer,target,spec.prompt,task,task["id"])
-        if not review["ok"]: return finish({**collected,"ok":False,"error":"Independent review rejected the change","workspace":str(target),"review":review,"provider_result":outcome})
+        requirements={**task,"id":task.get("variant_of") or task["id"]}
+        review=await self._assess_patch(run_id,reviewer,target,spec.prompt,requirements,task["id"],patch=collected.get("patch") or "")
+        if not review["ok"]: return finish({**collected,"ok":False,"error":"Independent review rejected the change","workspace":str(target),"review":review,"provider_result":_handoff(outcome)})
         active["reviewed_fingerprint"] = manager.fingerprint(target)
-        return finish({**collected,"ok":True,"workspace":str(target),"review":review,"provider_result":outcome}, "reviewed")
+        return finish({**collected,"ok":True,"workspace":str(target),"review":review,"provider_result":_handoff(outcome)}, "reviewed")
 
-    async def _assess_patch(self,run_id,reviewer,target,request,task,task_id):
+    async def _assess_patch(self,run_id,reviewer,target,request,task,task_id,*,evidence=None,patch="",patch_budget=40000):
         from .workspaces import fingerprint
         before=fingerprint(target)
         schema={"type":"object","properties":{"approved":{"type":"boolean"},"findings":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}},"required":["approved","findings","summary"],"additionalProperties":False}
-        requirements={k:v for k,v in task.items() if k in {"id","title","prompt","files","acceptance","dependencies","diff"}}
-        outcome=await self._provider(run_id,reviewer,target,"Independently review the current implementation against the requirements. Inspect source, check failure modes, and report concrete findings. Approve only if the requirements appear satisfied. Do not change files.\n"+json.dumps({"request":request,"task":requirements,"check_evidence":[{"name":c.get("name"),"ok":c.get("ok"),"output":c.get("output","")[-4000:]} for c in self.store.get(run_id)["checks"]]}),task_id="review-"+task_id,schema=schema)
-        try:
-            structured=outcome.get("structured_output") or json.loads(outcome.get("answer") or "{}")
-        except ValueError:
-            structured={}
+        # The evaluator sees the request, the original requirements, this candidate's patch, and this candidate's
+        # evidence only: never the implementer's identity or narrative, prior reviews, or other candidates.
+        packet=review_packet(request,task,patch=patch,evidence=evidence,patch_budget=patch_budget,task_id="review-"+task_id,
+                             run_dir=self.store.get(run_id)["artifacts"].get("directory"))
+        for attempt in range(2):
+            outcome=await self._provider(run_id,reviewer,target,packet,task_id="review-"+task_id,schema=schema,role="reviewer")
+            try:
+                structured=outcome.get("structured_output") or json.loads(outcome.get("answer") or "{}")
+            except ValueError:
+                structured={}
+            if not isinstance(structured,dict):
+                structured={}
+            verdict=isinstance(structured.get("approved"),bool)
+            # A reply without a verdict (prose instead of the schema) is not a rejection; ask once more, freshly.
+            if verdict or not outcome.get("ok") or fingerprint(target)!=before:
+                break
         unchanged=fingerprint(target)==before
-        review={"provider":reviewer.provider,"task_id":task_id,"ok":bool(unchanged and outcome.get("ok") and structured.get("approved") is True),"findings":structured.get("findings",[]),"summary":structured.get("summary",outcome.get("answer") or ""),"error":outcome.get("error") if unchanged else {"code":"readonly_changed","message":"Reviewer changed its isolated workspace"}}
+        error=outcome.get("error")
+        if not unchanged:
+            error={"code":"readonly_changed","message":"Reviewer changed its isolated workspace"}
+        elif outcome.get("ok") and not verdict:
+            error={"code":"no_verdict","message":"The reviewer returned no verdict"}
+        review={"provider":reviewer.provider,"task_id":task_id,"ok":bool(unchanged and outcome.get("ok") and structured.get("approved") is True),"findings":structured.get("findings",[]) if isinstance(structured.get("findings"),list) else [],"summary":structured.get("summary",outcome.get("answer") or ""),"error":error}
         result=self.store.get(run_id);result["reviews"].append(review);self.store.save(result)
         self.store.event(run_id,"review",review,task_id)
         return review
@@ -1022,13 +1392,30 @@ class Engine:
         candidates=[p for p in spec.team if p.role=="reviewer"]+[spec.coordinator,*spec.team]
         reviewer=next((p for p in candidates if p.provider not in contributors),None)
         if reviewer is None: raise ValueError("Combined verification needs a provider that did not implement this candidate")
-        review=await self._assess_patch(run_id,reviewer,manager.integration_path,spec.prompt,{"title":"Combined integration","diff":before[-80000:]},"integration")
+        review=await self._assess_patch(run_id,reviewer,manager.integration_path,spec.prompt,self._integration_requirements(result,spec),"integration",
+            evidence=evidence,patch=before,patch_budget=60000)
         if not review["ok"]: raise ValueError("Combined integration review failed")
         result=self.store.get(run_id)
         result["checks"]=evidence
         result["artifacts"]["validated_fingerprint"]=before
         result["spec"]["checks"]=[c.model_dump() for c in checks]
         self.store.save(result)
+
+    @staticmethod
+    def _integration_requirements(result,spec):
+        """The combined review's contract: every completed task's acceptance criteria and owned files.
+        These come from the coordinator's plan, never from an implementer, so evaluator isolation holds."""
+        if spec.mode=="compare":
+            tasks=[t for t in result["tasks"] if t["id"]==result["artifacts"].get("selected_task")]
+        else:
+            tasks=[t for t in result["tasks"] if t.get("status") in TASK_DONE and not t.get("variant_of")]
+        acceptance=[]
+        for task in tasks:
+            for item in task.get("acceptance") or []:
+                item=str(item)[:300]
+                if item not in acceptance: acceptance.append(item)
+        files=sorted({str(name) for task in tasks for name in (task.get("files") or [])})[:100]
+        return {"title":"Combined integration of the completed tasks","acceptance":acceptance[:60],"files":files}
 
     async def _integrate(self,run_id,spec,manager):
         await self.checkpoint(run_id)
@@ -1069,28 +1456,16 @@ class Engine:
         self.store.save(result)
         self.store.event(run_id,"integrated",{"applied":spec.integrate,"changed_files":result["changed_files"]})
 
+def _handoff(outcome):
+    """What a later repair may see of an attempt: its result and the tail of its own answer, nothing else."""
+    return {key: outcome.get(key) for key in ("ok", "error", "exit_code", "elapsed_seconds", "effective_settings", "session_id") if key in outcome} | \
+        {"answer": str(outcome.get("answer") or "")[-4000:]}
+
 def _owned(name,pattern):
     return name==pattern.rstrip("/") or name.startswith(pattern.rstrip("/")+"/") or fnmatch.fnmatchcase(name,pattern)
 
 def _overlap(left,right):
     return any(_owned(a,b) or _owned(b,a) for a in left for b in right)
-
-def _coordinator_state(result):
-    tasks=[]
-    for task in result["tasks"]:
-        outcome=task.get("result",{})
-        tasks.append({**{k:v for k,v in task.items() if k not in {"result","checks"}},
-            "result":{k:outcome.get(k) for k in ("ok","error","changed_files","review","merge") if k in outcome},
-            "checks":[{"name":c["name"],"ok":c["ok"],"output":c.get("output","")[-4000:]} for c in task.get("checks",[])]})
-    return {"run_id":result["run_id"],"mode":result["spec"]["mode"],"coordinator":result["spec"]["coordinator"],
-        "team":result["spec"]["team"],"limits":result["spec"]["limits"],"tasks":tasks,
-        "required_checks":result["artifacts"].get("required_checks",result["spec"]["checks"]),
-        "baseline_checks":[{k:v for k,v in c.items() if k != "output"} | {"output":c.get("output","")[-4000:]} for c in result["artifacts"].get("baseline_checks",[])],
-        "checks":[{"name":c["name"],"ok":c["ok"],"output":c.get("output","")[-4000:]} for c in result["checks"]],
-        "reviews":result["reviews"][-8:],"errors":result["errors"][-8:],"diff":result["diff"][-30000:],
-        "steering":result["artifacts"].get("steering",[]),"integrate":result["spec"].get("integrate",True),
-        "integration_applied":result["artifacts"].get("integration_applied",False),
-        "verified_only":result["artifacts"].get("verified_only",False)}
 
 def _project_check(argv,workspace):
     command=Path(argv[0]).name
