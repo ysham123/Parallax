@@ -3,8 +3,14 @@
 export type Session = {
   ok: true;
   mode: "hosted" | "local";
-  auth: "github" | "operator" | "local";
-  account: { login: string; name: string | null; avatar_url: string | null } | null;
+  auth: "account" | "github" | "operator" | "local";
+  account: {
+    login: string;
+    name: string | null;
+    avatar_url: string | null;
+    email?: string | null;
+    provider?: string | null;
+  } | null;
   workspace: {
     id: string;
     name: string;
@@ -15,8 +21,28 @@ export type Session = {
 
 export type AuthConfig = {
   github: boolean;
+  /** Which service runs sign-in: Supabase (email, GitHub, Google) or the built-in GitHub app. */
+  identity?: "supabase" | "github" | null;
+  providers?: string[];
   signup: "open" | "allowlist" | "closed";
 };
+
+/** Sign-in methods a deployment offers, including runtimes that predate the providers list. */
+export function signInMethods(config: AuthConfig | null): string[] {
+  if (!config) return [];
+  if (Array.isArray(config.providers)) return config.providers;
+  return config.github ? ["github"] : [];
+}
+
+/** How a person is named in the account menu and asked to confirm deletion. */
+export function accountName(account: NonNullable<Session["account"]>): string {
+  return account.provider === "github" || !account.email ? `@${account.login}` : account.email;
+}
+
+/** What a person types to confirm deleting their account. */
+export function deletionConfirmation(account: NonNullable<Session["account"]>): string {
+  return account.email || account.login;
+}
 
 export type ExecutionMachine = {
   id: string;
@@ -31,16 +57,21 @@ export const HOSTED_EXECUTOR = "railway";
 export const REPOSITORY = "https://github.com/ysham123/Parallax";
 
 const SIGN_IN_ERRORS: Record<string, string> = {
-  unavailable: "GitHub sign-in is not configured on this deployment yet.",
-  denied: "GitHub sign-in was cancelled. Nothing was created.",
+  unavailable: "That sign-in method is not available on this deployment yet.",
+  denied: "Sign-in was cancelled. Nothing was created.",
   expired:
-    "That sign-in link expired or was opened in a different browser. Start again from this page.",
-  failed: "GitHub did not confirm your account. Try again in a moment.",
+    "That sign-in expired or was opened in a different browser. Start again from this page.",
+  failed: "Sign-in could not be confirmed. Try again in a moment.",
   closed: "This deployment is not accepting new accounts right now.",
-  not_invited: "This deployment is invite only, and your GitHub account is not on the list.",
+  not_invited: "This deployment is invite only, and this account is not on the list.",
   capacity: "This deployment has reached its account limit.",
-  busy: "Too many sign-ins are in progress. Wait a minute and try again.",
+  busy: "Too many attempts. Wait a few minutes and try again.",
   disabled: "This account has been disabled by the deployment operator.",
+  credentials: "That email and password don't match an account.",
+  unconfirmed: "Confirm your email first. Check your inbox for the link we sent.",
+  weak_password: "Use a password of at least 10 characters.",
+  invalid_email: "Enter a valid email address.",
+  link_expired: "That link has expired or was already used. Request a new one.",
 };
 
 /** Read a sign-in error code from the callback redirect, ignoring anything unrecognized. */
@@ -89,7 +120,7 @@ export function platformLabel(platform: string): string {
 }
 
 export function initials(session: Session): string {
-  const source = session.account?.name || session.account?.login || "Operator";
+  const source = session.account?.name || session.account?.email || session.account?.login || "Operator";
   const parts = source.trim().split(/\s+/).filter(Boolean);
   const letters =
     parts.length > 1 ? parts[0][0] + parts[parts.length - 1][0] : source.slice(0, 2);

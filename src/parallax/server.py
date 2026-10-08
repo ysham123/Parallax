@@ -24,7 +24,7 @@ from .store import Store
 from .receipt import get_receipt
 from .deployment import Deployment
 from .accounts import (Accounts, Principal, SignInRefused, operator_principal, SESSION_COOKIE, FLOW_COOKIE,
-                       FLOW_COOKIE_PATH, OWNER_WORKSPACE)
+                       FLOW_COOKIE_PATH, OAUTH_FLOW_PATH, OWNER_WORKSPACE)
 
 # Paths a workspace without hosted execution may use. Everything else under /api
 # reaches the hosted runtime's own engine, CLI sign-ins, and project clones.
@@ -96,6 +96,38 @@ class MemoryLessonUpdate(BaseModel):
 
 class SessionInput(BaseModel):
     token: str = Field(min_length=1,max_length=512)
+
+class EmailSignUp(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: str = Field(min_length=3,max_length=320)
+    password: str = Field(min_length=1,max_length=1024)
+    name: str | None = Field(default=None,max_length=200)
+
+class EmailLogIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: str = Field(min_length=3,max_length=320)
+    password: str = Field(min_length=1,max_length=1024)
+
+class PasswordForgot(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: str = Field(min_length=3,max_length=320)
+
+class PasswordReset(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    token_hash: str = Field(min_length=1,max_length=300)
+    password: str = Field(min_length=1,max_length=1024)
+
+class OAuthStart(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    provider: str = Field(pattern=r"^(github|google)$")
+
+# Paths a signed-out browser may call. Top-level navigations (callbacks and emailed links) carry no Origin header
+# and are protected by their flow binding or single-use link instead; the POST routes still require the Studio Origin.
+PUBLIC_NAVIGATIONS = {"/api/auth/github/callback", "/api/auth/oauth/callback", "/api/auth/confirm"}
+PUBLIC_POSTS = {"/api/session", "/api/auth/github/start", "/api/auth/oauth/start", "/api/auth/email/signup",
+                "/api/auth/email/login", "/api/auth/password/forgot", "/api/auth/password/reset"}
+REFUSAL_STATUS = {"invalid_email": 400, "weak_password": 400, "link_expired": 400, "credentials": 401, "unconfirmed": 403,
+                  "closed": 403, "not_invited": 403, "disabled": 403, "capacity": 409, "busy": 429, "unavailable": 503}
 
 class WorkerConnect(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -188,8 +220,8 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
             return JSONResponse({"detail":"Host is not allowed" if deployment else "Loopback Host required"},status_code=403)
         origin=request.headers.get("origin")
         allowed_origins=deployment.origins if deployment else {f"{request.url.scheme}://{request.headers.get('host')}"}
-        # The OAuth callback is a top-level navigation from GitHub; its state and browser binding protect it.
-        callback=bool(deployment) and path=="/api/auth/github/callback" and request.method=="GET"
+        # OAuth callbacks and emailed links are top-level navigations; their flow binding or single-use link protects them.
+        callback=bool(deployment) and path in PUBLIC_NAVIGATIONS and request.method=="GET"
         if origin and origin not in allowed_origins and not callback:
             return JSONResponse({"detail":"Cross-origin requests are not allowed"},status_code=403)
         if path=="/api/health":
@@ -208,7 +240,7 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
         if deployment and request.method not in {"GET","HEAD","OPTIONS"} and not bearer and origin not in allowed_origins:
             return JSONResponse({"detail":"Studio Origin required"},status_code=403)
         if deployment and (callback or (path=="/api/auth/config" and request.method=="GET")
-                           or (path in {"/api/session","/api/auth/github/start"} and request.method=="POST")):
+                           or (path in PUBLIC_POSTS and request.method=="POST")):
             return await call_next(request)
         principal=None
         if deployment:
@@ -273,7 +305,70 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
     @app.get("/api/auth/config")
     async def auth_config():
         if not deployment: raise HTTPException(404)
-        return {"github":bool(deployment.github_redirect),"signup":deployment.signup}
+        providers=await accounts.providers()
+        # "github" stays for Studio builds that predate the providers list.
+        identity="supabase" if deployment.supabase else "github" if deployment.github_redirect else None
+        return {"github":"github" in providers,"identity":identity,"providers":providers,"signup":deployment.signup}
+    def refused(refusal:SignInRefused):
+        return JSONResponse({"detail":refusal.code},status_code=REFUSAL_STATUS.get(refusal.code,502),headers={"Cache-Control":"no-store"})
+    def auth_error_redirect(refusal:SignInRefused):
+        # Supabase flows return to the log-in page, where the error sits beside the form that can fix it.
+        response=RedirectResponse("/login?"+urlencode({"auth_error":refusal.code}),status_code=303)
+        response.headers["Referrer-Policy"]="no-referrer";response.headers["Cache-Control"]="no-store"
+        return response
+    @app.post("/api/auth/email/signup")
+    async def email_sign_up(body:EmailSignUp):
+        if not deployment: raise HTTPException(404)
+        try: await accounts.sign_up(body.email,body.password,body.name)
+        except SignInRefused as refusal: return refused(refusal)
+        return JSONResponse({"ok":True,"next":"confirm"},headers={"Cache-Control":"no-store"})
+    @app.post("/api/auth/email/login")
+    async def email_log_in(body:EmailLogIn):
+        if not deployment: raise HTTPException(404)
+        try: value,lifetime=await accounts.log_in(body.email,body.password)
+        except SignInRefused as refusal: return refused(refusal)
+        return set_session(JSONResponse({"ok":True}),value,lifetime)
+    @app.post("/api/auth/password/forgot")
+    async def password_forgot(body:PasswordForgot):
+        if not deployment: raise HTTPException(404)
+        try: await accounts.forgot_password(body.email)
+        except SignInRefused as refusal:
+            if refusal.code in ("busy","invalid_email","unavailable"): return refused(refusal)
+        return JSONResponse({"ok":True},headers={"Cache-Control":"no-store"})
+    @app.post("/api/auth/password/reset")
+    async def password_reset(body:PasswordReset):
+        if not deployment: raise HTTPException(404)
+        try: value,lifetime=await accounts.reset_password(body.token_hash,body.password)
+        except SignInRefused as refusal: return refused(refusal)
+        return set_session(JSONResponse({"ok":True}),value,lifetime)
+    @app.get("/api/auth/confirm")
+    async def confirm_email(request:Request):
+        if not deployment: raise HTTPException(404)
+        query=request.query_params
+        try: value,lifetime=await accounts.confirm(query.get("token_hash",""),query.get("type",""))
+        except SignInRefused as refusal: return auth_error_redirect(refusal)
+        return set_session(RedirectResponse("/",status_code=303),value,lifetime)
+    @app.post("/api/auth/oauth/start")
+    async def oauth_start(body:OAuthStart):
+        if not deployment: raise HTTPException(404)
+        try: url,binding=accounts.begin_oauth(body.provider)
+        except SignInRefused as refusal: return refused(refusal)
+        response=JSONResponse({"url":url},headers={"Cache-Control":"no-store"})
+        response.set_cookie(FLOW_COOKIE,binding,httponly=True,secure=True,samesite="lax",max_age=600,path=OAUTH_FLOW_PATH)
+        return response
+    @app.get("/api/auth/oauth/callback")
+    async def oauth_callback(request:Request):
+        if not deployment: raise HTTPException(404)
+        query=request.query_params
+        try:
+            value,lifetime=await accounts.finish_oauth(code=query.get("code",""),binding=request.cookies.get(FLOW_COOKIE,""),
+                                                       error=query.get("error"))
+        except SignInRefused as refusal:
+            response=auth_error_redirect(refusal)
+        else:
+            response=set_session(RedirectResponse("/",status_code=303),value,lifetime)
+        response.delete_cookie(FLOW_COOKIE,path=OAUTH_FLOW_PATH,secure=True,httponly=True,samesite="lax")
+        return response
     @app.post("/api/auth/github/start")
     async def github_start():
         if not deployment: raise HTTPException(404)
@@ -300,7 +395,7 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
     @app.delete("/api/account")
     async def delete_account(request:Request):
         if not deployment: raise HTTPException(404)
-        try: accounts.delete_account(principal_of(request),hub,request.query_params.get("confirm",""))
+        try: await accounts.delete_account(principal_of(request),hub,request.query_params.get("confirm",""))
         except PermissionError as refused: raise HTTPException(409,str(refused))
         response=JSONResponse({"ok":True})
         response.delete_cookie(SESSION_COOKIE,secure=True,httponly=True,samesite="strict")

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { initials, type Session } from "./session";
+import { accountName, initials, type Session } from "./session";
 
 export function Mark({ size = 26 }: { size?: number }) {
   return (
@@ -99,8 +99,9 @@ export function AccountMenu({
       document.removeEventListener("keydown", close);
     };
   }, [open]);
-  const label = session.account ? `@${session.account.login}` : "Operator";
-  const github = session.auth === "github";
+  const label = session.account ? accountName(session.account) : "Operator";
+  // "github" is the session kind reported by runtimes that predate Supabase sign-in.
+  const member = session.auth === "account" || session.auth === "github";
   const operatorWorkspace = session.workspace.kind === "operator";
   return (
     <div className="account-menu" ref={root}>
@@ -127,7 +128,7 @@ export function AccountMenu({
             <strong>{session.account?.name || label}</strong>
             <small>
               {operatorWorkspace ? "Operator workspace" : "Personal workspace"}
-              {github ? ` · ${label}` : " · access key"}
+              {member ? ` · ${label}` : " · access key"}
             </small>
           </div>
           <button
@@ -153,7 +154,7 @@ export function AccountMenu({
               {problem}
             </p>
           )}
-          {github && !operatorWorkspace && (
+          {member && !operatorWorkspace && (
             <button
               type="button"
               role="menuitem"
@@ -174,13 +175,16 @@ export function AccountMenu({
 
 export function DeleteAccountDialog({
   login,
+  provider,
   onCancel,
   onConfirm,
 }: {
   login: string;
+  provider?: string | null;
   onCancel: () => void;
   onConfirm: () => Promise<void>;
 }) {
+  const outside = provider === "github" ? "GitHub" : provider === "google" ? "Google" : null;
   const [typed, setTyped] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -236,8 +240,10 @@ export function DeleteAccountDialog({
         <h2 id="delete-title">Delete your account?</h2>
         <p id="delete-description">
           This removes your workspace, disconnects every machine, and deletes mirrored run evidence
-          from Parallax. Project files and local history on your machines are not touched. GitHub
-          keeps its record of the authorization until you revoke it in your GitHub settings.
+          and your sign-in from Parallax. Project files and local history on your machines are not
+          touched.
+          {outside &&
+            ` ${outside} keeps its record of the authorization until you revoke it in your ${outside} account settings.`}
         </p>
         <form
           onSubmit={async (event) => {

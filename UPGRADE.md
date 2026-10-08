@@ -38,3 +38,9 @@ Project setup is now checked before Build and Compare. Add node_modules/ and gen
 **Local runtime.** Finish or pause active runs before upgrading. The launcher prepares a new private environment for 1.2.0 and starts a fresh local Studio server the next time it is needed; runs, profiles, connections and receipts are kept. Project memory starts empty and fills as runs finish. Set `PARALLAX_MEMORY=off` to disable it.
 
 **Hosted deployments.** Back up the Railway volume, then follow [Migrating an existing deployment](docs/DEPLOYMENT.md#migrating-an-existing-deployment). Existing hosted sessions end, so sign in again. Update paired workers to 1.2 alongside the runtime so evidence declined while storage is low is resent instead of skipped.
+
+## 1.2 to 1.3
+
+**Plugins and local runtime.** Update as for 1.2: `/plugin marketplace update parallax` in Claude Code, or `codex plugin marketplace upgrade codex-claude-team` and `codex plugin add codex-claude-team@codex-claude-team` in Codex, then start a new session. Nothing changes for local runs.
+
+**Hosted deployments.** Back up the runtime volume, then follow [Enable sign-in with Supabase](docs/DEPLOYMENT.md#enable-sign-in-with-supabase-email-github-google) and the [public launch checklist](docs/DEPLOYMENT.md#public-launch-checklist). Without the Supabase variables the runtime keeps the built-in GitHub sign-in. Existing accounts and sessions carry over.

@@ -5,8 +5,17 @@ import { Mark, ThemeToggle } from "./PublicChrome";
 import {
   REPOSITORY,
   signInErrorMessage,
+  signInMethods,
   type AuthConfig,
 } from "./session";
+
+const METHOD_NAMES: Record<string, string> = { email: "email", github: "GitHub", google: "Google" };
+
+/** "email, GitHub or Google" from the methods a deployment offers. */
+function methodList(methods: string[]): string {
+  const names = methods.map((method) => METHOD_NAMES[method] || method);
+  return names.length > 1 ? `${names.slice(0, -1).join(", ")} or ${names[names.length - 1]}` : names[0] || "email";
+}
 import "./public.css";
 
 const PROVIDERS = [
@@ -144,7 +153,10 @@ export default function PublicEntry({
     window.addEventListener("pageshow", restore);
     return () => window.removeEventListener("pageshow", restore);
   }, []);
-  const available = config?.github === true;
+  const methods = signInMethods(config);
+  // Supabase deployments sign in on their own page; the built-in GitHub app keeps its one-click button.
+  const accounts = config?.identity === "supabase" && methods.length > 0;
+  const available = accounts || config?.github === true;
 
   async function signIn() {
     setBusy(true);
@@ -208,6 +220,10 @@ export default function PublicEntry({
             <a className="pub-signin-link" href="#install">
               Install
             </a>
+          ) : accounts ? (
+            <a className="pub-signin-link" href="/login">
+              Log in
+            </a>
           ) : (
             signInButton("Sign in", "pub-signin-link")
           )}
@@ -238,6 +254,10 @@ export default function PublicEntry({
                 <a className="pub-primary" href="#install">
                   Install Parallax
                 </a>
+              ) : accounts ? (
+                <a className="pub-primary" href={config?.signup === "closed" ? "/login" : "/signup"}>
+                  {config?.signup === "closed" ? "Log in" : "Get started"}
+                </a>
               ) : (
                 signInButton("Continue with GitHub", "pub-primary")
               )}
@@ -248,7 +268,13 @@ export default function PublicEntry({
             <p className="pub-fineprint" id="sign-in-unavailable">
               {config === null
                 ? "Checking sign-in availability…"
-                : available
+                : accounts
+                  ? config.signup === "open"
+                    ? `Sign up with ${methodList(methods)}. Parallax never sees your repositories.`
+                    : config.signup === "allowlist"
+                      ? "Hosted workspaces are invite only for now."
+                      : "New accounts are closed right now. Existing accounts can still log in."
+                  : available
                   ? config.signup === "open"
                     ? "Parallax reads only your public GitHub profile. It cannot see your repositories."
                     : config.signup === "allowlist"
