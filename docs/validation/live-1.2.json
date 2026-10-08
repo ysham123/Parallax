@@ -538,6 +538,64 @@
       ],
       "final_checks": [],
       "memory_events": []
+    },
+    {
+      "scenario": "claude-code-plugin-review",
+      "note": "/parallax:review from a local marketplace install of the Claude Code plugin (parallax@parallax 1.2.0), driven by a non-interactive Claude Code session with the plugin's MCP tools allowed. The plugin was removed afterwards.",
+      "host": {
+        "claude_code": "2.1.293",
+        "turns": 4,
+        "is_error": false
+      },
+      "mode": "review",
+      "status": "completed",
+      "workspace_was_repository_root": true,
+      "requested": [
+        {
+          "provider": "codex",
+          "model": null,
+          "effort": "low",
+          "role": "generalist",
+          "transport": "cli"
+        },
+        {
+          "provider": "claude",
+          "model": "sonnet",
+          "effort": "medium",
+          "role": "reviewer",
+          "transport": "cli"
+        },
+        {
+          "provider": "grok",
+          "model": "grok-4.7",
+          "effort": "medium",
+          "role": "reviewer",
+          "transport": "cli"
+        }
+      ],
+      "context_manifests": {
+        "consultant": {
+          "calls": 2,
+          "max_chars": 643,
+          "truncated_sections": 0
+        },
+        "synthesizer": {
+          "calls": 1,
+          "max_chars": 6083,
+          "truncated_sections": 0
+        }
+      },
+      "reviews": [
+        {
+          "provider": "claude",
+          "approved": true
+        },
+        {
+          "provider": "grok",
+          "approved": true
+        }
+      ],
+      "synthesis_labels": "A = claude, B = grok"
     }
   ]
 }

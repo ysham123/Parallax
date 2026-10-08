@@ -10,6 +10,7 @@ Providers: Codex 0.160.1 (gpt-6.1-sol), Claude Code 2.1.293 (sonnet), Grok Build
 | --- | --- |
 | Review, Codex synthesizing Claude and Grok | Completed. Both reviewers found the defect independently, and the synthesis labeled them A and B with the legend recorded afterwards. Every call recorded a content-free context manifest with no truncation. |
 | Build, invoice total fix | Completed with all five integration gates passed. The coordinator ran 12 turns, each in a fresh session, and Codex accepted the strict action schema. The runtime rejected a coordinator-invented check command, as designed. A staged file and an untracked file in the user's project were preserved; the staged index hash was identical before and after. Distillation ran, but its one lesson was rejected for length. |
+| Claude Code plugin, `/parallax:review` | Completed. The plugin was installed from a local marketplace into a scratch project only. A non-interactive Claude Code session ran the command. The plugin started the MCP runtime from its install folder and passed the absolute repository root. Codex synthesized Claude and Grok reviews blind, and Claude's reply reported each reviewer's evidence. The plugin was removed afterwards. |
 | Build, discount feature with two designs | Exploration worked end to end: three rounds of isolated keyword-argument and helper variants, blind reviews, independent checks, and selection. The coordinator's packet included Project memory from the previous run. The run then looped on unverifiable process criteria and was cancelled; see finding 3. |
 
 ## Findings and fixes
@@ -25,5 +26,4 @@ Each fix has a regression test.
 ## Not yet covered
 
 - A live rerun of the discount scenario with these fixes. The rerun started but stalled when the laptop slept nine seconds into its second coordinator turn, and was cancelled.
-- The Claude Code plugin path (`/parallax:review` from a marketplace install) against real providers. The plugin's validation, clean install and MCP start-up are covered separately in the release notes.
 - Live API transports and hosted execution.

@@ -19,7 +19,7 @@ See [UPGRADE.md](../UPGRADE.md#11-to-12). The Codex install ID stays `codex-clau
 - The full suite passes on Python 3.10 and 3.13 on macOS and Linux in CI, with Studio graph checks, hosted routing checks, container smoke tests and release consistency checks. Tests use deterministic fake agents; no provider inference is involved.
 - The accounts work passed three adversarial review rounds covering tenant isolation, session handling, schema rollback, request races, storage limits and the OAuth flow. The engine work passed two, covering context isolation, exploration, repair budgets and memory hygiene.
 - The Claude Code plugin passes `claude plugin validate --strict`, installs into a clean configuration with exactly its four skills and its MCP server, and starts the runtime from an empty state.
-- [Live runs with real agents](validation/live-1.2.md): a blind Review and an invoice Build completed with all five gates and preserved user work, and exploration ran end to end. Five issues they exposed are fixed with tests. A live rerun of the exploration scenario and the plugin path against real providers remain open.
+- [Live runs with real agents](validation/live-1.2.md): a blind Review, an invoice Build with all five gates passed and user work preserved, and `/parallax:review` through the Claude Code plugin all completed, and exploration ran end to end. Five issues these runs exposed are fixed with tests. A live rerun of the exploration scenario with those fixes remains open.
 
 ## Known limits
 
