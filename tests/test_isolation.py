@@ -61,6 +61,51 @@ class EngineFixesTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("CANARY-FRESH-CHECK", reviews[0])
         self.assertNotIn("STALE-OUTPUT", reviews[0])
 
+    async def test_integration_review_judges_the_completed_tasks_contract(self):
+        run_id, spec, manager = self.seed()
+        registry = RecordingRegistry()
+        engine = self.engine(registry, run_id)
+        done = {**self.task(), "status": "completed", "acceptance": ["ACCEPT-SUM empty invoices total 0"]}
+        later = {**self.task(), "id": "docs", "status": "completed", "files": ["README.md"], "acceptance": ["ACCEPT-DOCS usage is documented"]}
+        failed = {**self.task(), "id": "dropped", "status": "failed", "acceptance": ["ACCEPT-DROPPED never shown"]}
+        result = self.store.get(run_id); result["tasks"] = [done, later, failed]; self.store.save(result)
+        fresh = [{"name": "Addition check", "ok": True, "argv": [sys.executable, "-B", "check.py"], "output": "ok"}]
+        with patch.object(engine, "_checks", new=AsyncMock(return_value=fresh)):
+            await engine._verify(run_id, spec, manager, spec.checks)
+        [review] = [p for p in registry.prompts(schema=True) if "Combined integration" in p]
+        for expected in ("ACCEPT-SUM", "ACCEPT-DOCS", "maths.py", "README.md", "already contains the candidate"):
+            self.assertIn(expected, review)
+        self.assertNotIn("ACCEPT-DROPPED", review)
+        self.assertNotIn('"claude"', review)  # The contract carries no implementer identity.
+
+    async def test_a_review_without_a_verdict_is_retried_once_then_reported(self):
+        run_id, spec, manager = self.seed()
+        task = {**self.task(), "status": "completed"}
+        result = self.store.get(run_id); result["tasks"] = [task]; self.store.save(result)
+        fresh = [{"name": "Addition check", "ok": True, "argv": [sys.executable, "-B", "check.py"], "output": "ok"}]
+        for replies, approved, code in ((["prose", "approve"], True, None), (["prose", "prose"], False, "no_verdict")):
+            class Hesitant(RecordingRegistry):
+                async def run(self, provider, **kwargs):
+                    if kwargs.get("schema"):
+                        self.records.append({"provider": provider, "mode": kwargs["mode"], "prompt": kwargs["prompt"], "session_id": kwargs.get("session_id"),
+                                             "workspace": kwargs["workspace"], "model": None, "schema": kwargs["schema"]})
+                        if replies.pop(0) == "prose":
+                            return {"ok": True, "answer": "Reviewing the checkout before deciding.", "structured_output": None, "session_id": str(uuid.uuid4())}
+                        verdict = {"approved": True, "findings": [], "summary": "Verified."}
+                        return {"ok": True, "answer": json.dumps(verdict), "structured_output": verdict, "session_id": str(uuid.uuid4())}
+                    return await super().run(provider, **kwargs)
+            registry = Hesitant()
+            engine = self.engine(registry, run_id)
+            with patch.object(engine, "_checks", new=AsyncMock(return_value=fresh)):
+                if approved:
+                    await engine._verify(run_id, spec, manager, spec.checks)
+                else:
+                    with self.assertRaisesRegex(ValueError, "Combined integration review failed"):
+                        await engine._verify(run_id, spec, manager, spec.checks)
+            self.assertEqual(len(registry.prompts(schema=True)), 2)
+            review = self.store.get(run_id)["reviews"][-1]
+            self.assertEqual((review["ok"], (review.get("error") or {}).get("code")), (approved, code))
+
     async def test_merge_conflict_fails_the_attempt_and_counts_against_repairs(self):
         run_id, spec, manager = self.seed()
         engine = self.engine(RecordingRegistry(), run_id)

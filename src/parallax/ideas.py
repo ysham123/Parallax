@@ -368,7 +368,8 @@ DISTILL_SCHEMA = {
         "required": ["kind", "when", "observed", "scope", "evidence", "confirms", "contradicts"],
         "properties": {
             "kind": {"type": "string", "enum": ["prefer", "avoid", "caution", "fact"]},
-            "when": {"type": "string"}, "observed": {"type": "string"},
+            "when": {"type": "string", "description": "The situation it applies to, at most 160 characters"},
+            "observed": {"type": "string", "description": "What the evidence showed, one sentence of at most 300 characters"},
             "scope": {"type": "array", "items": {"type": "string"}},
             "evidence": {"type": "array", "items": {"type": "string"}},
             "confirms": {"type": "array", "items": {"type": "string"}},

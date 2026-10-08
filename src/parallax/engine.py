@@ -746,8 +746,11 @@ class Engine:
                 parents={t.get("variant_of") for t in selected}
                 parent=next((t for t in result["tasks"] if t["id"] in parents),None)
                 if (len(parents)!=1 or not all(t.get("variant_of") for t in selected) or parent is None or parent["status"]!="exploring"
-                        or parent.get("selecting") or any(t["status"] not in {"pending","interrupted"} or t.get("variant_round")!=parent.get("explore_round") for t in selected)):
-                    raise ValueError("Variants can be dispatched only to continue pending or interrupted variants of one task in its current exploration round")
+                        or parent.get("selecting") or any(t["status"] not in {"pending","interrupted","failed"} or t.get("variant_round")!=parent.get("explore_round") for t in selected)):
+                    raise ValueError("Variants can be dispatched only to continue or repair variants of one task in its current exploration round")
+                # A failed variant is repaired within its round, so one weak candidate does not cost a whole new round.
+                if any(t["status"]=="failed" and t["attempts"]>spec.limits.repairs for t in selected):
+                    raise ValueError("Variant repair limit reached; explore a new round instead")
                 await self._run_variants(run_id,spec,manager,parent["id"],[t["id"] for t in selected])
                 return
             done={t["id"] for t in result["tasks"] if t["status"] in {"completed","resolved"}}
@@ -1194,13 +1197,25 @@ class Engine:
         # evidence only: never the implementer's identity or narrative, prior reviews, or other candidates.
         packet=review_packet(request,task,patch=patch,evidence=evidence,patch_budget=patch_budget,task_id="review-"+task_id,
                              run_dir=self.store.get(run_id)["artifacts"].get("directory"))
-        outcome=await self._provider(run_id,reviewer,target,packet,task_id="review-"+task_id,schema=schema,role="reviewer")
-        try:
-            structured=outcome.get("structured_output") or json.loads(outcome.get("answer") or "{}")
-        except ValueError:
-            structured={}
+        for attempt in range(2):
+            outcome=await self._provider(run_id,reviewer,target,packet,task_id="review-"+task_id,schema=schema,role="reviewer")
+            try:
+                structured=outcome.get("structured_output") or json.loads(outcome.get("answer") or "{}")
+            except ValueError:
+                structured={}
+            if not isinstance(structured,dict):
+                structured={}
+            verdict=isinstance(structured.get("approved"),bool)
+            # A reply without a verdict (prose instead of the schema) is not a rejection; ask once more, freshly.
+            if verdict or not outcome.get("ok") or fingerprint(target)!=before:
+                break
         unchanged=fingerprint(target)==before
-        review={"provider":reviewer.provider,"task_id":task_id,"ok":bool(unchanged and outcome.get("ok") and structured.get("approved") is True),"findings":structured.get("findings",[]),"summary":structured.get("summary",outcome.get("answer") or ""),"error":outcome.get("error") if unchanged else {"code":"readonly_changed","message":"Reviewer changed its isolated workspace"}}
+        error=outcome.get("error")
+        if not unchanged:
+            error={"code":"readonly_changed","message":"Reviewer changed its isolated workspace"}
+        elif outcome.get("ok") and not verdict:
+            error={"code":"no_verdict","message":"The reviewer returned no verdict"}
+        review={"provider":reviewer.provider,"task_id":task_id,"ok":bool(unchanged and outcome.get("ok") and structured.get("approved") is True),"findings":structured.get("findings",[]) if isinstance(structured.get("findings"),list) else [],"summary":structured.get("summary",outcome.get("answer") or ""),"error":error}
         result=self.store.get(run_id);result["reviews"].append(review);self.store.save(result)
         self.store.event(run_id,"review",review,task_id)
         return review
@@ -1377,7 +1392,7 @@ class Engine:
         candidates=[p for p in spec.team if p.role=="reviewer"]+[spec.coordinator,*spec.team]
         reviewer=next((p for p in candidates if p.provider not in contributors),None)
         if reviewer is None: raise ValueError("Combined verification needs a provider that did not implement this candidate")
-        review=await self._assess_patch(run_id,reviewer,manager.integration_path,spec.prompt,{"title":"Combined integration"},"integration",
+        review=await self._assess_patch(run_id,reviewer,manager.integration_path,spec.prompt,self._integration_requirements(result,spec),"integration",
             evidence=evidence,patch=before,patch_budget=60000)
         if not review["ok"]: raise ValueError("Combined integration review failed")
         result=self.store.get(run_id)
@@ -1385,6 +1400,22 @@ class Engine:
         result["artifacts"]["validated_fingerprint"]=before
         result["spec"]["checks"]=[c.model_dump() for c in checks]
         self.store.save(result)
+
+    @staticmethod
+    def _integration_requirements(result,spec):
+        """The combined review's contract: every completed task's acceptance criteria and owned files.
+        These come from the coordinator's plan, never from an implementer, so evaluator isolation holds."""
+        if spec.mode=="compare":
+            tasks=[t for t in result["tasks"] if t["id"]==result["artifacts"].get("selected_task")]
+        else:
+            tasks=[t for t in result["tasks"] if t.get("status") in TASK_DONE and not t.get("variant_of")]
+        acceptance=[]
+        for task in tasks:
+            for item in task.get("acceptance") or []:
+                item=str(item)[:300]
+                if item not in acceptance: acceptance.append(item)
+        files=sorted({str(name) for task in tasks for name in (task.get("files") or [])})[:100]
+        return {"title":"Combined integration of the completed tasks","acceptance":acceptance[:60],"files":files}
 
     async def _integrate(self,run_id,spec,manager):
         await self.checkpoint(run_id)

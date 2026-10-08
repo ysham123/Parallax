@@ -1,5 +1,9 @@
 # Release validation evidence
 
+## 1.2 live validation
+
+[Live validation](live-1.2.md) records real Codex, Claude Code, Grok Build and Antigravity runs on a disposable fixture: a blind Review, a Build that passed all five integration gates with the user's staged and untracked work preserved, and a live exploration round trip. It also lists the five issues those runs exposed, each now fixed with a regression test, and what remains uncovered.
+
 ## Hosted local execution
 
 [Paired worker validation](paired-local-worker-2026-10-06.md) records a real hosted Codex/Claude build, independent reviews, all five integration gates, and staged/untracked preservation. It also records the current runtime and relay regression coverage. Earlier evidence below retains its historical validation status.

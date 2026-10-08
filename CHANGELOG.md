@@ -12,7 +12,7 @@
 - Exploration: the coordinator can try substantially different variants of a task in isolated checkouts, reviewed and checked independently, and merge one.
 - Project memory: a local per-project idea graph, coordinator-only retrieval with `search_ideas`, and post-run distillation of grounded, evidence-weighted lessons with local inspect, disable and forget controls.
 - Planner packets carry a complete task index with actionable detail first; plans are capped at 40 tasks; synthesis and worker packets are budgeted by encoded size; memory text is stored with runtime paths scrubbed and project paths relative.
-- Fixes: the integration reviewer sees the checks it just ran, merge conflicts consume the repair budget instead of looping, a failed attempt is never re-run for free after a crash, and a process's started event, with its recovery identity, always precedes its output.
+- Fixes: the integration reviewer sees the checks it just ran, merge conflicts consume the repair budget instead of looping, a failed attempt is never re-run for free after a crash, a process's started event, with its recovery identity, always precedes its output, integration reviews judge the completed tasks' acceptance criteria, reviews without a verdict are retried once, process steps never block isolated reviews, failed variants can be repaired within their round, and the distiller is told its lesson limits.
 - One version constant drives the runtime, CLI, MCP server, launcher and release archives. Plugin metadata and the Codex marketplace point to `ysham123/Parallax`, and the Codex install ID stays `codex-claude-team`.
 
 Live API inference and the five-developer study remain separate validation gates.

@@ -263,6 +263,14 @@ class DistillationTests(unittest.TestCase):
         self.assertIsNone(HYGIENE.search("packages/frontend/components/dashboard/widgets/charts/axis"))
         self.assertIsNotNone(HYGIENE.search("token QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVphYmNkZWZnaGlqa2xtbm9w"))
 
+    def test_the_distiller_is_told_the_lesson_limits(self):
+        from parallax.context import distiller_packet
+        from parallax.ideas import DISTILL_SCHEMA
+        fields = DISTILL_SCHEMA["properties"]["lessons"]["items"]["properties"]
+        self.assertIn("160", fields["when"]["description"]); self.assertIn("300", fields["observed"]["description"])
+        text = distiller_packet(self.digest).render()
+        self.assertIn("at most 160 characters", text); self.assertIn("at most 300", text)
+
     def next_run(self):
         run_id = str(uuid.uuid4())
         tasks = [{"id": "invoice", "title": "Repair invoice totals again", "prompt": "Fix sums", "provider": "claude",

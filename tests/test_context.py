@@ -157,6 +157,16 @@ class CoordinatorPacketSizeTests(unittest.TestCase):
         self.assertEqual(sections["Tasks"]["truncated_chars"], 0)
 
 
+class GuidanceTests(unittest.TestCase):
+    def test_reviewers_and_planners_keep_process_out_of_verdicts(self):
+        from parallax.context import COORDINATOR_PREAMBLE, review_packet
+        text = review_packet("Try both designs, keep the better one", {"title": "T", "acceptance": ["Both designs explored"]}).render()
+        self.assertIn("already contains the candidate", text)
+        self.assertIn("do not reject a change because you cannot see them", text)
+        self.assertIn("never process", COORDINATOR_PREAMBLE)
+        self.assertIn("dispatch a failed variant of the current round to repair it", COORDINATOR_PREAMBLE)
+
+
 class PacketBudgetTests(unittest.TestCase):
     def test_synthesis_keeps_every_label_when_answers_expand_under_encoding(self):
         from parallax.context import synthesis_packet

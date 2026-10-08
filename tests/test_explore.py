@@ -142,6 +142,29 @@ class ExplorationTests(unittest.IsolatedAsyncioTestCase):
         tasks = self.tasks(run_id)
         self.assertEqual((tasks["v1"]["status"], tasks["v2"]["status"]), ("interrupted", "interrupted"))
 
+    async def test_a_failed_variant_is_repaired_within_its_round(self):
+        class Repairing(DirectiveRegistry):
+            async def run(self, provider, **kwargs):
+                if kwargs["mode"] == "edit" and "Repair attempt" in kwargs["prompt"]:
+                    kwargs = {**kwargs, "prompt": kwargs["prompt"].replace("DIRECTIVE-BROKEN", "DIRECTIVE-A")}
+                return await super().run(provider, **kwargs)
+        registry = Repairing()
+        run_id, spec, manager, engine = self.prepared(registry)
+        await engine._action(run_id, spec, manager, explore(("v1", "DIRECTIVE-BROKEN multiply the operands"),
+                                                            ("v2", "DIRECTIVE-B swap the operands and document why")))
+        tasks = self.tasks(run_id)
+        self.assertEqual((tasks["v1"]["status"], tasks["v2"]["status"], tasks["fix"]["status"]), ("failed", "candidate", "exploring"))
+        await engine._action(run_id, spec, manager, CoordinatorAction(id="r1", action="dispatch", task_ids=["v1"], summary="Use addition"))
+        tasks = self.tasks(run_id)
+        self.assertEqual((tasks["v1"]["status"], tasks["v1"]["attempts"], tasks["fix"]["explore_round"]), ("candidate", 2, 1))
+        # The repair budget applies to variants too.
+        run_id, spec, manager, engine = self.prepared(DirectiveRegistry())
+        spec.limits.repairs = 0
+        await engine._action(run_id, spec, manager, explore(("v1", "DIRECTIVE-BROKEN multiply the operands"),
+                                                            ("v2", "DIRECTIVE-B swap the operands and document why")))
+        with self.assertRaisesRegex(ValueError, "Variant repair limit"):
+            await engine._action(run_id, spec, manager, CoordinatorAction(id="r1", action="dispatch", task_ids=["v1"]))
+
     async def test_invalid_explorations_are_rejected_before_any_work(self):
         registry = DirectiveRegistry()
         run_id, spec, manager, engine = self.prepared(registry)
