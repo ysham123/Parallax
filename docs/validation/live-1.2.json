@@ -596,6 +596,142 @@
         }
       ],
       "synthesis_labels": "A = claude, B = grok"
+    },
+    {
+      "scenario": "build-explore-after-fixes",
+      "note": "The discount scenario rerun with this release's fixes, same prompt and team.",
+      "mode": "build",
+      "status": "completed",
+      "runtime_seconds": 535.6,
+      "coordinator_turns": 8,
+      "fresh_coordinator_sessions": true,
+      "context_manifests": {
+        "coordinator": {
+          "calls": 8,
+          "max_chars": 16949,
+          "truncated_sections": 0
+        },
+        "worker": {
+          "calls": 4,
+          "max_chars": 3467,
+          "truncated_sections": 0
+        },
+        "reviewer": {
+          "calls": 4,
+          "max_chars": 5160,
+          "truncated_sections": 0
+        },
+        "distiller": {
+          "calls": 1,
+          "max_chars": 8210,
+          "truncated_sections": 0
+        }
+      },
+      "actions": [
+        "plan:completed",
+        "explore:completed",
+        "explore:completed",
+        "inspect_results:completed",
+        "select_variant:completed",
+        "validate:completed",
+        "request_integration:completed",
+        "finish:completed"
+      ],
+      "rejected_actions": [],
+      "tasks": [
+        {
+          "id": "discount_api",
+          "status": "resolved",
+          "attempts": 2,
+          "variant_of": null
+        },
+        {
+          "id": "keyword_discount",
+          "status": "discarded",
+          "attempts": 1,
+          "variant_of": "discount_api"
+        },
+        {
+          "id": "separate_helper",
+          "status": "discarded",
+          "attempts": 1,
+          "variant_of": "discount_api"
+        },
+        {
+          "id": "keyword_discount_retry",
+          "status": "discarded",
+          "attempts": 1,
+          "variant_of": "discount_api"
+        },
+        {
+          "id": "separate_helper_retry",
+          "status": "completed",
+          "attempts": 1,
+          "variant_of": "discount_api"
+        }
+      ],
+      "reviews": [
+        {
+          "task": "keyword_discount",
+          "provider": "grok",
+          "approved": true
+        },
+        {
+          "task": "separate_helper_retry",
+          "provider": "grok",
+          "approved": true
+        },
+        {
+          "task": "keyword_discount_retry",
+          "provider": "grok",
+          "approved": true
+        },
+        {
+          "task": "integration",
+          "provider": "grok",
+          "approved": true
+        }
+      ],
+      "final_checks": [
+        {
+          "name": "Acceptance tests",
+          "ok": true,
+          "exit_code": 0
+        }
+      ],
+      "gates": [
+        {
+          "id": "current_verification",
+          "status": "passed"
+        },
+        {
+          "id": "independent_review",
+          "status": "passed"
+        },
+        {
+          "id": "project_checks",
+          "status": "passed"
+        },
+        {
+          "id": "integration",
+          "status": "passed"
+        },
+        {
+          "id": "preservation",
+          "status": "passed"
+        }
+      ],
+      "changed_files": [
+        "service.py",
+        "tests/test_discount.py"
+      ],
+      "memory_events": [
+        {
+          "accepted": 1,
+          "rejected": [],
+          "kind": "memory_distilled"
+        }
+      ]
     }
   ]
 }

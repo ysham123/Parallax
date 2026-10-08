@@ -12,6 +12,7 @@ Providers: Codex 0.160.1 (gpt-6.1-sol), Claude Code 2.1.293 (sonnet), Grok Build
 | Build, invoice total fix | Completed with all five integration gates passed. The coordinator ran 12 turns, each in a fresh session, and Codex accepted the strict action schema. The runtime rejected a coordinator-invented check command, as designed. A staged file and an untracked file in the user's project were preserved; the staged index hash was identical before and after. Distillation ran, but its one lesson was rejected for length. |
 | Claude Code plugin, `/parallax:review` | Completed. The plugin was installed from a local marketplace into a scratch project only. A non-interactive Claude Code session ran the command. The plugin started the MCP runtime from its install folder and passed the absolute repository root. Codex synthesized Claude and Grok reviews blind, and Claude's reply reported each reviewer's evidence. The plugin was removed afterwards. |
 | Build, discount feature with two designs | Exploration worked end to end: three rounds of isolated keyword-argument and helper variants, blind reviews, independent checks, and selection. The coordinator's packet included Project memory from the previous run. The run then looped on unverifiable process criteria and was cancelled; see finding 3. |
+| Same discount scenario after the fixes | Completed with all five integration gates passed. The coordinator explored two rounds in 8 turns, selected the helper design, and passed combined checks and the integration review on the first try, with no rejected actions. The distiller's lesson was accepted. The user's untracked file was preserved. |
 
 ## Findings and fixes
 
@@ -21,9 +22,8 @@ Providers: Codex 0.160.1 (gpt-6.1-sol), Claude Code 2.1.293 (sonnet), Grok Build
 4. **Rejected variants cost whole rounds.** A failed variant can now be repaired inside its round, within the repair budget, instead of re-running every variant.
 5. **The distiller didn't know the lesson limits.** Its instructions and schema now state 160 characters for `when` and 300 for `observed`.
 
-Each fix has a regression test.
+Each fix has a regression test, and the rerun in the results table exercised fixes 1, 3 and 5 live. Fixes 2 (no-verdict retry) and 4 (in-round repair) weren't triggered by these runs. A first rerun attempt stalled when the laptop slept and was cancelled.
 
 ## Not yet covered
 
-- A live rerun of the discount scenario with these fixes. The rerun started but stalled when the laptop slept nine seconds into its second coordinator turn, and was cancelled.
 - Live API transports and hosted execution.

@@ -2,7 +2,7 @@
 
 ## 1.2 live validation
 
-[Live validation](live-1.2.md) records real Codex, Claude Code, Grok Build and Antigravity runs on a disposable fixture: a blind Review, a Build that passed all five integration gates with the user's staged and untracked work preserved, `/parallax:review` through the Claude Code plugin, and a live exploration round trip. It also lists the five issues those runs exposed, each now fixed with a regression test, and what remains uncovered.
+[Live validation](live-1.2.md) records real Codex, Claude Code, Grok Build and Antigravity runs on a disposable fixture: a blind Review, a Build that passed all five integration gates with the user's staged and untracked work preserved, `/parallax:review` through the Claude Code plugin, and a live exploration round trip. It also lists the five issues those runs exposed, each fixed with a regression test and confirmed by a live rerun, and what remains uncovered.
 
 ## Hosted local execution
 
