@@ -71,6 +71,8 @@ export default function Auth({
   const emailEnabled = methods.includes("email");
   const oauth = methods.filter((method) => method === "github" || method === "google");
   const closed = config?.signup === "closed";
+  // Loaded, and this deployment offers no way to sign in (for example, a runtime from before accounts).
+  const unavailable = config !== null && methods.length === 0;
   const token = new URLSearchParams(location.search).get("token_hash") || "";
 
   // The page title belongs to this card only while it is shown.
@@ -185,7 +187,17 @@ export default function Auth({
       <main className="auth-main" id="public-main" tabIndex={-1}>
         <section className="auth-card" aria-labelledby="auth-title">
           <h1 id="auth-title">{heading}</h1>
-          {sent ? (
+          {unavailable ? (
+            <>
+              <p className="auth-lead" role="status">
+                Accounts aren't available on this deployment yet. You can use Parallax today through the Claude Code or
+                Codex plugin.
+              </p>
+              <a className="pub-secondary auth-wide" href="/">
+                Back to Parallax
+              </a>
+            </>
+          ) : sent ? (
             <>
               <p className="auth-lead" role="status">
                 {sent.kind === "confirm"
