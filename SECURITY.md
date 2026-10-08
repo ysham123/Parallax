@@ -7,7 +7,7 @@ Useful reports name the affected version, the component (local runtime, Studio, 
 ## Scope
 
 - **Local runtime and Studio**: loopback binding, session handling, origin checks, workspace isolation, and anything that could let an agent write outside its owned files or skip the review and check gates.
-- **Hosted Studio**: account and session handling, the workspace boundary between accounts, the GitHub sign-in flow, request and storage limits.
+- **Hosted Studio**: account and session handling, the workspace boundary between accounts, the sign-in flows (email, GitHub and Google through Supabase, and built-in GitHub), request and storage limits.
 - **Paired workers**: the relay allowlist, approved-project resolution, and worker token scope.
 - **Plugins**: the Codex and Claude Code plugin manifests, skills and MCP launcher.
 

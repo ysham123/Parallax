@@ -5,10 +5,13 @@ import { ExecutionMachines } from "./ExecutionMachines";
 import Onboarding from "./Onboarding";
 import OperatorGate from "./OperatorGate";
 import PublicEntry from "./PublicEntry";
+import Auth, { type AuthMode } from "./Auth";
 import { AccountMenu, DeleteAccountDialog, Mark, applyStoredTheme } from "./PublicChrome";
 import {
   HOSTED_EXECUTOR,
+  accountName,
   chooseMachine,
+  deletionConfirmation,
   executorKey,
   forgetMachines,
   signInError,
@@ -53,6 +56,9 @@ export default function CloudApp() {
   const [error, setError] = useState("");
   const [authError] = useState(() => signInError(location.search));
   const operatorRoute = location.pathname === "/operator";
+  const authRoute = (["signup", "login", "forgot", "reset"] as AuthMode[]).find(
+    (mode) => location.pathname === `/${mode}`,
+  );
   const session = view.kind === "ready" ? view.session : null;
   const workspace = session?.workspace.id || "";
   const hosted = session?.workspace.hosted_execution === true;
@@ -111,7 +117,8 @@ export default function CloudApp() {
           setOnboarding(false);
         }
         setView({ kind: "ready", session: next });
-        if (location.pathname === "/operator") window.history.replaceState(null, "", "/");
+        if (["/operator", "/signup", "/login", "/forgot", "/reset"].includes(location.pathname))
+          window.history.replaceState(null, "", "/");
       } catch {
         if (background) return;
         // The public page never dead-ends on the runtime; visitors keep the plugin install path.
@@ -224,7 +231,8 @@ export default function CloudApp() {
   }
 
   async function deleteAccount() {
-    const login = view.kind === "ready" ? view.session.account?.login || "" : "";
+    const login =
+      view.kind === "ready" && view.session.account ? deletionConfirmation(view.session.account) : "";
     exiting.current = true;
     const response = await fetch("/api/account?confirm=" + encodeURIComponent(login), {
       method: "DELETE",
@@ -263,6 +271,8 @@ export default function CloudApp() {
   if (view.kind === "signed-out")
     return operatorRoute ? (
       <OperatorGate onSignedIn={() => void checkSession()} />
+    ) : authRoute ? (
+      <Auth mode={authRoute} config={config} error={authError} onSignedIn={() => void checkSession()} />
     ) : (
       <PublicEntry config={config} error={authError} notice={view.notice} />
     );
@@ -273,7 +283,8 @@ export default function CloudApp() {
   );
   const dialog = deleting && active.account && (
     <DeleteAccountDialog
-      login={active.account.login}
+      login={deletionConfirmation(active.account)}
+      provider={active.account.provider}
       onCancel={() => setDeleting(false)}
       onConfirm={deleteAccount}
     />
@@ -298,7 +309,7 @@ export default function CloudApp() {
     return (
       <>
         <Onboarding
-          workspaceName={active.account ? `@${active.account.login}` : active.workspace.name}
+          workspaceName={active.account ? accountName(active.account) : active.workspace.name}
           machines={machines}
           loading={!machinesLoaded}
           account={account}

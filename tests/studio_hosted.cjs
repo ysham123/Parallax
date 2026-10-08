@@ -43,11 +43,27 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), "parallax-hosted-"));
       assert.throws(() => localStudioUrl(value));
     const session = require(path.join(temp, "session.js"));
     assert.equal(session.signInError("?auth_error=denied"), "denied");
+    for (const code of ["credentials", "unconfirmed", "weak_password", "invalid_email", "link_expired"])
+      assert.equal(session.signInError(`?auth_error=${code}`), code);
+    assert.match(session.signInErrorMessage("credentials"), /don't match/);
+    assert.deepEqual(session.signInMethods(null), []);
+    assert.deepEqual(session.signInMethods({ github: true, signup: "open" }), ["github"]);
+    assert.deepEqual(session.signInMethods({ github: false, signup: "open" }), []);
+    assert.deepEqual(
+      session.signInMethods({ github: true, identity: "supabase", providers: ["email", "google"], signup: "open" }),
+      ["email", "google"],
+    );
+    const member = { login: "ada", name: "Ada", avatar_url: null, email: "ada@example.com", provider: "email" };
+    assert.equal(session.accountName(member), "ada@example.com");
+    assert.equal(session.accountName({ ...member, provider: "github", login: "octocat" }), "@octocat");
+    assert.equal(session.accountName({ ...member, email: null }), "@ada");
+    assert.equal(session.deletionConfirmation(member), "ada@example.com");
+    assert.equal(session.deletionConfirmation({ ...member, email: null }), "ada");
     for (const value of ["", "?auth_error=", "?auth_error=<script>", "?auth_error=__proto__", "?other=denied"])
       assert.equal(session.signInError(value), null);
-    assert.match(session.signInErrorMessage("unknown"), /did not confirm/);
-    assert.match(session.signInErrorMessage("__proto__"), /did not confirm/);
-    assert.match(session.signInErrorMessage("toString"), /did not confirm/);
+    assert.match(session.signInErrorMessage("unknown"), /could not be confirmed/);
+    assert.match(session.signInErrorMessage("__proto__"), /could not be confirmed/);
+    assert.match(session.signInErrorMessage("toString"), /could not be confirmed/);
     assert.notEqual(session.executorKey("a"), session.executorKey("b"));
     const machines = [
       { id: "m1", name: "One", online: false, platform: "darwin", workspaces: ["/p"], last_seen: 0 },

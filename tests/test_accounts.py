@@ -122,7 +122,7 @@ class HostedAccountTests(HostedFixture):
     def test_public_config_and_start_are_safe_to_expose(self):
         anonymous = self.browser()
         config = anonymous.get("/api/auth/config")
-        self.assertEqual(config.json(), {"github": True, "signup": "open"})
+        self.assertEqual(config.json(), {"github": True, "identity": "github", "providers": ["github"], "signup": "open"})
         self.assertNotIn(SECRET, config.text)
         self.assertEqual(anonymous.post("/api/auth/github/start").status_code, 403)
         self.assertEqual(anonymous.post("/api/auth/github/start", headers={"Origin": "https://attacker.example"}).status_code, 403)
@@ -146,7 +146,7 @@ class HostedAccountTests(HostedFixture):
         for flag in ("HttpOnly", "Secure", "SameSite=strict"):
             self.assertIn(flag, session)
         body = client.get("/api/session").json()
-        self.assertEqual(body["auth"], "github")
+        self.assertEqual(body["auth"], "account")
         self.assertEqual(body["account"]["login"], "ada")
         self.assertEqual(body["workspace"]["kind"], "personal")
         self.assertFalse(body["workspace"]["hosted_execution"])

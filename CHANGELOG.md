@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.3.0 · Accounts
+
+- Sign up and log in with email and password, GitHub or Google, through Supabase Auth. Email sign-ups are confirmed by a link that works on any device, and forgotten passwords are reset by email.
+- The runtime makes every call to Supabase itself. Keys never reach the browser, Studio keeps `connect-src 'self'`, and the Supabase token is used once to read the user and then revoked. Parallax keeps its own revocable server-side sessions, so the workspace boundary and limits are unchanged.
+- GitHub and Google sign-in use PKCE with a sealed, browser-bound flow cookie and keep no server state while pending. A sign-in started in another browser fails the code exchange.
+- Abuse limits: generic answers that never reveal whether an email has an account, 5 sign-ups and 3 reset emails per address per hour, a 15-minute pause after 10 failed passwords, and the existing open, allowlist or closed policy with an account cap applied before Supabase is called.
+- Owners and allowlists by email (`PARALLAX_OWNER_EMAILS`, `PARALLAX_ALLOWED_EMAILS`); GitHub IDs still work, matched through the Supabase GitHub identity. Deleting an account also deletes the Supabase user when `PARALLAX_SUPABASE_SECRET_KEY` is set.
+- Studio has sign-up, log-in, forgot-password and set-new-password pages, and the account menu and deletion dialog name accounts by email. The public entry offers Get started and Log in once sign-in is configured.
+- Accounts from the GitHub-only release move to a provider-neutral table at startup and keep their workspaces and sessions. The built-in GitHub OAuth App remains available for deployments without Supabase.
+
 ## 1.2.0 · Public release
 
 - Claude Code plugin: install with `/plugin marketplace add ysham123/Parallax` and `/plugin install parallax@parallax`. It provides `/parallax:review`, `/parallax:build` and `/parallax:studio`, a team skill Claude uses when you ask for Parallax, and the same MCP runtime as the Codex plugin.

@@ -103,7 +103,7 @@ CLI connections use your existing sign-ins. API keys are stored in macOS Keychai
 
 ## Hosted Studio and paired machines
 
-Parallax can also run as a hosted Studio on Vercel with a runtime on Railway. Visitors sign in with GitHub and get a private workspace. Their agents run on machines they pair with an outbound worker, scoped to exact approved project folders. Execution, provider sign-ins and API keys stay on those machines. Only run evidence is mirrored to the workspace, within per-workspace limits. See [deployment](docs/DEPLOYMENT.md) and [paired machines](docs/LOCAL-WORKERS.md).
+Parallax can also run as a hosted Studio on Vercel with a runtime on Railway. Visitors sign up with email, GitHub or Google and get a private workspace. Their agents run on machines they pair with an outbound worker, scoped to exact approved project folders. Execution, provider sign-ins and API keys stay on those machines. Only run evidence is mirrored to the workspace, within per-workspace limits. See [deployment](docs/DEPLOYMENT.md) and [paired machines](docs/LOCAL-WORKERS.md).
 
 ## Command line
 

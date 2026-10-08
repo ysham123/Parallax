@@ -8,7 +8,8 @@ from urllib.parse import urlsplit
 
 # Values the hosted runtime reads once and then removes from its environment,
 # so provider CLIs, project checks, and Git never inherit them.
-HOSTED_SECRETS = ("PARALLAX_ACCESS_TOKEN", "PARALLAX_GITHUB_CLIENT_SECRET")
+HOSTED_SECRETS = ("PARALLAX_ACCESS_TOKEN", "PARALLAX_GITHUB_CLIENT_SECRET", "PARALLAX_SUPABASE_PUBLISHABLE_KEY",
+                  "PARALLAX_SUPABASE_SECRET_KEY")
 SIGNUP_POLICIES = ("open", "allowlist", "closed")
 
 
@@ -22,6 +23,36 @@ def _github_ids(name: str) -> frozenset[int]:
             raise ValueError(f"{name} must list numeric GitHub account IDs")
         values.add(int(value))
     return frozenset(values)
+
+
+_EMAIL = re.compile(r"[^@\s]{1,64}@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")
+
+
+def _emails(name: str) -> frozenset[str]:
+    values = set()
+    for value in os.environ.get(name, "").split(","):
+        value = value.strip().lower()
+        if not value:
+            continue
+        if len(value) > 254 or not _EMAIL.fullmatch(value):
+            raise ValueError(f"{name} must list email addresses")
+        values.add(value)
+    return frozenset(values)
+
+
+def _api_key(value: str) -> bool:
+    return 20 <= len(value) <= 1024 and value.isascii() and value.isprintable() and " " not in value
+
+
+@dataclass(frozen=True)
+class SupabaseProject:
+    """Supabase Auth, called only by the runtime. Keys never reach the browser."""
+    url: str
+    publishable_key: str
+    secret_key: str | None = None
+
+    def __repr__(self):
+        return f"SupabaseProject(url={self.url!r}, publishable_key='[redacted]', secret_key={'[redacted]' if self.secret_key else None})"
 
 
 @dataclass(frozen=True)
@@ -45,14 +76,23 @@ class Deployment:
     signup: str = "open"
     allowed_github_ids: frozenset[int] = frozenset()
     max_accounts: int = 100
+    supabase: SupabaseProject | None = None
+    owner_emails: frozenset[str] = frozenset()
+    allowed_emails: frozenset[str] = frozenset()
 
     def __repr__(self):
         return (f"Deployment(origins={sorted(self.origins)!r}, hosts={sorted(self.hosts)!r}, projects={str(self.projects)!r}, "
-                f"public_origin={self.public_origin!r}, github={self.github!r}, signup={self.signup!r}, token='[redacted]')")
+                f"public_origin={self.public_origin!r}, github={self.github!r}, supabase={self.supabase!r}, signup={self.signup!r}, "
+                f"token='[redacted]')")
 
     @property
     def github_redirect(self) -> str | None:
         return self.public_origin + "/api/auth/github/callback" if self.github and self.public_origin else None
+
+    @property
+    def oauth_redirect(self) -> str | None:
+        """Where Supabase returns GitHub and Google sign-ins. Add it to the project's redirect URLs."""
+        return self.public_origin + "/api/auth/oauth/callback" if self.supabase and self.public_origin else None
 
     @classmethod
     def from_env(cls):
@@ -89,6 +129,22 @@ class Deployment:
             if public_origin is None:
                 raise ValueError("GitHub sign-in requires PARALLAX_PUBLIC_ORIGIN when several Studio origins are configured")
             github = GitHubApp(client_id, client_secret)
+        supabase = None
+        supabase_url = os.environ.get("PARALLAX_SUPABASE_URL", "").strip().rstrip("/")
+        publishable = os.environ.get("PARALLAX_SUPABASE_PUBLISHABLE_KEY", "").strip()
+        secret = os.environ.get("PARALLAX_SUPABASE_SECRET_KEY", "").strip()
+        if supabase_url or publishable or secret:
+            parsed = urlsplit(supabase_url)
+            if (parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.path
+                    or parsed.query or parsed.fragment):
+                raise ValueError("PARALLAX_SUPABASE_URL must be the project's HTTPS URL, such as https://abcd.supabase.co")
+            if not _api_key(publishable):
+                raise ValueError("PARALLAX_SUPABASE_PUBLISHABLE_KEY is missing or invalid")
+            if secret and not _api_key(secret):
+                raise ValueError("PARALLAX_SUPABASE_SECRET_KEY is invalid")
+            if public_origin is None:
+                raise ValueError("Supabase sign-in requires PARALLAX_PUBLIC_ORIGIN when several Studio origins are configured")
+            supabase = SupabaseProject(supabase_url, publishable, secret or None)
         signup = os.environ.get("PARALLAX_SIGNUP", "open").strip().lower() or "open"
         if signup not in SIGNUP_POLICIES:
             raise ValueError("PARALLAX_SIGNUP must be open, allowlist, or closed")
@@ -96,7 +152,8 @@ class Deployment:
         if not raw_limit.isdigit() or not 1 <= int(raw_limit) <= 100000:
             raise ValueError("PARALLAX_MAX_ACCOUNTS must be between 1 and 100000")
         return cls(token, frozenset(origins), frozenset(hosts), projects, public_origin, github,
-                   _github_ids("PARALLAX_OWNER_GITHUB_IDS"), signup, _github_ids("PARALLAX_ALLOWED_GITHUB_IDS"), int(raw_limit))
+                   _github_ids("PARALLAX_OWNER_GITHUB_IDS"), signup, _github_ids("PARALLAX_ALLOWED_GITHUB_IDS"), int(raw_limit),
+                   supabase, _emails("PARALLAX_OWNER_EMAILS"), _emails("PARALLAX_ALLOWED_EMAILS"))
 
     def check_workspace(self, value: str):
         if not Path(value).expanduser().resolve().is_relative_to(self.projects.resolve()):
