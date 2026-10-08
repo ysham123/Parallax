@@ -47,6 +47,8 @@ try {
     eventsForSelection,
     graphTone,
     describeRunEvent,
+    explorations,
+    contextManifest,
   } = require(path.join(compiled, "run-inspection.js"));
   const member = {
     provider: "codex",
@@ -675,6 +677,140 @@ try {
       "Reported command: npm test",
     ),
   );
+  // Exploration, context packets and project memory.
+  const exploredTasks = [
+    { id: "discount", status: "resolved", resolved_by: "helper_v2", explore_round: 2 },
+    { id: "keyword_v1", variant_of: "discount", variant_round: 1, status: "discarded", discarded_reason: "round_failed" },
+    { id: "helper_v2", variant_of: "discount", variant_round: 2, status: "completed" },
+    { id: "keyword_v2", variant_of: "discount", variant_round: 2, status: "discarded", discarded_reason: "not_selected" },
+    { id: "docs", status: "pending", dependencies: ["discount"] },
+  ];
+  const explored = explorations(exploredTasks);
+  check("Variants group under the task they explore", () =>
+    assert.deepEqual(
+      [...explored.keys()],
+      ["discount"],
+    ),
+  );
+  check("Exploration rounds, order and selection are recovered", () => {
+    const entry = explored.get("discount");
+    assert.equal(entry.rounds, 2);
+    assert.equal(entry.selected, "helper_v2");
+    assert.deepEqual(entry.variants.map((variant) => variant.id), ["keyword_v1", "helper_v2", "keyword_v2"]);
+  });
+  check("A repair replacement is not mistaken for a selected variant", () =>
+    assert.equal(
+      explorations([
+        { id: "a", status: "resolved", resolved_by: "b" },
+        { id: "b", status: "completed" },
+      ]).size,
+      0,
+    ),
+  );
+  check("Exploration statuses have distinct tones", () =>
+    assert.deepEqual(
+      ["exploring", "candidate", "discarded"].map(graphTone),
+      ["active", "good", "pending"],
+    ),
+  );
+  const contextEvent = {
+    run_id: "test",
+    sequence: 40,
+    kind: "context",
+    task_id: "coordinator",
+    timestamp: "2026-10-06T00:00:09Z",
+    data: {
+      v: 1,
+      role: "coordinator",
+      chars: 9614,
+      sections: [
+        { name: "Request", chars: 514, sha256: "a", truncated_chars: 0 },
+        { name: "Tasks", chars: 6000, sha256: "b", truncated_chars: 1200 },
+      ],
+    },
+  };
+  check("Context manifests expose section sizes, never contents", () =>
+    assert.deepEqual(contextManifest(contextEvent), {
+      role: "coordinator",
+      chars: 9614,
+      sections: [
+        { name: "Request", chars: 514, truncated: 0 },
+        { name: "Tasks", chars: 6000, truncated: 1200 },
+      ],
+    }),
+  );
+  check("Context events read as compact summaries", () =>
+    assert.equal(
+      describeRunEvent(contextEvent),
+      "Coordinator context · 9.6k chars in 2 sections · 1 trimmed",
+    ),
+  );
+  const at = (kind, data, task_id = null) => ({
+    run_id: "test",
+    sequence: 41,
+    kind,
+    task_id,
+    timestamp: "2026-10-06T00:00:10Z",
+    data,
+  });
+  check("Exploration task events are described", () => {
+    assert.equal(
+      describeRunEvent(at("task", { status: "exploring", explore_round: 2 }, "discount")),
+      "Exploring alternative approaches · round 2",
+    );
+    assert.equal(
+      describeRunEvent(at("task", { status: "pending", variant_of: "discount", variant_round: 2 }, "helper_v2")),
+      "Variant queued for exploration round 2",
+    );
+    assert.equal(
+      describeRunEvent(at("task", { status: "failed", explore_round: 1 }, "discount")),
+      "Exploration round 1 produced no selectable candidate",
+    );
+    assert.equal(
+      describeRunEvent(at("task", { status: "resolved", resolved_by: "helper_v2" }, "discount")),
+      "Resolved by helper_v2",
+    );
+    assert.equal(
+      describeRunEvent(at("task", { status: "candidate" }, "helper_v2")),
+      "Variant passed review and checks; awaiting selection",
+    );
+  });
+  check("Project memory events are described without lesson text", () => {
+    assert.equal(
+      describeRunEvent(at("memory_distilled", { accepted: 1, rejected: ["length"] })),
+      "Project memory · 1 lesson recorded · 1 rejected",
+    );
+    assert.equal(
+      describeRunEvent(at("memory_distilled", { accepted: 0, rejected: [] })),
+      "Project memory · no new lessons",
+    );
+    assert.equal(
+      describeRunEvent(at("memory_distill_failed", { code: "distiller_failed" })),
+      "Project memory · distillation did not complete",
+    );
+  });
+  check("Agents whose variants were set aside are settled, not pending", () => {
+    const claude = { provider: "claude", model: "sonnet", effort: "medium", role: "implementer" };
+    const antigravity = { provider: "antigravity", model: "gemini", effort: "medium", role: "implementer" };
+    const explorationRun = {
+      run_id: "explore",
+      status: "completed",
+      spec: { coordinator, team: [claude, antigravity], mode: "build" },
+      tasks: [
+        { id: "discount", provider: "claude", status: "resolved", resolved_by: "helper_v2" },
+        { id: "keyword_v1", provider: "antigravity", variant_of: "discount", variant_round: 1, status: "discarded" },
+        { id: "helper_v2", provider: "claude", variant_of: "discount", variant_round: 2, status: "completed" },
+      ],
+      sessions: [],
+      reviews: [],
+      checks: [],
+      artifacts: { integration_applied: true },
+    };
+    const states = Object.fromEntries(
+      getRunAgents(explorationRun, []).filter((agent) => !agent.coordinator).map((agent) => [agent.participant.provider, agent.state]),
+    );
+    assert.deepEqual(states, { claude: "assignments complete", antigravity: "variants set aside" });
+  });
   console.log(`${passed} graph-inspection assertions passed`);
 } finally {
   fs.rmSync(compiled, { recursive: true, force: true });

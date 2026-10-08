@@ -3390,6 +3390,9 @@ nav {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-tint);
 }
+.graph-task.graph-dimmed:not(.selected) {
+  opacity: 0.55;
+}
 .graph-task-button {
   display: block;
   width: 100%;
@@ -4044,6 +4047,131 @@ nav {
   gap: 7px;
   font-size: 12px;
   padding: 8px 11px;
+}
+.memory-lessons {
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.memory-lessons li {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line-soft);
+}
+.memory-lessons li.disabled > div {
+  opacity: 0.55;
+}
+.memory-lessons strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 13px;
+}
+.memory-lessons p {
+  margin: 4px 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.memory-lessons small {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.memory-kind {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.memory-kind.prefer {
+  color: var(--teal);
+}
+.memory-kind.avoid,
+.memory-kind.caution {
+  color: var(--danger);
+}
+.memory-forget {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+.memory-forget p {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.secondary-button.memory-danger {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--line));
+}
+.memory-forget-start {
+  margin-top: 12px;
+}
+.task-exploration {
+  padding: 17px;
+  margin: 20px 0;
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--accent);
+  border-radius: 10px;
+  background: var(--input);
+}
+.task-exploration p {
+  margin: 8px 0 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.task-exploration .variant-directive {
+  color: var(--text);
+}
+.task-exploration .work-assignment + .work-assignment {
+  margin-top: 6px;
+}
+.exploration-round + .exploration-round {
+  margin-top: 14px;
+}
+.exploration-round h4 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+.context-manifest {
+  margin: 16px 0;
+  font-size: 12px;
+}
+.context-manifest summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.context-manifest-note {
+  margin: 10px 0 8px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+.context-manifest ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.context-manifest li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  border-top: 1px solid var(--line-soft, var(--line));
+  font-variant-numeric: tabular-nums;
+}
+.context-manifest li span:last-child {
+  color: var(--muted);
 }
 .task-resolution-review {
   display: flex;
