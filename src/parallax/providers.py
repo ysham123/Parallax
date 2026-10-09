@@ -133,7 +133,10 @@ async def _stop(process: asyncio.subprocess.Process) -> None:
             else:
                 process.kill() if sig == signal.SIGKILL else process.terminate()
         except ProcessLookupError:
-            return
+            # The OS may have reaped the child before asyncio delivers its
+            # exit callback. Still await that callback within the same bound;
+            # a missing PID alone does not populate process.returncode.
+            pass
         try:
             await asyncio.wait_for(process.wait(), seconds)
             if os.name == "posix":
