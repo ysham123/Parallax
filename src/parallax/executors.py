@@ -78,10 +78,16 @@ def permitted(method: str, path: str, query: str = "") -> bool:
     if any(len(values) != 1 or len(values[0]) > 128 for values in parameters.values()):
         return False
     if method == "GET":
+        if re.fullmatch(r"/api/(?:workflow-templates|workflows(?:/[a-f0-9-]{36})?)", path):
+            return not parameters
         return bool(re.fullmatch(r"/api/(context|deployment|providers|connections|profiles|project-profiles|runs|feedback/export|models/[a-z][a-z0-9_-]{0,47}|runs/[a-f0-9-]{36}(?:/(?:receipt|patch|recovery|event-log))?)", path))
     if method == "POST":
+        if re.fullmatch(r"/api/(?:workflow-templates|workflows(?:/[a-f0-9-]{36}/(?:decision|resume|cancel))?)", path):
+            return not parameters
         return bool(re.fullmatch(r"/api/(runs|project/assess|feedback/baseline|connections/[a-z][a-z0-9_-]{0,63}/test|runs/[a-f0-9-]{36}/(?:steer|pause|stop|cancel|resume|recover|feedback))", path))
     if method in {"PUT", "DELETE"}:
+        if method == "PUT" and re.fullmatch(r"/api/workflow-templates/[a-f0-9-]{36}", path):
+            return not parameters
         return bool(re.fullmatch(r"/api/(?:profiles|project-profiles)/[^/]{1,100}", path))
     return False
 

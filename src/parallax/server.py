@@ -22,6 +22,7 @@ from .recovery import RecoveryRequest, AlphaFeedback, recovery_options, save_fee
 from .connections import ConnectionInput
 from .store import Store
 from .receipt import get_receipt
+from .workflows import Workflows, WorkflowStart, TemplateInput, Decision
 from .deployment import Deployment
 from .accounts import (Accounts, Principal, SignInRefused, operator_principal, SESSION_COOKIE, FLOW_COOKIE,
                        FLOW_COOKIE_PATH, OAUTH_FLOW_PATH, OWNER_WORKSPACE)
@@ -169,6 +170,7 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
         if deployment: deployment.check_workspace(value)
         if allowed_workspaces is not None and Path(value).expanduser().resolve() not in allowed_workspaces:
             raise ValueError("This project was not approved on the execution machine")
+    workflows = Workflows(engine, check_workspace)
     def set_session(response,value=None,lifetime=86400):
         # Local Studio: a signed cookie derived from the launch token. Hosted: an opaque server-side session.
         if value is None:
@@ -190,6 +192,7 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
     async def lifespan(app):
         engine.recover()
         await engine.reconcile_children()
+        await workflows.recover()
         janitor = asyncio.create_task(remote.consent.janitor()) if remote else None
         try:
             yield
@@ -198,9 +201,11 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
                 janitor.cancel()
                 await asyncio.gather(janitor, return_exceptions=True)
                 await remote.consent.close()
+            await workflows.close()
             await engine.shutdown()
     app=FastAPI(title="Parallax",version=__version__,lifespan=lifespan,docs_url=None,redoc_url=None,openapi_url=None)
     app.state.engine=engine;app.state.token=token;app.state.store=store;app.state.accounts=accounts
+    app.state.workflows = workflows
     from .executors import ExecutorHub, MAX_MESSAGE, limits_for
     hub = ExecutorHub(store) if deployment else None
     app.state.executors = hub
@@ -683,6 +688,27 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
     async def feedback(run_id:str,body:AlphaFeedback): return save_feedback(store,run_id,body)
     @app.get("/api/runs")
     async def runs(): return store.runs()
+    @app.get("/api/workflow-templates")
+    async def workflow_templates(): return workflows.templates()
+    @app.post("/api/workflow-templates")
+    async def create_workflow_template(body:TemplateInput): return workflows.save_template(body)
+    @app.put("/api/workflow-templates/{identifier}")
+    async def update_workflow_template(identifier:str, body:TemplateInput): return workflows.save_template(body, identifier)
+    @app.get("/api/workflows")
+    async def workflow_list(): return workflows.listing()
+    @app.post("/api/workflows")
+    async def workflow_start(body:WorkflowStart): return await workflows.start(body)
+    @app.get("/api/workflows/{identifier}")
+    async def workflow_get(identifier:str):
+        value = workflows.get(identifier)
+        check_workspace(value["spec"]["workspace"])
+        return workflows.public(value)
+    @app.post("/api/workflows/{identifier}/decision")
+    async def workflow_decide(identifier:str, body:Decision): return await workflows.decide(identifier, body)
+    @app.post("/api/workflows/{identifier}/resume")
+    async def workflow_resume(identifier:str): return await workflows.resume(identifier)
+    @app.post("/api/workflows/{identifier}/cancel")
+    async def workflow_cancel(identifier:str): return await workflows.cancel(identifier)
     @app.post("/api/runs")
     async def start(spec:RunSpec):
         check_workspace(spec.workspace)

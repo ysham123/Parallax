@@ -16,6 +16,7 @@ import { Baseline } from "./Baseline";
 import { AlphaFeedback } from "./AlphaFeedback";
 import { Verification } from "./Verification";
 import { ContextDetails, ExplorationDetail, VariantDetail } from "./Exploration";
+import { Workflows } from "./Workflows";
 import { contextManifest, explorations } from "./run-inspection";
 import {
   INITIAL_SPEC,
@@ -34,7 +35,7 @@ import {
   type RunSpec,
 } from "./types";
 
-type Tab = "team" | "run" | "review";
+type Tab = "workflows" | "team" | "run" | "review";
 type ReviewTab = "findings" | "changes" | "checks" | "settings";
 type IconName =
   | "connection"
@@ -411,7 +412,7 @@ function ParticipantEditor({
         </div>
         {coordinator ? (
           <span className="leader-label">Coordinator</span>
-        ) : (
+        ) : onRemove ? (
           <button
             type="button"
             className="icon-button remove-participant"
@@ -421,7 +422,7 @@ function ParticipantEditor({
           >
             <Icon name="close" size={16} />
           </button>
-        )}
+        ) : null}
       </div>
       <div className="participant-fields">
         <label>
@@ -589,11 +590,13 @@ function CheckEditor({
   onChange,
   onRemove,
   index,
+  onValidity,
 }: {
   check: CheckSpec;
   onChange: (check: CheckSpec) => void;
   onRemove: () => void;
   index: number;
+  onValidity?: (valid: boolean) => void;
 }) {
   const [argv, setArgv] = useState(json(check.argv));
   const [error, setError] = useState("");
@@ -628,9 +631,11 @@ function CheckEditor({
               )
                 throw new Error("Use a nonempty JSON array of strings.");
               setError("");
+              onValidity?.(true);
               onChange({ ...check, argv: parsed as string[] });
             } catch {
               setError("Use a nonempty JSON array of strings.");
+              onValidity?.(false);
             }
           }}
           placeholder={'["npm", "test"]'}
@@ -1132,7 +1137,7 @@ export default function App({
   accountControl?: ReactNode;
 } = {}) {
   const hostedWorkspace = import.meta.env.MODE === "cloud";
-  const [tab, setTab] = useState<Tab>("run");
+  const [tab, setTab] = useState<Tab>("workflows");
   const [reviewTab, setReviewTab] = useState<ReviewTab>("findings");
   const [providers, setProviders] = useState<Provider[]>([]);
   const [connections, setConnections] = useState<Connection[]>([]);
@@ -1256,10 +1261,10 @@ export default function App({
         !connectionsOpen &&
         !workspaceOverlay &&
         event.altKey &&
-        ["1", "2", "3"].includes(event.key)
+        ["1", "2", "3", "4"].includes(event.key)
       ) {
         event.preventDefault();
-        setTab((["team", "run", "review"] as Tab[])[Number(event.key) - 1]);
+        setTab((["team", "run", "review", "workflows"] as Tab[])[Number(event.key) - 1]);
         mainRef.current?.focus();
       }
       if (event.key === "Escape") {
@@ -1693,11 +1698,11 @@ export default function App({
         inert={connectionsOpen || workspaceOverlay || undefined}
       >
         <a
-          href="#run"
+          href="#workflows"
           className="brand"
           onClick={(e) => {
             e.preventDefault();
-            setTab("run");
+            setTab("workflows");
           }}
           aria-label="Parallax Studio home"
         >
@@ -1712,6 +1717,7 @@ export default function App({
         <nav aria-label="Studio navigation">
           {(
             [
+              { id: "workflows", name: "Workflows", icon: "orbit", key: "4" },
               { id: "run", name: "Workspace", icon: "run", key: "2" },
               { id: "team", name: "New run", icon: "plus", key: "1" },
               { id: "review", name: "Review", icon: "review", key: "3" },
@@ -1806,7 +1812,7 @@ export default function App({
             >
               <Icon name="pause" size={17} />
             </button>
-            <span>v1.1</span>
+            <span>v{__PARALLAX_VERSION__}</span>
           </div>
         </div>
       </aside>
@@ -1822,7 +1828,7 @@ export default function App({
             </span>
             <Icon name="chevron" size={13} />
             <strong>
-              {tab === "run" ? "Runs" : tab === "team" ? "New run" : "Review"}
+              {tab === "run" ? "Runs" : tab === "team" ? "New run" : tab === "workflows" ? "Workflows" : "Review"}
             </strong>
           </div>
           <div className="topbar-right">
@@ -1867,6 +1873,22 @@ export default function App({
                 <Icon name="close" size={16} />
               </button>
             </div>
+          )}
+          {tab === "workflows" && (
+            <Workflows
+              workspace={spec.workspace}
+              onWorkspace={workspace => setSpec(previous => ({...previous, workspace}))}
+              online={execution?.online !== false}
+              onInspect={id => void chooseRun(id, "review")}
+              onConnections={() => setConnectionsOpen(true)}
+              renderParticipant={(participant, onChange, coordinator) => (
+                <ParticipantEditor participant={participant} providers={providers} connections={connections}
+                  onChange={onChange} coordinator={coordinator} checking={catalogLoading} />
+              )}
+              renderCheck={(check, index, onChange, onRemove, onValidity) => (
+                <CheckEditor check={check} index={index} onChange={onChange} onRemove={onRemove} onValidity={onValidity} />
+              )}
+            />
           )}
           {tab === "team" && (
             <>
@@ -2553,7 +2575,7 @@ export default function App({
               <Icon name="orbit" size={15} /> Parallax Studio
             </span>
             <span>Local agents. Recorded evidence. Your workspace.</span>
-            <span className="keyboard-hint">Alt + 1 / 2 / 3 to navigate</span>
+            <span className="keyboard-hint">Alt + 1 / 2 / 3 / 4 to navigate</span>
           </footer>
         </main>
       </div>

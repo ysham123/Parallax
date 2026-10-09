@@ -233,16 +233,16 @@ export default function PublicEntry({
       <main id="public-main" tabIndex={-1}>
         <section className="pub-hero" aria-labelledby="hero-title">
           <div className="pub-hero-copy">
-            <p className="pub-eyebrow">Verified coding teams</p>
+            <p className="pub-eyebrow">Coding workflows you can return to</p>
             <h1 id="hero-title">
               Many perspectives.
               <br />
               One verified result.
             </h1>
             <p className="pub-lead">
-              Parallax runs Codex, Claude Code, Grok Build and Antigravity as one team on your
-              project. Every agent works in isolation, a different provider reviews each change, and
-              your own checks must pass before anything reaches your code.
+              Turn a task into a checked, reviewable change with your own coding providers.
+              Save the workflow, follow its progress, and approve the exact candidate when
+              you are ready. Parallax keeps the work and evidence on your selected machine.
             </p>
             {(failure || notice) && (
               <p className="pub-alert" role="alert">
@@ -301,27 +301,27 @@ export default function PublicEntry({
           <ol className="pub-steps">
             <li>
               <span>01</span>
-              <h3>Plan in scoped tasks</h3>
+              <h3>Start with a saved workflow</h3>
               <p>
-                A coordinator splits your request into tasks with explicit file ownership. Each
-                agent gets a compact brief of its own, never a shared transcript.
+                Choose a verified change, bug fix, or refactor recipe. Describe the outcome,
+                pick your providers, and reuse the settings that work for your project.
               </p>
             </li>
             <li>
               <span>02</span>
-              <h3>Build in isolation</h3>
+              <h3>Prepare and verify</h3>
               <p>
-                Every worker edits its own checkout. When approaches genuinely differ, variants run
-                side by side and only the one that passes review and checks is kept.
+                Your team works in isolated checkouts. A different provider reviews the
+                combined candidate and your project checks run before it is ready for approval.
               </p>
             </li>
             <li>
               <span>03</span>
-              <h3>Review, check, apply</h3>
+              <h3>Approve when you are ready</h3>
               <p>
-                A different provider reviews each change, your project&apos;s checks run on the
-                combined result, and only the verified patch reaches your working tree, with a record
-                of the evidence.
+                Inspect the patch and evidence, then approve the change. Saved approvals
+                survive worker restarts, and Parallax rechecks the project before applying
+                the candidate while preserving staging and unrelated work.
               </p>
             </li>
           </ol>

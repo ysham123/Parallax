@@ -49,6 +49,7 @@ class Store:
             CREATE INDEX IF NOT EXISTS run_events ON events(run_id, sequence);
             CREATE TABLE IF NOT EXISTS actions(run_id TEXT NOT NULL, id TEXT NOT NULL,
                 result TEXT NOT NULL, PRIMARY KEY(run_id,id));
+            CREATE TABLE IF NOT EXISTS run_requests(request_key TEXT PRIMARY KEY, spec_hash TEXT NOT NULL, run_id TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS profiles(name TEXT PRIMARY KEY, spec TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS project_locks(workspace TEXT PRIMARY KEY, run_id TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS project_profiles(name TEXT PRIMARY KEY, profile TEXT NOT NULL);
@@ -79,6 +80,22 @@ class Store:
         if row is None:
             raise KeyError(run_id)
         return json.loads(row[0])
+
+    def requested_run(self, key: str, spec_hash: str) -> dict | None:
+        with self.connect() as db:
+            row = db.execute("SELECT spec_hash,run_id FROM run_requests WHERE request_key=?", (key,)).fetchone()
+        if not row:
+            return None
+        if row[0] != spec_hash:
+            raise ValueError("This operation was already used with different settings")
+        return self.get(row[1])
+
+    def save_requested_run(self, result: dict, key: str, spec_hash: str):
+        # Identity and queued run become durable together, before any provider dispatch.
+        with self.connect() as db:
+            db.execute("INSERT INTO run_requests VALUES(?,?,?)", (key, spec_hash, result["run_id"]))
+            db.execute("INSERT INTO runs VALUES(?,?,?,?,?)", (result["run_id"], result["spec"]["workspace"],
+                result["status"], json.dumps(result), now()))
 
     def runs(self) -> list[dict]:
         with self.connect() as db:
@@ -133,6 +150,11 @@ class Store:
             except sqlite3.IntegrityError:
                 owner = db.execute("SELECT run_id FROM project_locks WHERE workspace=?", (workspace,)).fetchone()[0]
                 if owner != run_id:
+                    # The OS lock was acquired by claim(). A crashed start may have
+                    # recorded its claim before atomically saving its run identity.
+                    if not db.execute("SELECT 1 FROM runs WHERE id=?", (owner,)).fetchone():
+                        db.execute("UPDATE project_locks SET run_id=? WHERE workspace=?", (run_id,workspace))
+                        return
                     raise ValueError(f"Project already has an implementation run: {owner}")
 
     def close(self):

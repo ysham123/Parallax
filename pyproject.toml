@@ -15,6 +15,8 @@ dependencies = [
     "httpx==0.28.1",
     "tomli==2.2.1; python_version < '3.11'",
     "pyjwt[crypto]==2.15.1",
+    "langgraph==1.2.14",
+    "langgraph-checkpoint-sqlite==3.1.1",
 ]
 
 [project.scripts]

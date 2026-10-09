@@ -288,7 +288,10 @@ class HostedAccountTests(HostedFixture):
                                    ("post", "/api/runs", {"workspace": str(self.projects), "prompt": "x"}), ("get", f"/api/runs/{run_id}/events", None),
                                    ("get", f"/api/runs/{run_id}/patch", None), ("post", f"/api/runs/{run_id}/cancel", None), ("get", "/api/project-profiles", None),
                                    ("get", f"/api/memory?workspace={self.projects}", None), ("delete", f"/api/memory?workspace={self.projects}", None),
-                                   ("patch", "/api/memory/lessons/L-000000000000", {"workspace": str(self.projects), "status": "disabled"})):
+                                   ("patch", "/api/memory/lessons/L-000000000000", {"workspace": str(self.projects), "status": "disabled"}),
+                                   ("get", "/api/workflow-templates", None), ("post", "/api/workflow-templates", {"name":"Private"}),
+                                   ("get", "/api/workflows", None), ("post", "/api/workflows", {}),
+                                   ("post", f"/api/workflows/{run_id}/decision", {}), ("post", f"/api/workflows/{run_id}/resume", None)):
             kwargs = {"headers": {"Origin": ORIGIN}}
             if body is not None: kwargs["json"] = body
             response = getattr(client, method)(path, **kwargs)
@@ -313,7 +316,14 @@ class HostedAccountTests(HostedFixture):
         for victim in (a["id"], legacy["id"]):
             for method, path in (("get", f"/api/executors/{victim}/proxy/runs"), ("get", f"/api/executors/{victim}/proxy/runs/{run_id}"),
                                  ("get", f"/api/executors/{victim}/proxy/runs/{run_id}/events"), ("get", f"/api/executors/{victim}/proxy/runs/{run_id}/patch"),
-                                 ("post", f"/api/executors/{victim}/proxy/runs"), ("delete", f"/api/executors/{victim}")):
+                                 ("post", f"/api/executors/{victim}/proxy/runs"), ("delete", f"/api/executors/{victim}"),
+                                 ("get", f"/api/executors/{victim}/proxy/workflow-templates"),
+                                 ("put", f"/api/executors/{victim}/proxy/workflow-templates/{run_id}"),
+                                 ("post", f"/api/executors/{victim}/proxy/workflows"),
+                                 ("get", f"/api/executors/{victim}/proxy/workflows/{run_id}"),
+                                 ("post", f"/api/executors/{victim}/proxy/workflows/{run_id}/decision"),
+                                 ("post", f"/api/executors/{victim}/proxy/workflows/{run_id}/resume"),
+                                 ("post", f"/api/executors/{victim}/proxy/workflows/{run_id}/cancel")):
                 response = getattr(bob, method)(path, headers={"Origin": ORIGIN})
                 self.assertEqual(response.status_code, 404, (victim, path, response.text))
                 self.assertNotIn("alice", response.text)

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased · Saved coding workflows
+
+- Studio opens on a workflow home with reusable Verified change, Fix a bug, and Safe refactor recipes, personal recipe versions, project readiness, a task history, and a queue of candidates awaiting approval.
+- LangGraph coordinates preparation, durable approval, and application on the execution machine. SQLite checkpoints and an atomic engine operation identity let a completed candidate survive worker restarts without another successful build.
+- Approval binds the exact candidate, source snapshot, settings, and evidence. Parallax rechecks them before applying, preserves staged work, and records the decision in the downloadable verification receipt. Changed projects or evidence block the old candidate.
+- Recipes and workflow controls use the existing authenticated local API and account-scoped paired-worker relay. Existing CLI/plugin operations and remote MCP tools remain available. Update workers and the relay together; see `docs/WORKFLOWS.md`.
+
 ## 1.4.0 · Directory ready
 
 - Optional remote MCP for personal accounts: eight tools use the existing paired-machine relay, with Supabase JWT verification, explicit OAuth consent and revocable client grants. Hosted execution remains unavailable to remote clients. Enable only after completing the audience-hook and live OAuth setup in `docs/REMOTE-MCP.md`.
