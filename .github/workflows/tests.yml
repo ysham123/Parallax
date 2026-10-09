@@ -66,6 +66,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Use the public Docker Hub cache
+        # Google-managed cache of the same upstream images; Docker falls back
+        # to Docker Hub for a cache miss. Keep the pinned Dockerfile unchanged.
+        # https://docs.cloud.google.com/artifact-registry/docs/pull-cached-dockerhub-images
+        run: |
+          sudo python3 - <<'PY'
+          import json
+          from pathlib import Path
+          path = Path("/etc/docker/daemon.json")
+          config = json.loads(path.read_text()) if path.exists() else {}
+          config["registry-mirrors"] = list(dict.fromkeys(["https://mirror.gcr.io", *config.get("registry-mirrors", [])]))
+          path.parent.mkdir(parents=True, exist_ok=True)
+          path.write_text(json.dumps(config))
+          PY
+          sudo systemctl restart docker
       - name: Build Railway image
         run: docker build -t parallax-runtime .
       - name: Container health and authenticated access smoke test
