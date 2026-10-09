@@ -64,6 +64,11 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), "parallax-hosted-"));
     assert.match(session.signInErrorMessage("unknown"), /could not be confirmed/);
     assert.match(session.signInErrorMessage("__proto__"), /could not be confirmed/);
     assert.match(session.signInErrorMessage("toString"), /could not be confirmed/);
+    assert.equal(session.legalPage("/privacy"), "privacy");
+    assert.equal(session.legalPage("/terms/"), "terms");
+    assert.equal(session.legalPage("/support"), "support");
+    for (const value of ["/", "/privacy/extra", "/Privacy", "/login", "/toString", "/__proto__"])
+      assert.equal(session.legalPage(value), null);
     assert.notEqual(session.executorKey("a"), session.executorKey("b"));
     const machines = [
       { id: "m1", name: "One", online: false, platform: "darwin", workspaces: ["/p"], last_seen: 0 },

@@ -39,6 +39,14 @@ Project setup is now checked before Build and Compare. Add node_modules/ and gen
 
 **Hosted deployments.** Back up the Railway volume, then follow [Migrating an existing deployment](docs/DEPLOYMENT.md#migrating-an-existing-deployment). Existing hosted sessions end, so sign in again. Update paired workers to 1.2 alongside the runtime so evidence declined while storage is low is resent instead of skipped.
 
+## 1.3 to 1.4
+
+**Claude Code.** The plugin is renamed `parallax-team`. Run `/plugin marketplace update parallax`, uninstall the old plugin with `/plugin uninstall parallax@parallax`, install `/plugin install parallax-team@parallax`, and start a new session. Commands move from `/parallax:` to `/parallax-team:`. State, profiles and run history are shared and unchanged.
+
+**Codex and the local runtime.** Update as before; nothing else changes.
+
+**Hosted deployments.** Update the runtime as usual. If you move Studio to a custom domain, follow [Custom domain](docs/DEPLOYMENT.md#custom-domain).
+
 ## 1.2 to 1.3
 
 **Plugins and local runtime.** Update as for 1.2: `/plugin marketplace update parallax` in Claude Code, or `codex plugin marketplace upgrade codex-claude-team` and `codex plugin add codex-claude-team@codex-claude-team` in Codex, then start a new session. Nothing changes for local runs.

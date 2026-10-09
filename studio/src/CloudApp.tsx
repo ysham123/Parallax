@@ -6,6 +6,7 @@ import Onboarding from "./Onboarding";
 import OperatorGate from "./OperatorGate";
 import PublicEntry from "./PublicEntry";
 import Auth, { type AuthMode } from "./Auth";
+import Legal from "./Legal";
 import { AccountMenu, DeleteAccountDialog, Mark, applyStoredTheme } from "./PublicChrome";
 import {
   HOSTED_EXECUTOR,
@@ -14,6 +15,7 @@ import {
   deletionConfirmation,
   executorKey,
   forgetMachines,
+  legalPage,
   signInError,
   storedMachine,
   writeStored,
@@ -44,6 +46,12 @@ function normalize(value: Partial<Session>): Session {
 }
 
 export default function CloudApp() {
+  // Policy and support pages are static and never wait on the runtime or a session.
+  const page = legalPage(location.pathname);
+  return page ? <Legal page={page} /> : <CloudWorkspace />;
+}
+
+function CloudWorkspace() {
   const [view, setView] = useState<View>({ kind: "checking" });
   const [config, setConfig] = useState<AuthConfig | null>(null);
   const [machines, setMachines] = useState<ExecutionMachine[]>([]);

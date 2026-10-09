@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.0 · Directory ready
+
+- The Claude Code plugin is now named `parallax-team`, because another publisher already lists a plugin called `parallax` in Anthropic's directory. Install with `/plugin install parallax-team@parallax`; commands are `/parallax-team:review`, `/parallax-team:build` and `/parallax-team:studio`. The Codex install ID stays `codex-claude-team`.
+- Hosted Studio publishes a privacy policy, terms of service and a support page at `/privacy`, `/terms` and `/support`, linked from every public page. They load without the runtime or a session.
+- The public page describes hosted accounts by email, name and sign-in method instead of GitHub only.
+
 ## 1.3.0 · Accounts
 
 - Sign up and log in with email and password, GitHub or Google, through Supabase Auth. Email sign-ups are confirmed by a link that works on any device, and forgotten passwords are reset by email.

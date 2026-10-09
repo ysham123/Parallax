@@ -76,11 +76,11 @@ if len(entries)==1:
     check(entries[0].get("source")=={"source":"url","url":"https://github.com/ysham123/Parallax.git"},"Repository marketplace source differs")
 # Claude Code plugin: same runtime, its own skills, launcher resolved from the installed plugin root.
 claude=manifests[".claude-plugin/plugin.json"]
-check(claude.get("name")=="parallax","Claude Code plugin identity differs")
+check(claude.get("name")=="parallax-team","Claude Code plugin identity differs")
 check(claude.get("mcpServers")=={"parallax":{"command":"${CLAUDE_PLUGIN_ROOT}/scripts/launch.sh","args":["mcp"]}},"Claude Code MCP entry point differs")
 claude_market=json.loads((root/".claude-plugin/marketplace.json").read_text())
 claude_entries=claude_market.get("plugins",[])
-check(claude_market.get("name")=="parallax" and len(claude_entries)==1 and claude_entries[0].get("name")=="parallax" and claude_entries[0].get("source")=="./","Claude Code marketplace identity differs")
+check(claude_market.get("name")=="parallax" and len(claude_entries)==1 and claude_entries[0].get("name")=="parallax-team" and claude_entries[0].get("source")=="./","Claude Code marketplace identity differs")
 claude_skills=claude_entries[0].get("skills",[]) if claude_entries else []
 check(bool(claude_skills) and all(value.startswith("./claude-code/skills/") for value in claude_skills),"Claude Code skills must be listed explicitly so the Codex skill does not load")
 for value in claude_skills:
