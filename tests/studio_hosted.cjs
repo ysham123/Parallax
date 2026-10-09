@@ -14,6 +14,7 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), "parallax-hosted-"));
         path.join(root, "studio/node_modules/typescript/lib/tsc.js"),
         "src/hosted-link.ts",
         "src/session.ts",
+        "src/oauth.ts",
         "--target",
         "ES2022",
         "--module",
@@ -42,6 +43,15 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), "parallax-hosted-"));
     ])
       assert.throws(() => localStudioUrl(value));
     const session = require(path.join(temp, "session.js"));
+    const oauth = require(path.join(temp, "oauth.js"));
+    const authId = "b783d119-0110-42c0-8c17-1ecc6a8dca8d";
+    assert.equal(oauth.consentIdentifier(`?authorization_id=${authId}`), authId);
+    for (const search of ["", "?authorization_id=../", `?authorization_id=${authId}&authorization_id=${authId}`])
+      assert.equal(oauth.consentIdentifier(search), null);
+    for (const url of ["https://chatgpt.com/callback?code=abc", "http://127.0.0.1:1455/callback?code=abc"])
+      assert.equal(oauth.oauthDestination(url), url);
+    for (const url of ["javascript:alert(1)", "http://evil.example/", "https://user:pass@app.example/", "https://app.example/#token", "https://app.example/\\evil", " https://app.example/"])
+      assert.throws(() => oauth.oauthDestination(url));
     assert.equal(session.signInError("?auth_error=denied"), "denied");
     for (const code of ["credentials", "unconfirmed", "weak_password", "invalid_email", "link_expired"])
       assert.equal(session.signInError(`?auth_error=${code}`), code);
@@ -141,6 +151,11 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), "parallax-hosted-"));
       "no-store",
     );
     assert.equal(cloud.routes.at(-1).dest, "/index.html");
+    const discovery = cloud.routes.find(r => r.src?.includes("well-known"));
+    assert.equal(discovery.dest, "https://runtime.example.com/.well-known/$1");
+    assert.equal(discovery.headers["Cache-Control"], "no-store");
+    for (const route of ["/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/api/mcp", "/.well-known/openai-apps-challenge"])
+      assert.match(route, new RegExp(`^${discovery.src}$`));
     assert.equal(
       cloud.routes.find((r) => r.src === "/assets/.*" && r.status).status,
       404,

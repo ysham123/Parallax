@@ -169,6 +169,9 @@ export function AccountMenu({
             </p>
           )}
           {member && !operatorWorkspace && (
+            <a role="menuitem" href="/connections">Connected apps</a>
+          )}
+          {member && !operatorWorkspace && (
             <button
               type="button"
               role="menuitem"

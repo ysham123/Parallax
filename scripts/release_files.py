@@ -4,7 +4,7 @@ import os
 
 ENTRIES = (
     "src", "scripts", "skills", "studio", "tests", "assets", "docs",
-    ".codex-plugin", ".claude-plugin", "claude-code", ".agents", ".github", ".mcp.json", "mcp.json",
+    ".codex-plugin", ".claude-plugin", "claude-code", "openai", ".agents", ".github", ".mcp.json", "mcp.json",
     "plugin.json", "pyproject.toml", "uv.lock", "requirements.lock",
     "README.md", "UPGRADE.md", "CONTRIBUTING.md", "SECURITY.md", "CHANGELOG.md", "LICENSE", ".gitignore",
     "vercel.json", ".vercelignore", "railway.json", "Dockerfile", ".dockerignore",

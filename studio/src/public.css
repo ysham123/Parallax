@@ -966,3 +966,8 @@
     gap: 12px;
   }
 }
+.consent-access { padding-left: 1.3rem; line-height: 1.65; }
+.consent-access li { margin-bottom: .7rem; }
+.consent-grants { list-style: none; padding: 0; }
+.consent-grants li { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin: 1rem 0; }
+.consent-grants span { overflow-wrap: anywhere; }

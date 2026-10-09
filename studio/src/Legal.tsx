@@ -58,6 +58,15 @@ function Privacy() {
       <Section title="What the hosted service collects">
         <ul>
           <li>
+            <strong>Connected apps:</strong> if you connect ChatGPT, Codex or another OAuth client,
+            we store the client identifier, name, consent time and revocation state. During consent,
+            a Supabase access token is held temporarily in server memory, expires from the consent
+            flow after five minutes, and is then discarded and its session revoked. Refresh tokens
+            are not retained. Connected apps receive machine and project names, requested run summaries,
+            and temporary pairing codes when requested. Revoking access in <a href="/connections">Connected apps</a>
+            blocks new requests; runs already started continue until stopped in Studio.
+          </li>
+          <li>
             <strong>Account:</strong> your email address, display name, profile picture address, the
             sign-in method you use (email, GitHub or Google), your GitHub account number if you sign
             in with GitHub, and when you created the account and last signed in.

@@ -7,6 +7,9 @@ import unittest
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"scripts"))
 from release_files import release_files
 from build_claude_plugin import build, check, plugin_files
+from build_openai_plugin import build as build_openai, package_files as openai_files
+import json
+import zipfile
 
 
 class ReleaseInputsTest(unittest.TestCase):
@@ -65,4 +68,33 @@ class ClaudePluginTreeTest(unittest.TestCase):
             self.assertIn("src/parallax/large.py is over 256 KiB",problems)
             self.assertIn("System file",problems)
             self.assertIn("exactly the build, parallax, review and studio skills",check({**plugin_files(),"skills/extra/SKILL.md":plugin_files()["skills/build/SKILL.md"]})[0])
+
+
+class OpenAIPluginTest(unittest.TestCase):
+    def test_package_is_remote_only_and_review_materials_are_explicit(self):
+        files = openai_files(draft=True)
+        self.assertEqual(set(files), {"plugin.json","mcp.json","README.md","LICENSE","assets/parallax-icon.svg","skills/connect-parallax/SKILL.md"})
+        manifest = json.loads(files["plugin.json"])
+        extension = manifest["extensions"]["com.openai"]
+        self.assertEqual(manifest["name"], "parallax-team")
+        self.assertEqual(len(extension["review"]["test_cases"]["positive"]), 5)
+        self.assertEqual(len(extension["review"]["test_cases"]["negative"]), 3)
+        self.assertNotIn("demo_recording_url", extension["review"])
+        self.assertIn(extension["onboardingSkill"].removeprefix("./"), files)
+        mcp = json.loads(files["mcp.json"])["mcpServers"]["parallax"]
+        self.assertEqual(mcp, {"type":"streamable-http","url":"https://parallax.yosefshammout.com/api/mcp"})
+        with self.assertRaisesRegex(ValueError, "demo-recording-url"):
+            openai_files()
+        for origin in ["http://public.example", "https://key@host.com", "https://localhost", "https://host.com/private"]:
+            with self.assertRaises(ValueError): openai_files(draft=True, origin=origin)
+
+    def test_zip_is_reproducible_and_includes_only_declared_assets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            first, second = Path(directory)/"first.zip", Path(directory)/"second.zip"
+            build_openai(first, draft=True)
+            build_openai(second, draft=True)
+            self.assertEqual(first.read_bytes(), second.read_bytes())
+            with zipfile.ZipFile(first) as archive:
+                self.assertIsNone(archive.testzip())
+                self.assertEqual(set(archive.namelist()), set(openai_files(draft=True)))
 

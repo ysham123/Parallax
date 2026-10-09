@@ -3,6 +3,7 @@ import { ProviderMark } from "./Brand";
 import { localStudioUrl } from "./hosted-link";
 import { legalPage } from "./session";
 import Legal from "./Legal";
+import OAuthConsent, { ConnectedApps } from "./OAuthConsent";
 import "./hosted.css";
 
 const repository = "https://github.com/ysham123/Parallax";
@@ -10,6 +11,8 @@ const command =
   "python3 scripts/parallax.py studio --workspace /path/to/project";
 
 export default function HostedApp() {
+  if (location.pathname === "/oauth/consent") return <OAuthConsent />;
+  if (location.pathname === "/connections") return <ConnectedApps />;
   const page = legalPage(location.pathname);
   return page ? <Legal page={page} /> : <HostedEntry />;
 }

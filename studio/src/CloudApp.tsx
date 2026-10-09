@@ -7,6 +7,7 @@ import OperatorGate from "./OperatorGate";
 import PublicEntry from "./PublicEntry";
 import Auth, { type AuthMode } from "./Auth";
 import Legal from "./Legal";
+import OAuthConsent, { ConnectedApps } from "./OAuthConsent";
 import { AccountMenu, DeleteAccountDialog, Mark, applyStoredTheme } from "./PublicChrome";
 import {
   HOSTED_EXECUTOR,
@@ -46,6 +47,8 @@ function normalize(value: Partial<Session>): Session {
 }
 
 export default function CloudApp() {
+  if (location.pathname === "/oauth/consent") return <OAuthConsent />;
+  if (location.pathname === "/connections") return <ConnectedApps />;
   // Policy and support pages are static and never wait on the runtime or a session.
   const page = legalPage(location.pathname);
   return page ? <Legal page={page} /> : <CloudWorkspace />;

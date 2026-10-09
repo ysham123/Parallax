@@ -120,6 +120,8 @@ python3 scripts/parallax.py worker --url URL --workspace PATH   # pair with a ho
 
 The CLI, Studio and the bundled stdio MCP server share one local runtime, and inputs and results follow the versioned [contracts](src/parallax/models.py). `PARALLAX_HOME` selects another state directory. The original `scripts/claude_bridge.py` interface remains supported.
 
+The optional [remote MCP integration](docs/REMOTE-MCP.md) lets account-authorized clients use paired machines through hosted Studio. It is disabled by default and requires Supabase OAuth setup. `python3 scripts/build_openai_plugin.py --draft` prepares the separate OpenAI directory package; the existing local plugins keep their install IDs.
+
 ## Limits
 
 - Build and Compare need a Git repository. Review works in any folder.
