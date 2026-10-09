@@ -35,6 +35,11 @@ export function outputConfig(value = "") {
         continue: true,
       },
       {
+        src: "/\\.well-known/(oauth-protected-resource(?:/api/mcp)?|openai-apps-challenge)",
+        dest: origin ? `${origin}/.well-known/$1` : "/runtime-unavailable.json",
+        headers: { "Cache-Control": "no-store" },
+      },
+      {
         src: "/api(?:/(.*))?",
         dest: origin ? `${origin}/api/$1` : "/runtime-unavailable.json",
         headers: { "Cache-Control": "no-store" },

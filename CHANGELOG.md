@@ -2,6 +2,9 @@
 
 ## 1.4.0 · Directory ready
 
+- Optional remote MCP for personal accounts: eight tools use the existing paired-machine relay, with Supabase JWT verification, explicit OAuth consent and revocable client grants. Hosted execution remains unavailable to remote clients. Enable only after completing the audience-hook and live OAuth setup in `docs/REMOTE-MCP.md`.
+- `scripts/build_openai_plugin.py` builds a separate `parallax-team` directory ZIP with remote HTTPS MCP, a pairing skill, listing metadata and five positive/three negative proposed review cases. Draft builds do not claim live readiness; submission builds require a demo-recording URL.
+
 - The Claude Code plugin is now named `parallax-team`, because another publisher already lists a plugin called `parallax` in Anthropic's directory. Install with `/plugin install parallax-team@parallax`; commands are `/parallax-team:review`, `/parallax-team:build` and `/parallax-team:studio`. The Codex install ID stays `codex-claude-team`.
 - Hosted Studio publishes a privacy policy, terms of service and a support page at `/privacy`, `/terms` and `/support`, linked from every public page. They load without the runtime or a session.
 - The public page describes hosted accounts by email, name and sign-in method instead of GitHub only.

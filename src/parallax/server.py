@@ -29,7 +29,7 @@ from .accounts import (Accounts, Principal, SignInRefused, operator_principal, S
 # Paths a workspace without hosted execution may use. Everything else under /api
 # reaches the hosted runtime's own engine, CLI sign-ins, and project clones.
 HOST_SHAPE = re.compile(r"([A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?)(?::[0-9]{1,5})?")
-WORKSPACE_ROUTES = re.compile(r"/api/(?:session|account|executors|executors/pair|executors/[^/]+|executors/[^/]+/proxy/.*)")
+WORKSPACE_ROUTES = re.compile(r"/api/(?:session|account|oauth/consent|oauth/grants|oauth/grants/[a-f0-9-]+|executors|executors/pair|executors/[^/]+|executors/[^/]+/proxy/.*)")
 HOSTED_BODY_LIMIT = 2 * 1024 * 1024
 WORKER_CONNECT_LIMIT = 128 * 1024
 
@@ -121,11 +121,21 @@ class OAuthStart(BaseModel):
     model_config = ConfigDict(extra="forbid")
     provider: str = Field(pattern=r"^(github|google)$")
 
+class ConsentPassword(EmailLogIn):
+    authorization_id: str = Field(pattern=r"^[a-f0-9-]{36}$")
+
+class ConsentStart(OAuthStart):
+    authorization_id: str = Field(pattern=r"^[a-f0-9-]{36}$")
+
+class ConsentDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    approve: bool
+
 # Paths a signed-out browser may call. Top-level navigations (callbacks and emailed links) carry no Origin header
 # and are protected by their flow binding or single-use link instead; the POST routes still require the Studio Origin.
-PUBLIC_NAVIGATIONS = {"/api/auth/github/callback", "/api/auth/oauth/callback", "/api/auth/confirm"}
+PUBLIC_NAVIGATIONS = {"/api/auth/github/callback", "/api/auth/oauth/callback", "/api/auth/confirm", "/api/oauth/callback"}
 PUBLIC_POSTS = {"/api/session", "/api/auth/github/start", "/api/auth/oauth/start", "/api/auth/email/signup",
-                "/api/auth/email/login", "/api/auth/password/forgot", "/api/auth/password/reset"}
+                "/api/auth/email/login", "/api/auth/password/forgot", "/api/auth/password/reset", "/api/oauth/password", "/api/oauth/start"}
 REFUSAL_STATUS = {"invalid_email": 400, "weak_password": 400, "link_expired": 400, "credentials": 401, "unconfirmed": 403,
                   "closed": 403, "not_invited": 403, "disabled": 403, "capacity": 409, "busy": 429, "unavailable": 503}
 
@@ -180,15 +190,28 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
     async def lifespan(app):
         engine.recover()
         await engine.reconcile_children()
-        yield
-        await engine.shutdown()
+        janitor = asyncio.create_task(remote.consent.janitor()) if remote else None
+        try:
+            yield
+        finally:
+            if janitor:
+                janitor.cancel()
+                await asyncio.gather(janitor, return_exceptions=True)
+                await remote.consent.close()
+            await engine.shutdown()
     app=FastAPI(title="Parallax",version=__version__,lifespan=lifespan,docs_url=None,redoc_url=None,openapi_url=None)
     app.state.engine=engine;app.state.token=token;app.state.store=store;app.state.accounts=accounts
     from .executors import ExecutorHub, MAX_MESSAGE, limits_for
     hub = ExecutorHub(store) if deployment else None
     app.state.executors = hub
+    from .mcp_remote import RemoteMCP, RESOURCE_PATH
+    from .mcp_oauth import CONSENT_COOKIE, CONSENT_FLOW_COOKIE, CONSENT_PATH, CONSENT_SECONDS, authorization_id
+    remote = RemoteMCP(accounts, hub) if deployment and deployment.remote_mcp else None
+    app.state.remote_mcp = remote
     relay_inflight, event_streams = Counter(), Counter()
     def body_limit(path):
+        if path == "/api/mcp" or path.startswith("/api/oauth/"):
+            return 64 * 1024
         if path == "/api/worker/connect":
             return WORKER_CONNECT_LIMIT  # Unauthenticated: a name, a platform and a list of project paths.
         if path.startswith("/api/worker/") or "/proxy/" in path or not deployment:
@@ -226,6 +249,12 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
             return JSONResponse({"detail":"Cross-origin requests are not allowed"},status_code=403)
         if path=="/api/health":
             return await call_next(request)
+        # MCP has a separate OAuth bearer boundary. Never treat its tokens as operator-key guesses.
+        if path == "/api/mcp" or path in {RESOURCE_PATH, "/.well-known/oauth-protected-resource", "/.well-known/openai-apps-challenge"}:
+            response = await call_next(request)
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["X-Content-Type-Options"] = "nosniff"
+            return response
         if hub and path.startswith("/api/worker/"):
             if origin:
                 return JSONResponse({"detail":"Worker protocol requires an outbound CLI connection"},status_code=403)
@@ -283,6 +312,98 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
 
     @app.get("/api/health")
     async def health(): return {"ok":True,"version":__version__}
+
+    def require_remote():
+        if remote is None:
+            raise HTTPException(404, "Remote connections are not enabled")
+        return remote
+
+    @app.api_route("/api/mcp", methods=["GET", "POST", "DELETE"])
+    async def remote_mcp(request:Request):
+        return await require_remote().handle(request)
+
+    @app.get(RESOURCE_PATH)
+    @app.get("/.well-known/oauth-protected-resource")
+    async def protected_resource():
+        return require_remote().metadata()
+
+    @app.get("/.well-known/openai-apps-challenge")
+    async def openai_challenge():
+        if not deployment or not deployment.openai_challenge:
+            raise HTTPException(404)
+        return Response(deployment.openai_challenge, media_type="text/plain")
+
+    def consent_session(response, values):
+        session, lifetime, nonce = values
+        set_session(response, session, lifetime)
+        response.set_cookie(CONSENT_COOKIE, nonce, httponly=True, secure=True, samesite="strict",
+                            max_age=CONSENT_SECONDS, path=CONSENT_PATH)
+        return response
+
+    @app.post("/api/oauth/password")
+    async def consent_password(body:ConsentPassword):
+        service = require_remote().consent
+        authorization_id(body.authorization_id)
+        try:
+            values = await service.sign_in(body.authorization_id, await accounts.password_exchange(body.email, body.password))
+        except SignInRefused as refusal:
+            return refused(refusal)
+        return consent_session(JSONResponse({"ok":True}), values)
+
+    @app.post("/api/oauth/start")
+    async def consent_start(body:ConsentStart):
+        service = require_remote().consent
+        authorization_id(body.authorization_id)
+        try:
+            url, binding = accounts.begin_oauth(body.provider, redirect=deployment.public_origin + "/api/oauth/callback")
+        except SignInRefused as refusal:
+            return refused(refusal)
+        response = JSONResponse({"url":url}, headers={"Cache-Control":"no-store"})
+        response.set_cookie(CONSENT_FLOW_COOKIE, service.seal_flow(binding, body.authorization_id), httponly=True, secure=True,
+                            samesite="lax", max_age=600, path=CONSENT_PATH)
+        return response
+
+    @app.get("/api/oauth/callback")
+    async def consent_callback(request:Request):
+        service = require_remote().consent
+        identifier = ""
+        try:
+            binding, identifier = service.open_flow(request.cookies.get(CONSENT_FLOW_COOKIE, ""))
+            query = request.query_params
+            provider_session = await accounts.oauth_exchange(code=query.get("code", ""), binding=binding, error=query.get("error"))
+            values = await service.sign_in(identifier, provider_session)
+            response = consent_session(RedirectResponse("/oauth/consent?" + urlencode({"authorization_id":identifier}), status_code=303), values)
+        except SignInRefused as refusal:
+            response = RedirectResponse("/oauth/consent?" + urlencode({"authorization_id":identifier, "auth_error":refusal.code}), status_code=303)
+        response.delete_cookie(CONSENT_FLOW_COOKIE, path=CONSENT_PATH, secure=True, httponly=True, samesite="lax")
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        return response
+
+    @app.get("/api/oauth/consent")
+    async def consent_details(request:Request):
+        try:
+            return await require_remote().consent.details(request.cookies.get(CONSENT_COOKIE, ""), principal_of(request), request.query_params.get("authorization_id", ""))
+        except SignInRefused as refusal:
+            return refused(refusal)
+
+    @app.post("/api/oauth/consent")
+    async def consent_decide(request:Request, body:ConsentDecision):
+        try:
+            data = await require_remote().consent.decide(request.cookies.get(CONSENT_COOKIE, ""), principal_of(request), request.query_params.get("authorization_id", ""), body.approve)
+        except SignInRefused as refusal:
+            return refused(refusal)
+        response = JSONResponse(data)
+        response.delete_cookie(CONSENT_COOKIE, path=CONSENT_PATH, secure=True, httponly=True, samesite="strict")
+        return response
+
+    @app.get("/api/oauth/grants")
+    async def consent_grants(request:Request):
+        return require_remote().consent.grants(principal_of(request))
+
+    @app.delete("/api/oauth/grants/{client}")
+    async def consent_revoke(client:str, request:Request):
+        return require_remote().consent.revoke(principal_of(request), client)
     @app.get("/api/context")
     async def context(): return {"workspace":workspace or os.environ.get("PARALLAX_WORKSPACE","")}
     @app.post("/api/session")
@@ -298,6 +419,8 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
     async def session(request:Request): return principal_of(request).public()
     @app.delete("/api/session")
     async def sign_out(request:Request):
+        if remote:
+            await remote.consent.abandon(principal_of(request).session)
         if accounts: accounts.end_session(principal_of(request).session)
         response=JSONResponse({"ok":True})
         response.delete_cookie(SESSION_COOKIE,secure=bool(deployment),httponly=True,samesite="strict")
@@ -308,7 +431,8 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
         providers=await accounts.providers()
         # "github" stays for Studio builds that predate the providers list.
         identity="supabase" if deployment.supabase else "github" if deployment.github_redirect else None
-        return {"github":"github" in providers,"identity":identity,"providers":providers,"signup":deployment.signup}
+        return {"github":"github" in providers,"identity":identity,"providers":providers,"signup":deployment.signup,
+                **({"remote_mcp":True} if remote else {})}
     def refused(refusal:SignInRefused):
         return JSONResponse({"detail":refusal.code},status_code=REFUSAL_STATUS.get(refusal.code,502),headers={"Cache-Control":"no-store"})
     def auth_error_redirect(refusal:SignInRefused):
@@ -397,6 +521,7 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
         if not deployment: raise HTTPException(404)
         try: await accounts.delete_account(principal_of(request),hub,request.query_params.get("confirm",""))
         except PermissionError as refused: raise HTTPException(409,str(refused))
+        if remote: await remote.consent.abandon(principal_of(request).session)
         response=JSONResponse({"ok":True})
         response.delete_cookie(SESSION_COOKIE,secure=True,httponly=True,samesite="strict")
         return response

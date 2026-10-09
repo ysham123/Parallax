@@ -79,6 +79,8 @@ class Deployment:
     supabase: SupabaseProject | None = None
     owner_emails: frozenset[str] = frozenset()
     allowed_emails: frozenset[str] = frozenset()
+    remote_mcp: bool = False
+    openai_challenge: str = ""
 
     def __repr__(self):
         return (f"Deployment(origins={sorted(self.origins)!r}, hosts={sorted(self.hosts)!r}, projects={str(self.projects)!r}, "
@@ -151,9 +153,15 @@ class Deployment:
         raw_limit = os.environ.get("PARALLAX_MAX_ACCOUNTS", "100").strip() or "100"
         if not raw_limit.isdigit() or not 1 <= int(raw_limit) <= 100000:
             raise ValueError("PARALLAX_MAX_ACCOUNTS must be between 1 and 100000")
+        mcp = os.environ.get("PARALLAX_REMOTE_MCP", "off").lower()
+        if mcp not in {"on", "off"} or (mcp == "on" and (not supabase or not public_origin)):
+            raise ValueError("PARALLAX_REMOTE_MCP must be off, or on with Supabase and a public origin configured")
+        challenge = os.environ.get("PARALLAX_OPENAI_CHALLENGE", "")
+        if challenge and not re.fullmatch(r"[A-Za-z0-9_.=-]{1,1024}", challenge):
+            raise ValueError("PARALLAX_OPENAI_CHALLENGE must be the domain verification token")
         return cls(token, frozenset(origins), frozenset(hosts), projects, public_origin, github,
                    _github_ids("PARALLAX_OWNER_GITHUB_IDS"), signup, _github_ids("PARALLAX_ALLOWED_GITHUB_IDS"), int(raw_limit),
-                   supabase, _emails("PARALLAX_OWNER_EMAILS"), _emails("PARALLAX_ALLOWED_EMAILS"))
+                   supabase, _emails("PARALLAX_OWNER_EMAILS"), _emails("PARALLAX_ALLOWED_EMAILS"), mcp == "on", challenge)
 
     def check_workspace(self, value: str):
         if not Path(value).expanduser().resolve().is_relative_to(self.projects.resolve()):

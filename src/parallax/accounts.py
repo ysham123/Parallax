@@ -4,8 +4,9 @@ Only the hosted runtime (``python -m parallax.cloud``) uses this module; the
 local loopback Studio keeps its single-user launch-token exchange. People sign
 in through Supabase Auth (email and password, GitHub or Google) or, for
 self-hosted deployments without Supabase, the built-in GitHub OAuth app. The
-runtime makes every call to the identity provider itself, uses its token once
-to read the user, and keeps only its own opaque session. Every account
+runtime makes every call to the identity provider itself. Normal sign-in uses
+its token once; remote MCP consent temporarily holds it in memory (mcp_oauth.py).
+The browser receives only an opaque session. Every account
 receives one personal workspace. Configured operator accounts and the
 deployment access key open the operator workspace, which is the only workspace
 allowed to use the hosted runtime's own execution engine.
@@ -349,6 +350,10 @@ class Accounts:
         return await self._sign_in(session)
 
     async def log_in(self, email, password) -> tuple[str, int]:
+        return await self._sign_in(await self.password_exchange(email, password))
+
+    async def password_exchange(self, email, password) -> dict:
+        """Exchange credentials without retaining the provider session. The caller must revoke it."""
         email = normal_email(email)
         if not isinstance(password, str) or not 1 <= len(password) <= 1024:
             raise SignInRefused("credentials")
@@ -365,7 +370,7 @@ class Accounts:
                 with self.store.connect() as db:
                     allow_rate(db, bucket, 1000, 900)  # Only failed attempts are recorded; the limit lifts after 15 minutes.
             raise refusal
-        return await self._sign_in(session)
+        return session
 
     async def forgot_password(self, email) -> None:
         """Send a reset link if the account exists. The reply is the same either way."""
@@ -394,17 +399,20 @@ class Accounts:
             raise self._supabase_refusal(reply, "weak_password")
         return await self._sign_in(session)
 
-    def begin_oauth(self, provider: str) -> tuple[str, str]:
+    def begin_oauth(self, provider: str, *, redirect: str | None = None) -> tuple[str, str]:
         if self.deployment.supabase is None or not self.deployment.oauth_redirect:
             raise SignInRefused("unavailable")
         if provider not in OAUTH_PROVIDERS:
             raise SignInRefused("unavailable")
         _, _, challenge, binding = self._new_flow()
-        query = urlencode({"provider": provider, "redirect_to": self.deployment.oauth_redirect,
+        query = urlencode({"provider": provider, "redirect_to": redirect or self.deployment.oauth_redirect,
                            "code_challenge": challenge, "code_challenge_method": "s256"})
         return f"{self.deployment.supabase.url}/auth/v1/authorize?{query}", binding
 
     async def finish_oauth(self, *, code: str, binding: str, error: str | None = None) -> tuple[str, int]:
+        return await self._sign_in(await self.oauth_exchange(code=code, binding=binding, error=error))
+
+    async def oauth_exchange(self, *, code: str, binding: str, error: str | None = None) -> dict:
         if self.deployment.supabase is None:
             raise SignInRefused("unavailable")
         # Supabase issued the code against this browser's challenge; another browser's verifier cannot redeem it.
@@ -417,7 +425,22 @@ class Accounts:
                                                body={"auth_code": code, "code_verifier": self._flow_value("verifier", nonce, expires)})
         if status >= 400:
             raise self._supabase_refusal(session, "expired")
-        return await self._sign_in(session)
+        return session
+
+    async def provider_identity(self, session: dict) -> tuple[str, dict]:
+        token = session.get("access_token")
+        if not isinstance(token, str) or not 1 <= len(token) <= 8192:
+            raise SignInRefused("failed")
+        status, user = await self._supabase("GET", "/user", jwt=token)
+        if status != 200:
+            raise SignInRefused("failed")
+        return token, self._supabase_profile(user)
+
+    async def revoke_provider_session(self, token: str):
+        try:
+            await self._supabase("POST", "/logout", query={"scope": "local"}, jwt=token)
+        except SignInRefused:
+            pass
 
     async def _sign_in(self, session: dict) -> tuple[str, int]:
         """Read the user with the Supabase token, revoke it, and open a Parallax session."""
@@ -509,6 +532,9 @@ class Accounts:
         hub.purge_workspace(principal.workspace)
         with self.store.connect() as db:
             db.execute("DELETE FROM sessions WHERE account=?", (principal.account["id"],))
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='mcp_grants'").fetchone():
+                db.execute("DELETE FROM mcp_grants WHERE account=?", (principal.account["id"],))
+            db.execute("DELETE FROM rate_events WHERE bucket=?", ("mcp-consent:" + principal.account["id"],))
             db.execute("DELETE FROM workspaces WHERE id=? AND kind='personal'", (principal.workspace,))
             db.execute("DELETE FROM accounts WHERE id=?", (principal.account["id"],))
         subject = principal.account.get("subject") or ""
