@@ -2,7 +2,8 @@
 
 ## Unreleased · Saved coding workflows
 
-- Studio opens on a workflow home with reusable Verified change, Fix a bug, and Safe refactor recipes, personal recipe versions, project readiness, a task history, and a queue of candidates awaiting approval.
+- Studio opens on a searchable task queue with project and status filters. Each task has a workspace with team activity beside per-file diffs, command results, independent reviews, and saved settings. Large diffs use paged rows and retain full patch downloads. Send guidance during execution or start a linked follow-up that preserves the original workflow version and settings, with an independent candidate and approval.
+- New task includes project readiness, a workflow selector, and configurable team, instructions, and checks. Reusable Verified change, Fix a bug, and Safe refactor recipes can be copied into personal, versioned recipes. Exact candidate approval stays with the task's evidence.
 - LangGraph coordinates preparation, durable approval, and application on the execution machine. SQLite checkpoints and an atomic engine operation identity let a completed candidate survive worker restarts without another successful build.
 - Approval binds the exact candidate, source snapshot, settings, and evidence. Parallax rechecks them before applying, preserves staged work, and records the decision in the downloadable verification receipt. Changed projects or evidence block the old candidate.
 - Recipes and workflow controls use the existing authenticated local API and account-scoped paired-worker relay. Existing CLI/plugin operations and remote MCP tools remain available. Update workers and the relay together; see `docs/WORKFLOWS.md`.

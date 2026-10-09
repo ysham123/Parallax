@@ -15,7 +15,11 @@ import { Recovery } from "./Recovery";
 import { Baseline } from "./Baseline";
 import { AlphaFeedback } from "./AlphaFeedback";
 import { Verification } from "./Verification";
-import { ContextDetails, ExplorationDetail, VariantDetail } from "./Exploration";
+import {
+  ContextDetails,
+  ExplorationDetail,
+  VariantDetail,
+} from "./Exploration";
 import { Workflows } from "./Workflows";
 import { contextManifest, explorations } from "./run-inspection";
 import {
@@ -691,7 +695,11 @@ function TaskDetail({
   onSelect: (id: string) => void;
 }) {
   const manifest = contextManifest(
-    [...events].reverse().find((event) => event.kind === "context" && event.task_id === text(task.id)),
+    [...events]
+      .reverse()
+      .find(
+        (event) => event.kind === "context" && event.task_id === text(task.id),
+      ),
   );
   // A task resolved by one of its own variants was explored, not repaired.
   const explored = explorations(tasks).get(text(task.id));
@@ -768,9 +776,15 @@ function TaskDetail({
           })}
         </div>
       )}
-      {task.variant_of ? <VariantDetail task={task} tasks={tasks} onSelect={onSelect} /> : null}
-      {explored && <ExplorationDetail task={task} tasks={tasks} onSelect={onSelect} />}
-      {manifest && <ContextDetails manifest={manifest} label="Latest context packet" />}
+      {task.variant_of ? (
+        <VariantDetail task={task} tasks={tasks} onSelect={onSelect} />
+      ) : null}
+      {explored && (
+        <ExplorationDetail task={task} tasks={tasks} onSelect={onSelect} />
+      )}
+      {manifest && (
+        <ContextDetails manifest={manifest} label="Latest context packet" />
+      )}
       {Array.isArray(task.acceptance) && task.acceptance.length > 0 && (
         <div className="task-acceptance">
           <span className="eyebrow">ACCEPTANCE CRITERIA</span>
@@ -1264,7 +1278,11 @@ export default function App({
         ["1", "2", "3", "4"].includes(event.key)
       ) {
         event.preventDefault();
-        setTab((["team", "run", "review", "workflows"] as Tab[])[Number(event.key) - 1]);
+        setTab(
+          (["team", "run", "review", "workflows"] as Tab[])[
+            Number(event.key) - 1
+          ],
+        );
         mainRef.current?.focus();
       }
       if (event.key === "Escape") {
@@ -1385,7 +1403,7 @@ export default function App({
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [refreshProviders]);
   useEffect(() => {
-    if (!run?.run_id) return;
+    if (!run?.run_id || tab === "workflows") return;
     activeId.current = run.run_id;
     cursor.current = 0;
     setEvents([]);
@@ -1414,16 +1432,19 @@ export default function App({
         // two seconds instead, so busy runs and several tabs stay within the workspace's relay rate.
         if (viaMachine() && debounce.current) return;
         window.clearTimeout(debounce.current);
-        debounce.current = window.setTimeout(() => {
-          debounce.current = undefined;
-          void api<RunResult>(`/runs/${encodeURIComponent(id)}`)
-            .then((result) => {
-              if (!disposed && activeId.current === id) updateRun(result);
-            })
-            .catch((err) => {
-              if (!disposed) setError(messageOf(err));
-            });
-        }, viaMachine() ? 2000 : 220);
+        debounce.current = window.setTimeout(
+          () => {
+            debounce.current = undefined;
+            void api<RunResult>(`/runs/${encodeURIComponent(id)}`)
+              .then((result) => {
+                if (!disposed && activeId.current === id) updateRun(result);
+              })
+              .catch((err) => {
+                if (!disposed) setError(messageOf(err));
+              });
+          },
+          viaMachine() ? 2000 : 220,
+        );
       } catch {
         setStreamStatus("invalid event");
       }
@@ -1445,7 +1466,7 @@ export default function App({
       window.clearTimeout(debounce.current);
       debounce.current = undefined;
     };
-  }, [run?.run_id, updateRun]);
+  }, [run?.run_id, updateRun, tab]);
 
   async function chooseRun(id: string, target: Tab = "run") {
     setBusy("open");
@@ -1717,10 +1738,10 @@ export default function App({
         <nav aria-label="Studio navigation">
           {(
             [
-              { id: "workflows", name: "Workflows", icon: "orbit", key: "4" },
-              { id: "run", name: "Workspace", icon: "run", key: "2" },
-              { id: "team", name: "New run", icon: "plus", key: "1" },
-              { id: "review", name: "Review", icon: "review", key: "3" },
+              { id: "workflows", name: "Tasks", icon: "review", key: "4" },
+              { id: "run", name: "Agent graph", icon: "run", key: "2" },
+              { id: "team", name: "Advanced run", icon: "plus", key: "1" },
+              { id: "review", name: "Run evidence", icon: "review", key: "3" },
             ] as { id: Tab; name: string; icon: IconName; key: string }[]
           ).map((item) => (
             <button
@@ -1828,7 +1849,13 @@ export default function App({
             </span>
             <Icon name="chevron" size={13} />
             <strong>
-              {tab === "run" ? "Runs" : tab === "team" ? "New run" : tab === "workflows" ? "Workflows" : "Review"}
+              {tab === "run"
+                ? "Runs"
+                : tab === "team"
+                  ? "New run"
+                  : tab === "workflows"
+                    ? "Tasks"
+                    : "Review"}
             </strong>
           </div>
           <div className="topbar-right">
@@ -1874,22 +1901,43 @@ export default function App({
               </button>
             </div>
           )}
-          {tab === "workflows" && (
+          <div className="task-host" hidden={tab !== "workflows"}>
             <Workflows
+              active={
+                tab === "workflows" && !connectionsOpen && !workspaceOverlay
+              }
               workspace={spec.workspace}
-              onWorkspace={workspace => setSpec(previous => ({...previous, workspace}))}
+              onWorkspace={(workspace) =>
+                setSpec((previous) => ({ ...previous, workspace }))
+              }
               online={execution?.online !== false}
-              onInspect={id => void chooseRun(id, "review")}
+              onInspect={(id) => void chooseRun(id, "run")}
+              knownProjects={runs.map((r) => r.spec.workspace)}
+              renderEvidence={(run, tab) => (
+                <ReviewContent run={run} tab={tab} />
+              )}
               onConnections={() => setConnectionsOpen(true)}
               renderParticipant={(participant, onChange, coordinator) => (
-                <ParticipantEditor participant={participant} providers={providers} connections={connections}
-                  onChange={onChange} coordinator={coordinator} checking={catalogLoading} />
+                <ParticipantEditor
+                  participant={participant}
+                  providers={providers}
+                  connections={connections}
+                  onChange={onChange}
+                  coordinator={coordinator}
+                  checking={catalogLoading}
+                />
               )}
               renderCheck={(check, index, onChange, onRemove, onValidity) => (
-                <CheckEditor check={check} index={index} onChange={onChange} onRemove={onRemove} onValidity={onValidity} />
+                <CheckEditor
+                  check={check}
+                  index={index}
+                  onChange={onChange}
+                  onRemove={onRemove}
+                  onValidity={onValidity}
+                />
               )}
             />
-          )}
+          </div>
           {tab === "team" && (
             <>
               <div className="page-heading">
@@ -2575,7 +2623,9 @@ export default function App({
               <Icon name="orbit" size={15} /> Parallax Studio
             </span>
             <span>Local agents. Recorded evidence. Your workspace.</span>
-            <span className="keyboard-hint">Alt + 1 / 2 / 3 / 4 to navigate</span>
+            <span className="keyboard-hint">
+              Alt + 1 / 2 / 3 / 4 to navigate
+            </span>
           </footer>
         </main>
       </div>

@@ -43,6 +43,7 @@ class TemplateInput(BaseModel):
 class WorkflowStart(BaseModel):
     model_config = ConfigDict(extra="forbid")
     request_id: UUID
+    parent_workflow_id: UUID | None = None
     template_id: str = Field(default="verified-change", pattern=r"^[a-z0-9-]{1,80}$")
     template_version: int = Field(default=1, ge=1)
     workspace: str = Field(min_length=1, max_length=4096)
@@ -133,6 +134,7 @@ class Workflows:
 
     def public(self, value, *, brief=False):
         out = {key:value.get(key) for key in ("id", "title", "status", "stage", "created_at", "updated_at", "run_id", "error", "candidate", "decision", "timeline")}
+        out["parent_workflow_id"] = value.get("parent_workflow_id")
         out["template"] = {key:value["template"][key] for key in ("id", "version", "name")}
         out["workspace"] = value["spec"]["workspace"]
         if value.get("run_id"):
@@ -146,7 +148,35 @@ class Workflows:
         else:
             out["spec"] = value["spec"]
             out["prompt"] = value["prompt"]
+            out["original_goal"] = value.get("original_goal", value["prompt"])
+            out["template_details"] = {key:value["template"].get(key, "")
+                for key in ("id", "version", "name", "description", "instructions")}
         return out
+
+    def _followup_prompt(self, parent, request, template):
+        # Keep the root request separate from composed execution prompts so a
+        # follow-up chain never recursively copies its entire history.
+        original_goal = parent.get("original_goal", parent["prompt"])
+        if len(original_goal) > 12000:
+            raise ValueError("The original goal is too long for a follow-up. Start a new task.")
+        summary = "No completed result was recorded."
+        if parent.get("run_id"):
+            run = self.store.get(parent["run_id"])
+            summary = run.get("summary") or summary
+        if len(summary) > 2000:
+            summary = summary[:2000] + "\n[Prior result truncated to 2,000 characters.]"
+        prompt = (
+            "This is a new task linked to earlier work. Start from the current project. "
+            "Candidate code from the prior task is not reused. Changes already applied "
+            "to the project are part of the current project. Independently build, review, "
+            "and verify a new candidate for this request.\n\n"
+            "Original goal:\n" + original_goal +
+            "\n\nPrior task status: " + parent["status"] +
+            "\nPrior result (context only; inspect the current project):\n" + summary +
+            "\n\nNew request:\n" + request.prompt +
+            "\n\nWorkflow requirements:\n" + template["instructions"]
+        )
+        return prompt, original_goal
 
     def _stage(self, identifier, stage, status=None, **changes):
         value = self.get(identifier)
@@ -189,24 +219,50 @@ class Workflows:
             identifier = str(request.request_id)
             request.workspace = str(Path(request.workspace).expanduser().resolve())
             self.check_workspace(request.workspace)
-            request_hash = digest(request.model_dump(mode="json"))
+            if not request.prompt.strip():
+                raise ValueError("Describe the outcome you want")
+            parent = None
+            if request.parent_workflow_id:
+                parent = self.get(str(request.parent_workflow_id))
+                # Authorize before reading the parent's recipe, prompt, run, or
+                # result, including on retries of an existing child request.
+                self.check_workspace(parent["spec"]["workspace"])
+                if Path(parent["spec"]["workspace"]).expanduser().resolve() != Path(request.workspace):
+                    raise ValueError("A follow-up must use the same project as its parent task")
+            # Preserve old root request hashes and ignore recipe selectors that
+            # have no meaning when the immutable parent settings are inherited.
+            ignored = {"template_id", "template_version"} if parent else {"parent_workflow_id"}
+            request_hash = digest(request.model_dump(mode="json", exclude=ignored))
             try:
                 existing = self.get(identifier)
+                self.check_workspace(existing["spec"]["workspace"])
                 if existing["request_hash"] != request_hash:
                     raise ValueError("This start request was already used with different inputs")
                 return self.public(existing)
             except KeyError:
                 pass
-            template = self.template(request.template_id, request.template_version)
-            spec = RunSpec(workspace=request.workspace, prompt=request.prompt.strip()+"\n\nWorkflow requirements:\n"+template["instructions"],
-                coordinator=request.coordinator or template["coordinator"], team=request.team or template["team"],
-                limits=template["limits"], checks=template["checks"], mode="build", integrate=False)
-            if not request.prompt.strip():
-                raise ValueError("Describe the outcome you want")
+            if parent:
+                template = parent["template"]
+                spec = RunSpec.model_validate(parent["spec"]).model_copy(deep=True)
+                spec.workspace = request.workspace
+                spec.prompt, original_goal = self._followup_prompt(parent, request, template)
+                spec.mode, spec.integrate = "build", False
+                if request.coordinator is not None:
+                    spec.coordinator = request.coordinator
+                if request.team is not None:
+                    spec.team = request.team
+            else:
+                template = self.template(request.template_id, request.template_version)
+                original_goal = request.prompt
+                spec = RunSpec(workspace=request.workspace, prompt=request.prompt.strip()+"\n\nWorkflow requirements:\n"+template["instructions"],
+                    coordinator=request.coordinator or template["coordinator"], team=request.team or template["team"],
+                    limits=template["limits"], checks=template["checks"], mode="build", integrate=False)
             if request.minutes:
                 spec.limits.minutes = request.minutes
             await self.engine.validate_settings(spec)
             value = {"id":identifier, "request_hash":request_hash, "title":request.prompt.strip()[:160], "prompt":request.prompt,
+                "parent_workflow_id":str(request.parent_workflow_id) if request.parent_workflow_id else None,
+                "original_goal":original_goal,
                 "template":template, "spec":spec.model_dump(), "status":"queued", "stage":"queued",
                 "created_at":now(), "updated_at":now(), "timeline":[], "error":""}
             with self.store.connect() as db:
