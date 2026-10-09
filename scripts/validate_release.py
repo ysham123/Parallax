@@ -7,6 +7,7 @@ import sys
 from html.parser import HTMLParser
 import xml.etree.ElementTree as ET
 from release_files import release_files
+from build_claude_plugin import MCP_SERVERS, check as directory_problems, plugin_files
 
 root=Path(__file__).resolve().parents[1]
 errors=[]
@@ -77,7 +78,10 @@ if len(entries)==1:
 # Claude Code plugin: same runtime, its own skills, launcher resolved from the installed plugin root.
 claude=manifests[".claude-plugin/plugin.json"]
 check(claude.get("name")=="parallax-team","Claude Code plugin identity differs")
-check(claude.get("mcpServers")=={"parallax":{"command":"${CLAUDE_PLUGIN_ROOT}/scripts/launch.sh","args":["mcp"]}},"Claude Code MCP entry point differs")
+check(claude.get("mcpServers")==MCP_SERVERS,"Claude Code MCP entry point differs")
+# The tree Anthropic's directory installs (published to the claude-code-plugin branch) must meet its rules.
+for problem in directory_problems(plugin_files(root)):
+    check(False,"Claude Code directory plugin: "+problem)
 claude_market=json.loads((root/".claude-plugin/marketplace.json").read_text())
 claude_entries=claude_market.get("plugins",[])
 check(claude_market.get("name")=="parallax" and len(claude_entries)==1 and claude_entries[0].get("name")=="parallax-team" and claude_entries[0].get("source")=="./","Claude Code marketplace identity differs")

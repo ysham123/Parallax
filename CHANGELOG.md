@@ -5,6 +5,8 @@
 - The Claude Code plugin is now named `parallax-team`, because another publisher already lists a plugin called `parallax` in Anthropic's directory. Install with `/plugin install parallax-team@parallax`; commands are `/parallax-team:review`, `/parallax-team:build` and `/parallax-team:studio`. The Codex install ID stays `codex-claude-team`.
 - Hosted Studio publishes a privacy policy, terms of service and a support page at `/privacy`, `/terms` and `/support`, linked from every public page. They load without the runtime or a session.
 - The public page describes hosted accounts by email, name and sign-in method instead of GitHub only.
+- A Claude Code plugin tree for Anthropic's directory: `scripts/build_claude_plugin.py` assembles the runtime, the four Claude Code skills and the Studio source without the Codex plugin, checks it against the directory's rules, and CI publishes it to the `claude-code-plugin` branch after every green push to `main`. The plugin README describes everything the plugin runs, sends and stores.
+- The Claude Code MCP server starts as `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/parallax.py mcp`, and the manifest carries the directory's icon, documentation, support, privacy and terms links. Its display name is Parallax Team.
 
 ## 1.3.0 · Accounts
 
