@@ -1,6 +1,7 @@
 name: Validate Constellation
 on:
   push:
+    branches-ignore: [claude-code-plugin]
   pull_request:
 jobs:
   runtime:
@@ -69,3 +70,45 @@ jobs:
         run: docker build -t parallax-runtime .
       - name: Container health and authenticated access smoke test
         run: python scripts/smoke_container.py
+  claude-plugin:
+    # Anthropic's directory installs the folder holding .claude-plugin/plugin.json, so it tracks a branch that holds
+    # only the Claude Code plugin. It is rebuilt from main after every check passes.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [runtime, studio, container]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: claude-code-plugin
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Build the directory plugin
+        run: python scripts/build_claude_plugin.py --out "$RUNNER_TEMP/plugin"
+      - name: Publish to the claude-code-plugin branch
+        env:
+          SOURCE: ${{ github.sha }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin claude-code-plugin >/dev/null; then
+            git fetch origin claude-code-plugin
+            git worktree add -B claude-code-plugin "$RUNNER_TEMP/branch" origin/claude-code-plugin
+          else
+            git worktree add --orphan -b claude-code-plugin "$RUNNER_TEMP/branch"
+          fi
+          rsync -a --delete --exclude .git "$RUNNER_TEMP/plugin/" "$RUNNER_TEMP/branch/"
+          cd "$RUNNER_TEMP/branch"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "The plugin branch already matches $SOURCE."
+            exit 0
+          fi
+          version=$(python3 -c "import json; print(json.load(open('.claude-plugin/plugin.json'))['version'])")
+          git commit -q -m "parallax-team $version from ${SOURCE::7}"
+          git push origin claude-code-plugin
