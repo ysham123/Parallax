@@ -10,7 +10,7 @@
 
 Parallax runs a team of coding agents from different providers on your project and integrates only what survives independent review and your project's real checks. Codex, Claude Code, Grok Build and Antigravity can each coordinate, implement or review. Every agent works in an isolated checkout, a different provider reviews each change, and the combined result must pass your checks before a single line reaches your working tree. Each integrated result comes with a verification record.
 
-It runs from Claude Code, from Codex, or from the command line, with a local Studio for watching and steering the work.
+It runs from Claude Code, from Codex, or from the command line. Studio organizes work by project and task, with team activity beside file diffs, checks, and independent reviews. Start a task, direct the team, and approve the exact candidate when it is ready. Saved recipes preserve your team, instructions, and checks; progress and evidence survive disconnects and worker restarts.
 
 ## Install
 
@@ -86,7 +86,9 @@ See [architecture](docs/ARCHITECTURE.md) for the full design and [real-project d
 
 ## Studio
 
-Studio opens on your active or most recent run. The agent graph shows who coordinates, implements and reviews. The task graph shows dependencies, repairs, reviews and checks. When the coordinator explores alternatives, the task graph shows each variant by round and marks the one it kept. Inspectors show what each agent's context packet contained, by section and size. New run shows what project memory has learned, with controls to disable a lesson or forget it all. You can steer a run at its next checkpoint, pause it, stop it or resume it. **Review** brings together baseline and final checks, the combined diff, findings and the verification record.
+Studio opens on **Tasks**. Search the queue, filter by project or status, and open a task to follow activity beside its per-file diff, command results, independent reviews, and saved settings. Send guidance during execution or draft a linked follow-up with the original workflow version and settings. Each follow-up builds a separate candidate from the current project and requires its own approval. **New task** includes project readiness, a workflow selector, and configurable team, instructions, and checks that you can save as versioned recipes. **Approve & apply** rechecks the exact candidate and project before application; declining keeps the project unchanged. Waiting candidates survive worker restarts. [Workflow guide](docs/WORKFLOWS.md)
+
+**Agent graph** shows the active or selected run, including who coordinates, implements and reviews. The task graph shows dependencies, repairs, reviews and checks. When the coordinator explores alternatives, the task graph shows each variant by round and marks the one it kept. Inspectors show what each agent's context packet contained, by section and size. **Advanced run** keeps the direct review/build/compare controls and project memory settings. You can steer a run at its next checkpoint, pause it, stop it or resume it. **Run evidence** brings together baseline and final checks, the combined diff, findings and the verification record.
 
 Studio binds to loopback only. Its launch link exchanges a local access token for an HttpOnly session cookie and removes the token from the address bar, and Studio rejects cross-origin requests.
 

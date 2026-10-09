@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 from parallax.models import Participant
-from parallax.providers import Captured, ProviderRegistry, _AGY_GATE, _codex_schema, _public_event
+from parallax.providers import Captured, ProviderRegistry, _AGY_GATE, _codex_schema, _public_event, _stop
 
 
 FAKE = r'''#!PYTHON
@@ -401,6 +401,29 @@ class ProvidersTest(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result['ok'])
         self.assertEqual(original.read_text(),'original = true\n')
         self.assertIn('restored',result['error']['message'])
+
+
+class ProcessExitRaceTests(unittest.IsolatedAsyncioTestCase):
+    @unittest.skipUnless(os.name == "posix", "POSIX process group race")
+    async def test_missing_process_group_waits_for_pending_exit_callback(self):
+        class ExitedChild:
+            pid = 123456789
+            returncode = None
+            waited = False
+
+            async def wait(self):
+                # The child watcher has not yet delivered the already-dead
+                # child's status when killpg reports that its group is gone.
+                await asyncio.sleep(0)
+                self.waited = True
+                self.returncode = 0
+                return 0
+
+        process = ExitedChild()
+        with patch("parallax.providers.os.killpg", side_effect=ProcessLookupError):
+            await asyncio.wait_for(_stop(process), 0.5)
+        self.assertTrue(process.waited)
+        self.assertEqual(process.returncode, 0)
 
 
 class CodexCatalogRegressionTests(unittest.IsolatedAsyncioTestCase):

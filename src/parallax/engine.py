@@ -43,6 +43,7 @@ class Engine:
         self.wakeup: dict[str, asyncio.Event] = {}
         self.shutting_down = False
         self._clocks: dict[str, tuple[float, float]] = {}
+        self._start_lock = asyncio.Lock()
 
     async def shutdown(self):
         """Stop children while preserving resumable state for a server restart."""
@@ -342,11 +343,20 @@ class Engine:
         self.store.event(run_id, "recovery_requested", {"action": action, "category": choices["category"]})
         return self.control(run_id, "resume")
 
-    async def start(self, spec: RunSpec) -> dict:
+    async def start(self, spec: RunSpec, *, request_key: str | None = None) -> dict:
+        async with self._start_lock:
+            return await self._start(spec.model_copy(deep=True), request_key=request_key)
+
+    async def _start(self, spec: RunSpec, *, request_key: str | None = None) -> dict:
         workspace = Path(spec.workspace).expanduser().resolve()
         if not workspace.is_dir():
             raise ValueError("Workspace does not exist")
         spec.workspace = str(workspace)
+        spec_hash = hashlib.sha256(json.dumps(spec.model_dump(), sort_keys=True).encode()).hexdigest()
+        if request_key:
+            existing = self.store.requested_run(request_key, spec_hash)
+            if existing:
+                return existing
         # Every role packet carries the full request, so it must leave room for the rest of the packet.
         if spec.mode != "review" and len(spec.prompt) > REQUEST_LIMIT:
             raise ValueError(f"Build and Compare requests are limited to {REQUEST_LIMIT:,} characters")
@@ -367,7 +377,14 @@ class Engine:
         if assessment:
             result["artifacts"]["assessment"] = assessment
             result["artifacts"]["required_checks"] = [c.model_dump() for c in spec.checks]
-        self.store.save(result)
+        try:
+            if request_key:
+                self.store.save_requested_run(result, request_key, spec_hash)
+            else:
+                self.store.save(result)
+        except BaseException:
+            self.store.release(run_id)
+            raise
         self.store.event(run_id,"queued",{"mode":spec.mode})
         self._launch(run_id)
         return self.store.get(run_id)

@@ -1,0 +1,206 @@
+.task-preflight {
+  min-width: 0;
+  margin: 16px 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  font-size: 12px;
+}
+.preflight-heading,
+.preflight-check-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.preflight-heading h2 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+.preflight-status {
+  color: var(--muted);
+  font-size: 11px;
+}
+.preflight-status.ready {
+  color: var(--teal);
+}
+.preflight-status.blocked {
+  color: var(--danger);
+}
+.preflight-issues,
+.preflight-packages,
+.preflight-instructions,
+.preflight-checks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.preflight-issues {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+.preflight-issues li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 4px;
+  color: var(--amber);
+}
+.preflight-issues li.blocker {
+  background: var(--danger-tint);
+  color: var(--danger);
+}
+.preflight-issues svg {
+  margin-top: 1px;
+  flex-shrink: 0;
+}
+.preflight-issues strong,
+.preflight-issues code {
+  margin-right: 8px;
+  font-size: 10px;
+}
+.preflight-issues p {
+  margin: 4px 0 0;
+  color: var(--text);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.preflight-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 14px 0;
+}
+.preflight-facts dt,
+.preflight-note,
+.preflight-footnote,
+.preflight-packages small,
+.preflight-check-heading > span,
+.preflight-checks small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.preflight-facts dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+.preflight-discovery {
+  border-top: 1px solid var(--line-soft);
+  border-bottom: 1px solid var(--line-soft);
+  padding: 11px 0;
+}
+.preflight-discovery > summary {
+  cursor: pointer;
+  font-weight: 500;
+  line-height: 1.6;
+}
+.preflight-discovery > summary > small {
+  display: inline-block;
+  margin-left: 10px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 400;
+}
+.preflight-packages {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
+.preflight-packages li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 12px;
+}
+.preflight-packages li > span {
+  color: var(--muted);
+  font-size: 11px;
+}
+.preflight-packages li > small {
+  grid-column: 1 / -1;
+}
+.task-preflight h3 {
+  margin: 12px 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.preflight-check-plan h3 > span {
+  margin-left: 5px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 400;
+}
+.preflight-instructions {
+  display: grid;
+  gap: 5px;
+}
+.preflight-checks {
+  display: grid;
+  gap: 8px;
+}
+.preflight-checks li {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 4px;
+  background: var(--input);
+}
+.preflight-check-heading strong {
+  font-size: 11px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.task-preflight code {
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.preflight-command {
+  display: block;
+  margin: 7px 0;
+  line-height: 1.6;
+}
+.preflight-check-action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 11px;
+}
+.preflight-check-action > button {
+  flex-shrink: 0;
+}
+.preflight-check-action .preflight-note {
+  margin: 0;
+}
+.preflight-note {
+  margin: 9px 0 0;
+}
+.preflight-footnote {
+  margin: 12px 0 0;
+  font-size: 10px;
+}
+@media (max-width: 620px) {
+  .task-preflight {
+    padding: 12px;
+  }
+  .preflight-facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .preflight-packages li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .preflight-check-action {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+}

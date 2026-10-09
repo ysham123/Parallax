@@ -73,6 +73,39 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
             cursor = events[0]["sequence"]
             self.assertTrue(all(e["sequence"]>cursor for e in self.hub.events(self.worker,run_id,cursor,"owner")))
 
+    async def test_relay_workflow_recipe_approval_and_receipt(self):
+        git(self.project,"init","-q"); git(self.project,"config","user.name","Test"); git(self.project,"config","user.email","test@example.com")
+        (self.project/"maths.py").write_text("def add(a,b):\n    return a-b\n")
+        (self.project/"check.py").write_text("from maths import add\nassert add(2,3)==5\n")
+        git(self.project,"add","."); git(self.project,"commit","-qm","baseline")
+        async with WorkerRuntime(self.local,[self.project],registry=self.registry) as runtime:
+            template = await self.roundtrip(runtime,"POST","/api/workflow-templates", {
+                "name":"Fix addition", "checks":[{"name":"addition","argv":[sys.executable,"-B","check.py"]}]})
+            self.assertEqual(template["status"],200,template)
+            template = template["body"]
+            started = await self.roundtrip(runtime,"POST","/api/workflows", {
+                "request_id":str(uuid.uuid4()),"workspace":str(self.project),"prompt":"Fix addition",
+                "template_id":template["id"],"template_version":template["version"]})
+            self.assertEqual(started["status"],200,started)
+            identifier = started["body"]["id"]
+            await asyncio.wait_for(runtime.app.state.workflows.jobs[identifier],30)
+            value = (await self.roundtrip(runtime,"GET","/api/workflows/"+identifier))["body"]
+            self.assertEqual(value["status"],"awaiting_approval",value)
+            self.assertIn("return a-b",(self.project/"maths.py").read_text())
+            # The relay caches evidence, but another account cannot read or approve it.
+            for method, path in (("GET","/api/workflows/"+identifier), ("POST","/api/workflows/"+identifier+"/decision")):
+                with self.assertRaises(HTTPException) as failure:
+                    await self.hub.request(self.worker,method,path,"",{},workspace="someone-else")
+                self.assertEqual(failure.exception.status_code,404)
+            approved = await self.roundtrip(runtime,"POST","/api/workflows/"+identifier+"/decision", {
+                "action":"approve","candidate_digest":value["candidate"]["digest"]})
+            self.assertEqual(approved["status"],200,approved)
+            await asyncio.wait_for(runtime.app.state.workflows.jobs[identifier],30)
+            self.assertIn("return a + b",(self.project/"maths.py").read_text())
+            receipt = await self.roundtrip(runtime,"GET","/api/runs/"+value["run_id"]+"/receipt")
+            self.assertEqual(receipt["status"],200,receipt)
+            self.assertEqual(receipt["body"]["approval"]["digest"],value["candidate"]["digest"])
+
     async def test_duplicate_dispatch_and_lost_reply_never_start_twice(self):
         async with WorkerRuntime(self.local,[self.project],registry=self.registry) as runtime:
             command = self.command("POST","/api/runs",{"workspace":str(self.project),"prompt":"Read","mode":"review","team":[{"provider":"claude"}]})

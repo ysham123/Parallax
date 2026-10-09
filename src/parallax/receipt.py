@@ -69,9 +69,11 @@ def build_receipt(result: dict, *, final: bool = False) -> dict:
         return {"id":f"check-{index+1}","ok":check.get("ok") is True,"exit_code":check.get("exit_code"),"elapsed_seconds":check.get("elapsed_seconds"),
                 "environment":{"private":check.get("environment",{}).get("private"),"python_venv":check.get("environment",{}).get("python_venv"),"sandbox":check.get("environment",{}).get("sandbox"),"manifest_sha256":check.get("environment",{}).get("manifest_sha256",{})}}
     baseline=artifacts.get("baseline_checks",[])
+    application = artifacts.get("application", {})
     return {"contract_version": "1.1", "run_id": result["run_id"], "generated_at": now(),
             "record_state": "final" if final else "snapshot",
             "outcome": "applied" if applied else "verified" if verified else "partial",
+            "approval": {key: application.get(key) for key in ("state", "digest", "decision_id", "approved_at", "applied_at", "policy")} if application else None,
             "gates": gates, "artifacts": hashes, "changed_files": result.get("changed_files", []),
             "requested": requested, "effective": effective,
             "checks": [{"id": f"check-{index + 1}", "ok": check.get("ok") is True,

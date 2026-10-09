@@ -15,6 +15,7 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), "parallax-hosted-"));
         "src/hosted-link.ts",
         "src/session.ts",
         "src/oauth.ts",
+        "src/workflow-state.ts",
         "--target",
         "ES2022",
         "--module",
@@ -25,6 +26,18 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), "parallax-hosted-"));
       { cwd: path.join(root, "studio"), stdio: "inherit" },
     );
     const { localStudioUrl } = require(path.join(temp, "hosted-link.js"));
+    const workflows = require(path.join(temp, "workflow-state.js"));
+    const candidate = {digest: "a".repeat(64), gates: [{status:"passed"},{status:"passed"},{status:"passed"}]};
+    assert.equal(workflows.canApprove("awaiting_approval", candidate), true);
+    for (const state of ["queued", "preparing", "interrupted", "needs_attention", "applying", "applied", "rejected", "cancelled"])
+      assert.equal(workflows.canApprove(state, candidate), false);
+    assert.equal(workflows.canApprove("awaiting_approval", {...candidate, gates:[{status:"passed"}]}), false);
+    assert.equal(workflows.canApprove("awaiting_approval", {...candidate, gates:[{status:"passed"},{status:"unknown"},{status:"passed"}]}), false);
+    assert.equal(workflows.canApprove("awaiting_approval", candidate, {action:"approve"}), false);
+    assert.equal(workflows.workflowGroup("interrupted"), "attention");
+    assert.equal(workflows.workflowGroup("awaiting_approval"), "approval");
+    assert.ok(workflows.workflowStep("rejected") < 2, "Declining never marks application as complete");
+    assert.ok(workflows.workflowStep("cancelled") < 2, "Stopping never marks application as complete");
     const local = "http://127.0.0.1:61968/?token=test-key&workspace=%2Fproject";
     assert.equal(localStudioUrl("  " + local + "  "), local);
     assert.equal(

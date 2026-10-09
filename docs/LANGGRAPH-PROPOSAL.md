@@ -1,6 +1,6 @@
 # Proposal: reusable, resumable coding workflows
 
-Status: proposed, October 9, 2026. No LangGraph dependency or workflow runtime is implemented by the OAuth/MCP PR. This document is the decision brief for the next phase.
+Status: pilot implemented, October 9, 2026, in the workflow phase following the OAuth/MCP PR. The decision brief below records the rationale and boundaries. See [Saved coding workflows](WORKFLOWS.md) for the implemented user experience, recovery behavior, and current limits. The OAuth/MCP PR itself contains no workflow runtime.
 
 ## Recommendation
 

@@ -7,7 +7,7 @@
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
     "build:hosted": "tsc --noEmit && vite build --mode hosted",
-    "test": "node ../tests/studio_run_inspection.cjs",
+    "test": "node ../tests/studio_run_inspection.cjs && node ../tests/studio_diff.cjs",
     "test:hosted": "node ../tests/studio_hosted.cjs",
     "preview": "vite preview --host 127.0.0.1"
   },
