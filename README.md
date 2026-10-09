@@ -18,7 +18,7 @@ It runs from Claude Code, from Codex, or from the command line, with a local Stu
 
 ```text
 /plugin marketplace add ysham123/Parallax
-/plugin install parallax@parallax
+/plugin install parallax-team@parallax
 ```
 
 **Codex**
@@ -45,9 +45,9 @@ Requirements: macOS, Python 3.10+, Git 2.38+, and at least one signed-in agent C
 In Claude Code:
 
 ```text
-/parallax:review
-/parallax:build Add rate limiting to the login endpoint
-/parallax:studio
+/parallax-team:review
+/parallax-team:build Add rate limiting to the login endpoint
+/parallax-team:studio
 ```
 
 You can also just ask: *"Have Parallax review this change with Codex and Grok."*
@@ -103,7 +103,7 @@ CLI connections use your existing sign-ins. API keys are stored in macOS Keychai
 
 ## Hosted Studio and paired machines
 
-Parallax can also run as a hosted Studio on Vercel with a runtime on Railway. Visitors sign up with email, GitHub or Google and get a private workspace. Their agents run on machines they pair with an outbound worker, scoped to exact approved project folders. Execution, provider sign-ins and API keys stay on those machines. Only run evidence is mirrored to the workspace, within per-workspace limits. See [deployment](docs/DEPLOYMENT.md) and [paired machines](docs/LOCAL-WORKERS.md).
+Parallax can also run as a hosted Studio on Vercel with a runtime on Railway. Visitors sign up with email, GitHub or Google and get a private workspace. Their agents run on machines they pair with an outbound worker, scoped to exact approved project folders. Execution, provider sign-ins and API keys stay on those machines. Only run evidence is mirrored to the workspace, within per-workspace limits. See [deployment](docs/DEPLOYMENT.md) and [paired machines](docs/LOCAL-WORKERS.md). The hosted Studio publishes its privacy policy, terms and support page at `/privacy`, `/terms` and `/support`.
 
 ## Command line
 

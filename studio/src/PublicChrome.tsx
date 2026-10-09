@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { accountName, initials, type Session } from "./session";
+import { REPOSITORY, accountName, initials, type Session } from "./session";
 
 export function Mark({ size = 26 }: { size?: number }) {
   return (
@@ -62,6 +62,20 @@ export function ThemeToggle() {
         </svg>
       )}
     </button>
+  );
+}
+
+export function PublicFooter() {
+  return (
+    <footer className="pub-footer">
+      <span>Parallax {__PARALLAX_VERSION__} · MIT</span>
+      <nav aria-label="Legal and support">
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+        <a href="/support">Support</a>
+        <a href={REPOSITORY}>Source</a>
+      </nav>
+    </footer>
   );
 }
 

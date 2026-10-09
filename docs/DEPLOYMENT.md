@@ -114,6 +114,12 @@ The migration runs at startup and only adds tables and indexes (and columns on i
 
 In 1.3, accounts from the GitHub-only release are copied into a provider-neutral accounts table at startup and keep their workspaces. If you then roll back to 1.2, existing accounts keep working but new GitHub sign-ins fail until you roll forward.
 
+### Custom domain
+
+To serve Studio from your own domain, add it to the Vercel project and create the DNS record Vercel shows, then redirect the `vercel.app` address to it in Vercel's domain settings. On the runtime, add the new origin to `PARALLAX_STUDIO_ORIGINS`, its hostname to `PARALLAX_ALLOWED_HOSTS`, and set `PARALLAX_PUBLIC_ORIGIN` to it while both origins are listed. In Supabase, change the Site URL and the two redirect URLs to the new origin, and update the Homepage URL of the GitHub OAuth App and the Google client's authorized domains. Sign-in links and email links use the public origin, so do this before inviting users.
+
+The public pages at `/privacy`, `/terms` and `/support` describe the operator's hosted service. Self-hosters should replace their contents in `studio/src/Legal.tsx` with their own before going live.
+
 ### Public launch checklist
 
 Merging to `main` rebuilds the Vercel site only. The runtime changes when you update and restart it, so the public site keeps working against the previous runtime until then. Until then the public entry leads with installing the plugin, and the operator signs in at `/operator`.

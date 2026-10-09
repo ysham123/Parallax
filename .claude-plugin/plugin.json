@@ -1,8 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
-  "name": "parallax",
+  "name": "parallax-team",
   "displayName": "Parallax",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Verified coding teams across Codex, Claude Code, Grok Build and Antigravity: isolated workers, independent review, real project checks, and a verification record before anything reaches your project.",
   "author": {
     "name": "Yosef Shammout",

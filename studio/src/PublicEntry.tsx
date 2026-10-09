@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import { ProviderMark } from "./Brand";
 import { CopyBlock } from "./Onboarding";
-import { Mark, ThemeToggle } from "./PublicChrome";
+import { Mark, PublicFooter, ThemeToggle } from "./PublicChrome";
 import {
   REPOSITORY,
   signInErrorMessage,
   signInMethods,
   type AuthConfig,
 } from "./session";
+import "./public.css";
 
 const METHOD_NAMES: Record<string, string> = { email: "email", github: "GitHub", google: "Google" };
 
@@ -16,7 +17,6 @@ function methodList(methods: string[]): string {
   const names = methods.map((method) => METHOD_NAMES[method] || method);
   return names.length > 1 ? `${names.slice(0, -1).join(", ")} or ${names[names.length - 1]}` : names[0] || "email";
 }
-import "./public.css";
 
 const PROVIDERS = [
   ["codex", "Codex"],
@@ -100,7 +100,7 @@ function GraphPreview() {
   );
 }
 
-const CLAUDE_INSTALL = "/plugin marketplace add ysham123/Parallax\n/plugin install parallax@parallax";
+const CLAUDE_INSTALL = "/plugin marketplace add ysham123/Parallax\n/plugin install parallax-team@parallax";
 const CODEX_INSTALL = "codex plugin marketplace add ysham123/Parallax\ncodex plugin add codex-claude-team@codex-claude-team";
 
 function Install() {
@@ -112,8 +112,8 @@ function Install() {
           <h3>Claude Code</h3>
           <CopyBlock label="Claude Code install commands" text={CLAUDE_INSTALL} />
           <p>
-            Then run <code>/parallax:review</code>, <code>/parallax:build</code> or{" "}
-            <code>/parallax:studio</code>, or ask Claude to bring in the team.
+            Then run <code>/parallax-team:review</code>, <code>/parallax-team:build</code> or{" "}
+            <code>/parallax-team:studio</code>, or ask Claude to bring in the team.
           </p>
         </div>
         <div>
@@ -335,8 +335,8 @@ export default function PublicEntry({
                 <span>01</span>
                 <h3>Sign in</h3>
                 <p>
-                  Your GitHub account opens a private workspace. Other accounts cannot see or
-                  control your machines, runs, or evidence.
+                  Your account opens a private workspace. Other accounts cannot see or control
+                  your machines, runs, or evidence.
                 </p>
               </li>
               <li>
@@ -370,7 +370,7 @@ export default function PublicEntry({
                 <ul>
                   <li>Run results, diffs, check output, and ordered events, mirrored for the graph</li>
                   <li>Machine names and approved project paths</li>
-                  <li>Your GitHub ID, username, display name, avatar URL, and sign-in times</li>
+                  <li>Your email, display name, avatar URL, sign-in method, and sign-in times</li>
                 </ul>
               </div>
               <div>
@@ -384,7 +384,8 @@ export default function PublicEntry({
             <p className="pub-fineprint">
               Prompts and relevant project content go to the inference providers you choose. The
               operator of this deployment administers its hosted data. Deleting your account removes
-              your workspace, its machines, and mirrored evidence.
+              your workspace, its machines, and mirrored evidence. See the{" "}
+              <a href="/privacy">privacy policy</a>.
             </p>
           </section>
         )}
@@ -392,10 +393,7 @@ export default function PublicEntry({
         {!local && <Install />}
       </main>
 
-      <footer className="pub-footer">
-        <span>Parallax {__PARALLAX_VERSION__} · MIT</span>
-        <a href={REPOSITORY}>Source</a>
-      </footer>
+      <PublicFooter />
     </div>
   );
 }

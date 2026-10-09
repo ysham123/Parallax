@@ -8,7 +8,7 @@
   },
   "plugins": [
     {
-      "name": "parallax",
+      "name": "parallax-team",
       "source": "./",
       "description": "Run reviewed, checked coding teams across Codex, Claude Code, Grok Build and Antigravity from Claude Code.",
       "category": "development",

@@ -1,6 +1,8 @@
 import { useState, type FormEvent } from "react";
 import { ProviderMark } from "./Brand";
 import { localStudioUrl } from "./hosted-link";
+import { legalPage } from "./session";
+import Legal from "./Legal";
 import "./hosted.css";
 
 const repository = "https://github.com/ysham123/Parallax";
@@ -8,6 +10,11 @@ const command =
   "python3 scripts/parallax.py studio --workspace /path/to/project";
 
 export default function HostedApp() {
+  const page = legalPage(location.pathname);
+  return page ? <Legal page={page} /> : <HostedEntry />;
+}
+
+function HostedEntry() {
   const [link, setLink] = useState("");
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
@@ -111,7 +118,7 @@ export default function HostedApp() {
           <span className="hosted-eyebrow">OPEN YOUR WORKSPACE</span>
           <h2 id="launch-title">Start in Claude Code or Codex</h2>
           <p>
-            With the Parallax plugin installed, run <code>/parallax:studio</code> in Claude
+            With the Parallax plugin installed, run <code>/parallax-team:studio</code> in Claude
             Code, or ask Codex:
           </p>
           <blockquote>“Open Parallax Studio for this project.”</blockquote>
@@ -169,8 +176,12 @@ export default function HostedApp() {
         </section>
       </main>
       <footer className="hosted-footer">
-        <span>Parallax {__PARALLAX_VERSION__}</span>
-        <span>Hosted entry · Studio runs locally</span>
+        <span>Parallax {__PARALLAX_VERSION__} · Studio runs locally</span>
+        <nav aria-label="Legal and support">
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
+          <a href="/support">Support</a>
+        </nav>
       </footer>
     </div>
   );

@@ -53,6 +53,14 @@ export type ExecutionMachine = {
   last_seen: number;
 };
 
+export type LegalPage = "privacy" | "terms" | "support";
+
+/** The policy or support page for a path such as `/privacy`, or null for any other path. */
+export function legalPage(pathname: string): LegalPage | null {
+  const page = pathname.replace(/\/$/, "").slice(1);
+  return page === "privacy" || page === "terms" || page === "support" ? page : null;
+}
+
 export const HOSTED_EXECUTOR = "railway";
 export const REPOSITORY = "https://github.com/ysham123/Parallax";
 
