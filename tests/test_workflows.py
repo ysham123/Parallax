@@ -16,7 +16,7 @@ from parallax.models import CheckSpec, Limits, Participant, RunSpec
 from parallax.receipt import get_receipt
 from parallax.server import create_app
 from parallax.store import Store
-from parallax.workflows import Workflows, WorkflowStart, TemplateInput, Decision
+from parallax.workflows import Workflows, WorkflowStart, TemplateInput, Decision, RevisionRequest, ApprovalRequest, DeliveryRequest, CommentInput
 from test_engine import FakeRegistry, git
 
 
@@ -402,6 +402,170 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(retry["parent_workflow_id"])
         self.assertEqual(retry["original_goal"], request.prompt)
 
+    async def test_revision_seeds_candidate_preserves_baseline_and_parent(self):
+        parent = await self.candidate()
+        parent_run = self.store.get(parent["run_id"])
+        parent_manager = self.service.candidates.manager(parent_run)
+        parent_tree = parent_manager.fingerprint(parent_manager.integration_path)
+        self.registry.turn = 0
+        observed = []
+        original = self.registry.run
+        async def revise(provider, **kwargs):
+            if kwargs["mode"] == "edit":
+                observed.append((kwargs["workspace"] / "maths.py").read_text())
+                outcome = await original(provider, **kwargs)
+                (kwargs["workspace"] / "maths.py").write_text("def add(a, b):\n    # revised\n    return a + b\n")
+                return outcome
+            return await original(provider, **kwargs)
+        request = RevisionRequest(request_id=uuid4(), candidate_digest=parent["candidate"]["digest"], correction="Explain the addition.")
+        with patch.object(self.registry, "run", side_effect=revise):
+            started = await self.service.revise(parent["id"], request)
+            child = await self.settle(started["id"])
+        self.assertEqual(child["status"], "awaiting_approval", child.get("error"))
+        self.assertIn("return a + b", observed[0])
+        child_run = self.store.get(child["run_id"])
+        self.assertFalse(child_run["artifacts"]["baseline_checks"][0]["ok"])
+        self.assertEqual(child_run["artifacts"]["baseline_snapshot_sha256"], parent_run["artifacts"]["baseline_snapshot_sha256"])
+        self.assertTrue(all(check["ok"] for check in child_run["checks"]))
+        self.assertNotEqual(child["candidate"]["digest"], parent["candidate"]["digest"])
+        self.assertEqual(parent_manager.fingerprint(parent_manager.integration_path), parent_tree)
+        self.assertEqual(self.service.get(parent["id"])["status"], "superseded")
+        self.assertEqual((await self.service.revise(parent["id"], request))["id"], child["id"])
+        with self.assertRaisesRegex(ValueError, "already active"):
+            await self.service.revise(parent["id"], request.model_copy(update={"request_id":uuid4()}))
+        self.assertIn("return a-b", (self.project / "maths.py").read_text())
+        await self.service.approve(child["id"], ApprovalRequest(request_id=uuid4(),candidate_digest=child["candidate"]["digest"]))
+        await self.settle(child["id"])
+        await self.service.apply_candidate(child["id"], DeliveryRequest(request_id=uuid4(),candidate_digest=child["candidate"]["digest"]))
+        self.assertIn("# revised", (self.project / "maths.py").read_text())
+        self.assertEqual(git(self.project, "diff", "--cached"), self.staging)
+
+    async def test_revision_rejects_drift_and_browser_seed_paths(self):
+        parent = await self.candidate()
+        request = RevisionRequest(request_id=uuid4(), candidate_digest=parent["candidate"]["digest"], correction="Revise")
+        (self.project / "notes.txt").write_text("new user work")
+        with self.assertRaisesRegex(ValueError, "changed"):
+            await self.service.revise(parent["id"], request)
+        self.assertEqual(self.service.get(parent["id"])["status"], "awaiting_approval")
+        with self.assertRaises(ValueError):
+            RevisionRequest.model_validate({**request.model_dump(), "seed_path":"/tmp/arbitrary"})
+
+    async def test_revision_queued_restart_resolves_saved_source_once(self):
+        parent = await self.candidate()
+        self.registry.turn = 0
+        with patch.object(self.service, "_launch", AsyncMock()):
+            child = await self.service.revise(parent["id"], RevisionRequest(request_id=uuid4(), candidate_digest=parent["candidate"]["digest"], correction="Keep the fix"))
+        await self.restart()
+        original = self.registry.run
+        async def edit(provider, **kwargs):
+            result = await original(provider, **kwargs)
+            if kwargs["mode"] == "edit":
+                (kwargs["workspace"] / "maths.py").write_text("def add(a,b):\n    return a+b  # revision\n")
+            return result
+        self.registry.run = edit
+        await self.service.resume(child["id"])
+        result = await self.settle(child["id"])
+        self.assertEqual(result["status"], "awaiting_approval", result.get("error"))
+        self.assertEqual(result["revision"]["parent"], parent["id"])
+        self.assertEqual(len(self.store.runs()), 2)
+
+    async def test_team_approval_requires_other_human_and_application_is_separate(self):
+        from parallax import authority
+        recipe={**self.template,"id":str(uuid4())}
+        context={"version":"2.0","team":True,"workspace":"team","actor":"owner","role":"owner","projects":[str(self.project)],"reviewers":["owner","reviewer"],"recipes":[recipe]}
+        token=authority.current.set(context)
+        try:
+            value=await self.service.start(self.request().model_copy(update={"schema_version":"2.0","template_id":recipe["id"]}))
+            value=await self.settle(value["id"])
+            request=ApprovalRequest(request_id=uuid4(),candidate_digest=value["candidate"]["digest"])
+            with self.assertRaisesRegex(ValueError,"different human"):
+                await self.service.approve(value["id"],request)
+            self.assertIn("return a-b",(self.project/'maths.py').read_text())
+            authority.current.set({**context,"actor":"reviewer","role":"reviewer"})
+            await self.service.approve(value["id"],request.model_copy(update={"request_id":uuid4()}))
+            approved=await self.settle(value["id"])
+            self.assertEqual(approved["status"],"approved")
+            self.assertEqual(approved["approval"]["actor"],"reviewer")
+            self.assertIn("return a-b",(self.project/'maths.py').read_text())
+            delivery=DeliveryRequest(request_id=uuid4(),candidate_digest=value["candidate"]["digest"])
+            with self.assertRaises(Exception): await self.service.apply_candidate(value["id"],delivery)
+            authority.current.set(context)
+            delivered=await self.service.apply_candidate(value["id"],delivery)
+            self.assertEqual(delivered["status"],"applied")
+            with self.store.connect() as db:
+                self.assertEqual(db.execute("SELECT actor FROM workflow_operations WHERE id=?",(str(delivery.request_id),)).fetchone()[0],"owner")
+            authority.current.set({**context,"workspace":"other-team"})
+            with self.assertRaises(KeyError): self.service.get(value["id"])
+            self.assertEqual(self.service.listing(),[])
+        finally: authority.current.reset(token)
+
+    async def test_publication_bundle_preserves_binary_and_excludes_user_edits(self):
+        value=await self.candidate()
+        manager=self.service.candidates.manager(self.store.get(value["run_id"]))
+        metadata=manager.prepare()
+        target={"base_commit":metadata['source_state']['head'],"base_tree":manager._oid(manager.workspace,metadata['snapshot_commit']+'^{tree}'),"full_name":"test/repo","base":"main"}
+        worker=manager.create_worker('binary')
+        (worker/'binary.bin').write_bytes(b'\x00\xff\x80\x01')
+        self.assertTrue(manager.collect(worker)['ok'])
+        self.assertTrue(manager.merge(worker)['ok'])
+        before=manager.fingerprint(manager.workspace)
+        bundle=self.service.candidates.publication_tree(manager,target)
+        import base64
+        self.assertEqual([a['path'] for a in bundle['additions']],["binary.bin","maths.py"])
+        self.assertEqual(base64.b64decode(bundle['additions'][0]['contents']),b'\x00\xff\x80\x01')
+        self.assertIn(b'return a + b',base64.b64decode(bundle['additions'][1]['contents']))
+        self.assertFalse((self.project/'binary.bin').exists())
+        from parallax.workspaces import WorkspaceManager
+        child=WorkspaceManager(self.project,self.root/'seeded-binary')
+        seeded=child.seed_candidate(manager,before)
+        self.assertEqual(seeded['snapshot_commit'],metadata['snapshot_commit'])
+        self.assertEqual((child.integration_path/'binary.bin').read_bytes(),b'\x00\xff\x80\x01')
+        unsafe=manager.create_worker('workflow')
+        (unsafe/'.github/workflows').mkdir(parents=True)
+        (unsafe/'.github/workflows/ci.yml').write_text('name: Changed CI\n')
+        self.assertTrue(manager.collect(unsafe)['ok'])
+        self.assertTrue(manager.merge(unsafe)['ok'])
+        with self.assertRaisesRegex(ValueError,'Workflow-file'):
+            self.service.candidates.publication_tree(manager,target)
+        self.assertEqual(manager.fingerprint(manager.workspace),before)
+        with self.assertRaisesRegex(ValueError,'baseline'):
+            self.service.candidates.publication_tree(manager,{**target,'base_tree':'0'*40})
+
+    async def test_publication_reservation_survives_restart_and_blocks_revision(self):
+        value=await self.service.start(self.request().model_copy(update={"schema_version":"2.0"}))
+        value=await self.settle(value["id"])
+        await self.service.approve(value["id"],ApprovalRequest(request_id=uuid4(),candidate_digest=value["candidate"]["digest"]))
+        value=await self.settle(value["id"])
+        manager=self.service.candidates.manager(self.store.get(value["run_id"]))
+        meta=manager.prepare()
+        value['github_target']={"id":str(uuid4()),"base_commit":meta['source_state']['head'],"base_tree":manager._oid(manager.workspace,meta['snapshot_commit']+'^{tree}'),"full_name":"test/repo","base":"main"}
+        self.service.save(value)
+        request=DeliveryRequest(request_id=uuid4(),candidate_digest=value['candidate']['digest'])
+        # The test adds a binding after execution solely to exercise durable delivery;
+        # production captures it before execution as part of the candidate identity.
+        with patch.object(self.service.candidates,'capture',AsyncMock(return_value=value['candidate'])):
+            package=await self.service.begin_publication(value['id'],request)
+        with self.assertRaisesRegex(ValueError,'pending publication'):
+            await self.service.revise(value['id'],RevisionRequest(request_id=uuid4(),candidate_digest=value['candidate']['digest'],correction='Revise'))
+        await self.restart()
+        self.assertEqual(await self.service.begin_publication(value['id'],request),package)
+        with self.assertRaisesRegex(ValueError,'saved publication'):
+            await self.service.begin_publication(value['id'],request.model_copy(update={'request_id':uuid4()}))
+        receipt={"request":{"request_id":str(request.request_id),"candidate_digest":request.candidate_digest},"state":"published","commit":"a"*40,"branch":"parallax/"+value['id'],"pr":1,"url":"https://github.com/test/repo/pull/1"}
+        self.assertEqual(self.service.record_publication(value['id'],receipt)['status'],'published')
+        self.assertEqual(self.service.record_publication(value['id'],receipt)['status'],'published')
+
+    async def test_comment_retry_after_durable_save_does_not_duplicate(self):
+        value=await self.candidate()
+        request=CommentInput(request_id=uuid4(),message='Review the correction')
+        with patch.object(self.service,'complete_operation',side_effect=RuntimeError('simulated restart')):
+            with self.assertRaises(RuntimeError): self.service.comment(value['id'],request)
+        await self.restart()
+        result=self.service.comment(value['id'],request)
+        self.assertEqual(len(result['comments']),1)
+        with self.store.connect() as db:
+            self.assertEqual(db.execute('SELECT state FROM workflow_operations WHERE id=?',(str(request.request_id),)).fetchone()[0],'completed')
+
     async def test_cancel_waiting_candidate_keeps_project_unchanged(self):
         value = await self.candidate()
         self.assertEqual((await self.service.cancel(value["id"]))["status"], "cancelled")
@@ -421,7 +585,10 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
         async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1") as client:
             self.assertEqual((await client.get("/api/workflow-templates")).status_code, 401)
             client.headers["Authorization"] = "Bearer test-token"
-            self.assertEqual(len((await client.get("/api/workflow-templates")).json()), 3)
+            templates = (await client.get("/api/workflow-templates")).json()
+            self.assertEqual({item["id"] for item in templates}, {
+                "verified-change", "fix-a-bug", "safe-refactor", "modernize-one-component",
+            })
             response = await client.post("/api/workflows", json={"request_id":str(uuid4()), "workspace":str(self.root), "prompt":"Edit"})
             self.assertEqual(response.status_code, 400, response.text)
 

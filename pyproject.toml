@@ -32,4 +32,4 @@ exclude = ["**/node_modules/**", "**/__pycache__/**", "**/.playwright-cli/**", "
 packages = ["src/parallax"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src", "scripts", "skills", "studio", "tests", "assets", "openai", "plugin.json", "mcp.json", ".codex-plugin", ".mcp.json", "README.md", "UPGRADE.md", "CONTRIBUTING.md", "docs", "requirements.lock", ".agents", ".github", "LICENSE", "CHANGELOG.md", "pyproject.toml", "uv.lock", "vercel.json", ".vercelignore", "railway.json", "Dockerfile", ".dockerignore"]
+include = ["src", "scripts", "skills", "studio", "tests", "examples", "assets", "openai", "plugin.json", "mcp.json", ".codex-plugin", ".claude-plugin", ".mcp.json", "README.md", "UPGRADE.md", "CONTRIBUTING.md", "SECURITY.md", "docs", "requirements.lock", ".agents", ".github", "LICENSE", "CHANGELOG.md", "pyproject.toml", "uv.lock", "vercel.json", ".vercelignore", "railway.json", "Dockerfile", ".dockerignore"]

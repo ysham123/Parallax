@@ -1,14 +1,14 @@
 # Vercel and Railway
 
-The recommended default for Parallax users is local execution: existing CLI sign-ins, project files, development environments, snapshots, and integration stay on their computer. Vercel serves Studio. Without a runtime it serves an entry page that opens Studio through the installed plugin; it never connects to localhost in the background or uploads a launch token.
+The public website leads with installation, source downloads and the delegation workflow. Studio remains the interface for tasks, evidence, correction and approval. The recommended default for Parallax users is local execution: existing CLI sign-ins, project files, development environments, snapshots and integration stay on their computer. Vercel serves the website at `/` and a local Studio launcher at `/studio` when no runtime is configured. The launcher never connects to localhost in the background or uploads a launch token.
 
-With a hosted runtime, the Vercel site becomes a public product entry with individual accounts. Anyone can sign up with email and password, GitHub, or Google and receive a private personal workspace. A personal workspace runs agents only on machines its owner pairs; it cannot use the hosted runtime's own execution engine, CLI sign-ins, or project clones. The deployment operator keeps a separate operator workspace, opened by configured owner accounts or the deployment access key, which retains hosted execution and the machines paired before accounts existed. See [Accounts and workspaces](#accounts-and-workspaces).
+With a hosted runtime, `/` remains the public website and `/studio` opens the authenticated workspace. Available sign-in methods and enrollment depend on the deployment configuration; the invited pilot uses an allowlist. Successful sign-in and email confirmation return to `/studio`. A personal workspace runs agents only on machines its owner pairs; it cannot use the hosted runtime's own execution engine, CLI sign-ins or project clones. The deployment operator keeps a separate operator workspace, opened by configured owner accounts or the deployment access key, which retains hosted execution and the machines paired before accounts existed. See [Accounts and workspaces](#accounts-and-workspaces).
 
 ## Vercel
 
 Import `ysham123/Parallax` with **Root Directory set to the repository root**, Framework Preset **Other**, and Node.js **22.x or 24.x**. The checked-in `vercel.json` supplies installation and build commands. Leave Output Directory unset: the build writes Vercel Build Output API v3 to `.vercel/output`.
 
-With no environment variables, Vercel builds the local Studio entry page. No runtime, provider keys, or database are required. Deep links load the entry page; missing hashed assets return 404. API paths return a `local_runtime_required` diagnostic, rather than HTML pretending to be API data.
+With no environment variables, Vercel builds the public website and local Studio launcher. No runtime, provider keys or database are required. Deep links load the corresponding entry page; missing hashed assets return 404. API paths return a `local_runtime_required` diagnostic, rather than HTML pretending to be API data. In both build modes the website renders before any optional runtime request; an unavailable relay does not hide installation or download links.
 
 For a dedicated Railway-backed Studio, set this **build environment variable** on Vercel and redeploy:
 
@@ -136,6 +136,8 @@ The base image contains Python, Node/npm, Git, bubblewrap, and socat. It does **
 
 Installing bubblewrap alone is insufficient: the hosting kernel must allow its required user/network namespaces. Check `/api/deployment` after signing in and the project readiness screen before Build or Compare. These modes remain blocked when isolation is unavailable. API workers support project commands through macOS sandbox-exec or enforced Linux bubblewrap. API consultation and native CLI compatibility are separate capabilities; deployment readiness does not establish four-provider build readiness. Never disable sandbox gates to accommodate a hosting platform.
 
+Project commands hide registered runtime/API state and the configured GitHub App private-key file, even when they use custom locations outside user home directories. Managed candidate and check-environment descendants retain their specific grants. Linux commands start with an empty filesystem root and expose OS code/public runtime configuration, selected toolchains and approved workspaces; arbitrary custom host mounts are absent. macOS protects registered private paths while retaining the OS resources required for native launch. Keep state outside project roots and App keys outside source, approved projects and toolchains. See the [native Linux acceptance gate](STAGING-ACCEPTANCE.md#native-linux-execution-gate); the new mount policy still requires successful execution on a compatible native host before pilot enrollment.
+
 ### Persistent VM for hosted coding
 
 An ordinary Railway service can serve consultations but may reject the namespaces required for project commands. For personal hosted coding, use a [persistent Railway Cloud Agent](https://docs.railway.com/cloud-agents/quickstart) and verify the sandbox on that VM. Create it with `railway ca create parallax-worker --no-bootstrap`; connect using `railway ca ssh parallax-worker -- bash`. Its public app domain routes port 8080. Set Vercel's runtime URL to that domain and include both the VM and Studio hostnames in the runtime allowlist.
@@ -163,10 +165,10 @@ node scripts/build_vercel.mjs
 # Also test the optional connected build with a non-secret example origin:
 PARALLAX_RUNTIME_URL=https://runtime.example.com node scripts/build_vercel.mjs
 docker build -t parallax-runtime .
-python3 scripts/smoke_container.py
+python3 scripts/smoke_container.py --restore
 ```
 
-The Docker smoke test uses a disposable container, a temporary access key, health checks, and authenticated API requests. It does not start inference or access a real project. CI builds both Vercel modes and the Railway image, runs authentication/origin/workspace boundary tests, and ensures hosted builds do not overwrite the packaged local Studio.
+The Docker smoke test replaces disposable runtime containers against their own volume, checks a temporary session and worker token across replacements, and confirms sign-out and worker revocation stay enforced. With `--restore`, it cold-copies the stopped runtime's fixture state to a second empty volume, checks file hashes, and tests active/revoked state after restoration. It removes its own containers and volumes, starts no inference and accesses no real project. Use `--image <AUDIT_IMAGE_TAG>` to test a unique image without replacing an existing `parallax-runtime` tag. CI builds both Vercel modes and the Railway image, runs authentication/origin/workspace boundary tests, and ensures hosted builds do not overwrite the packaged local Studio.
 
 After deployment, verify `/api/health`, sign-in, refresh/reconnect, sign-out, model discovery, provider auth failures, downloaded receipts, and a replaying SSE connection through Vercel. Check Railway logs and the persistent volume after a restart. Run real CLI/provider smoke tests separately in disposable project clones. No deployment is created by these preparation commands.
 

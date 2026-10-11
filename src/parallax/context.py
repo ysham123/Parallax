@@ -231,11 +231,35 @@ def fit_patch(diff: str, budget: int) -> str:
     return "".join(out)
 
 
+def _structured_finding(value):
+    if (not isinstance(value, dict) or set(value) != {"title", "body", "priority", "code_location"}
+            or not isinstance(value["title"], str) or not value["title"]
+            or not isinstance(value["body"], str) or not value["body"]
+            or not isinstance(value["priority"], str) or value["priority"] not in {"P0", "P1", "P2", "P3"}):
+        return False
+    location = value["code_location"]
+    if location is None:
+        return True
+    if (not isinstance(location, dict) or set(location) != {"path", "line_range"}
+            or not isinstance(location["path"], str) or not location["path"]):
+        return False
+    lines = location["line_range"]
+    return (isinstance(lines, dict) and set(lines) == {"start", "end"}
+        and type(lines["start"]) is int and type(lines["end"]) is int
+        and 1 <= lines["start"] <= lines["end"])
+
+
 def findings(values, limit: int = 8, each: int = 600) -> list[str]:
     """Normalize reviewer findings, which may be strings or structured objects."""
     out = []
     for value in (values or [])[:limit]:
-        text = value if isinstance(value, str) else render_json(value)
+        if _structured_finding(value):
+            # Typed findings are bounded context, not a new source of truth.
+            # Put grounded navigation and severity ahead of a potentially long
+            # explanation so clipping the body does not discard the location.
+            text = json.dumps({key:value[key] for key in ("code_location", "priority", "title", "body")}, ensure_ascii=False)
+        else:
+            text = value if isinstance(value, str) else render_json(value)
         out.append(clip(text, each)[0])
     return out
 

@@ -65,10 +65,10 @@ export function ThemeToggle() {
   );
 }
 
-export function PublicFooter() {
+export function PublicFooter({ preview = false }: { preview?: boolean } = {}) {
   return (
     <footer className="pub-footer">
-      <span>Parallax {__PARALLAX_VERSION__} · MIT</span>
+      <span>Parallax {__PARALLAX_VERSION__}{preview ? " development preview" : ""} · MIT</span>
       <nav aria-label="Legal and support">
         <a href="/privacy">Privacy</a>
         <a href="/terms">Terms</a>

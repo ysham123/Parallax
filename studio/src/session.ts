@@ -5,6 +5,7 @@ export type Session = {
   mode: "hosted" | "local";
   auth: "account" | "github" | "operator" | "local";
   account: {
+    id?: string;
     login: string;
     name: string | null;
     avatar_url: string | null;
@@ -14,7 +15,8 @@ export type Session = {
   workspace: {
     id: string;
     name: string;
-    kind: "personal" | "operator";
+    kind: "personal" | "operator" | "team";
+    role?: string;
     hosted_execution: boolean;
   };
 };
@@ -36,11 +38,15 @@ export function signInMethods(config: AuthConfig | null): string[] {
 
 /** How a person is named in the account menu and asked to confirm deletion. */
 export function accountName(account: NonNullable<Session["account"]>): string {
-  return account.provider === "github" || !account.email ? `@${account.login}` : account.email;
+  return account.provider === "github" || !account.email
+    ? `@${account.login}`
+    : account.email;
 }
 
 /** What a person types to confirm deleting their account. */
-export function deletionConfirmation(account: NonNullable<Session["account"]>): string {
+export function deletionConfirmation(
+  account: NonNullable<Session["account"]>,
+): string {
   return account.email || account.login;
 }
 
@@ -51,6 +57,14 @@ export type ExecutionMachine = {
   platform: string;
   workspaces: string[];
   last_seen: number;
+  transport_status?: EvidenceTransport;
+};
+
+export type EvidenceTransport = {
+  status: "ok" | "local_evidence_only";
+  problem_count: number;
+  limit_bytes: number;
+  detail?: string;
 };
 
 export type LegalPage = "privacy" | "terms" | "support";
@@ -58,7 +72,9 @@ export type LegalPage = "privacy" | "terms" | "support";
 /** The policy or support page for a path such as `/privacy`, or null for any other path. */
 export function legalPage(pathname: string): LegalPage | null {
   const page = pathname.replace(/\/$/, "").slice(1);
-  return page === "privacy" || page === "terms" || page === "support" ? page : null;
+  return page === "privacy" || page === "terms" || page === "support"
+    ? page
+    : null;
 }
 
 export const HOSTED_EXECUTOR = "railway";
@@ -71,12 +87,14 @@ const SIGN_IN_ERRORS: Record<string, string> = {
     "That sign-in expired or was opened in a different browser. Start again from this page.",
   failed: "Sign-in could not be confirmed. Try again in a moment.",
   closed: "This deployment is not accepting new accounts right now.",
-  not_invited: "This deployment is invite only, and this account is not on the list.",
+  not_invited:
+    "This deployment is invite only, and this account is not on the list.",
   capacity: "This deployment has reached its account limit.",
   busy: "Too many attempts. Wait a few minutes and try again.",
   disabled: "This account has been disabled by the deployment operator.",
   credentials: "That email and password don't match an account.",
-  unconfirmed: "Confirm your email first. Check your inbox for the link we sent.",
+  unconfirmed:
+    "Confirm your email first. Check your inbox for the link we sent.",
   weak_password: "Use a password of at least 10 characters.",
   invalid_email: "Enter a valid email address.",
   link_expired: "That link has expired or was already used. Request a new one.",
@@ -85,7 +103,9 @@ const SIGN_IN_ERRORS: Record<string, string> = {
 /** Read a sign-in error code from the callback redirect, ignoring anything unrecognized. */
 export function signInError(search: string): string | null {
   const code = new URLSearchParams(search).get("auth_error");
-  return code && Object.prototype.hasOwnProperty.call(SIGN_IN_ERRORS, code) ? code : null;
+  return code && Object.prototype.hasOwnProperty.call(SIGN_IN_ERRORS, code)
+    ? code
+    : null;
 }
 
 export function signInErrorMessage(code: string): string {
@@ -105,7 +125,8 @@ export function chooseMachine(
   hostedExecution: boolean,
 ): string | null {
   if (stored === HOSTED_EXECUTOR && hostedExecution) return HOSTED_EXECUTOR;
-  if (stored && machines.some((machine) => machine.id === stored)) return stored;
+  if (stored && machines.some((machine) => machine.id === stored))
+    return stored;
   const online = machines.find((machine) => machine.online);
   if (online) return online.id;
   // The operator's hosted runtime is always reachable; prefer it over an offline machine.
@@ -128,14 +149,23 @@ export function platformLabel(platform: string): string {
 }
 
 export function initials(session: Session): string {
-  const source = session.account?.name || session.account?.email || session.account?.login || "Operator";
+  const source =
+    session.account?.name ||
+    session.account?.email ||
+    session.account?.login ||
+    "Operator";
   const parts = source.trim().split(/\s+/).filter(Boolean);
   const letters =
-    parts.length > 1 ? parts[0][0] + parts[parts.length - 1][0] : source.slice(0, 2);
+    parts.length > 1
+      ? parts[0][0] + parts[parts.length - 1][0]
+      : source.slice(0, 2);
   return letters.toUpperCase();
 }
 
-export function workerCommands(origin: string): { install: string; start: string } {
+export function workerCommands(origin: string): {
+  install: string;
+  start: string;
+} {
   return {
     install: `git clone ${REPOSITORY}.git\ncd Parallax`,
     start: [
@@ -156,6 +186,26 @@ export function readStored(key: string): string | null {
   }
 }
 
+/** Invitation links survive sign-in even when session storage is unavailable. */
+export function invitationToken(search: string): string {
+  const token = new URLSearchParams(search).get("invite");
+  if (token && /^[a-zA-Z0-9_-]{20,128}$/.test(token)) return token;
+  try {
+    return window.sessionStorage.getItem("parallax-invitation") || "";
+  } catch {
+    return "";
+  }
+}
+
+export function rememberInvitation(token: string | null): void {
+  try {
+    if (token) window.sessionStorage.setItem("parallax-invitation", token);
+    else window.sessionStorage.removeItem("parallax-invitation");
+  } catch {
+    /* A link in this tab can still be accepted. */
+  }
+}
+
 export function writeStored(key: string, value: string | null): void {
   try {
     if (value === null) window.localStorage.removeItem(key);
@@ -171,7 +221,10 @@ export function forgetMachines(): void {
     const keys: string[] = [];
     for (let index = 0; index < window.localStorage.length; index += 1) {
       const key = window.localStorage.key(index);
-      if (key && (key.startsWith("parallax-executor:") || key === "parallax-executor"))
+      if (
+        key &&
+        (key.startsWith("parallax-executor:") || key === "parallax-executor")
+      )
         keys.push(key);
     }
     keys.forEach((key) => window.localStorage.removeItem(key));

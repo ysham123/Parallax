@@ -21,11 +21,23 @@ class ReleaseInputsTest(unittest.TestCase):
             self.assertEqual([str(p.relative_to(root)) for p in release_files(root)],['src/parallax/main.py'])
 
     def test_private_inputs_fail_before_packaging(self):
-        for name in ('docs/.env.local','src/state.sqlite3','studio/server.json','docs/api-sessions/request.json','scripts/.grok/config.toml'):
+        for name in ('docs/.env.local','src/state.sqlite3','studio/server.json','docs/api-sessions/request.json','scripts/.grok/config.toml','examples/legacy-modernization/.env.local'):
             with self.subTest(name=name),tempfile.TemporaryDirectory() as directory:
                 root=Path(directory);path=root/name;path.parent.mkdir(parents=True);path.write_text('private fixture')
                 with self.assertRaisesRegex(ValueError,'Private runtime or credential'):
                     release_files(root)
+
+    def test_runnable_examples_and_security_guide_are_release_inputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            names = ('SECURITY.md', 'examples/legacy-modernization/settlement.py',
+                     'examples/legacy-modernization/tests/test_settlement.py',
+                     'examples/legacy-modernization/task-manifest.json')
+            for name in names:
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('synthetic release fixture')
+            self.assertEqual({str(p.relative_to(root)) for p in release_files(root)}, set(names))
 
     def test_file_and_directory_symlinks_are_rejected(self):
         for directory in (False,True):

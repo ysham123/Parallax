@@ -203,8 +203,8 @@ export function TaskPreflight({
                   Use detected checks
                 </button>
                 <p id={checksNoteId} className="preflight-note">
-                  Replaces the checks in the recipe editor. Save the recipe
-                  before starting.
+                  Uses these checks for this task. Your saved recipe stays
+                  unchanged.
                 </p>
               </div>
             )}
@@ -213,7 +213,7 @@ export function TaskPreflight({
           <p className="preflight-note">
             {assessment.proposed_checks === undefined
               ? "This worker did not report detected checks."
-              : "No checks detected. Add explicit check commands in the recipe editor."}
+              : "No checks detected. Add explicit check commands in task settings."}
           </p>
         )}
       </div>

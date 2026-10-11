@@ -48,6 +48,7 @@ class Candidates:
         identity = {"run_id": result["run_id"], "policy": POLICY, "spec": digest(result["spec"]),
             "patch": digest(result["diff"]), "source": source,
             "tree": manager.fingerprint(manager.integration_path),
+            "delivery_target": digest(artifacts.get("authority",{}).get("github_target")),
             "evidence": digest({"checks":result["checks"], "reviews":result["reviews"],
                 "validated":artifacts.get("validated_fingerprint"), "required_checks":artifacts.get("required_checks")})}
         return {"digest": digest(identity), "identity": identity, "gates": gates,
@@ -64,6 +65,33 @@ class Candidates:
             except (WorkspaceError, OSError) as exc:
                 raise ValueError(f"Saved candidate cannot be verified: {exc}. Prepare a new workflow.") from exc
         return await self.engine._workspace_call(inspect)
+
+    def publication_tree(self, manager, target, previous=None):
+        import base64
+        metadata = manager.prepare()
+        baseline_tree = manager._oid(manager.workspace, metadata["snapshot_commit"] + "^{tree}")
+        if baseline_tree != target["base_tree"]:
+            raise ValueError("Captured project tree does not match the remote baseline. Keep dirty tasks for local delivery")
+        commit = metadata["integration_commit"]
+        old = manager._tree(previous or metadata["snapshot_commit"])
+        new = manager._tree(commit)
+        additions, deletions = [], []
+        size = 0
+        for name in sorted(old.keys() | new.keys()):
+            if old.get(name) == new.get(name): continue
+            if name.startswith('.github/workflows/'):
+                raise ValueError("Workflow-file changes are excluded from this pilot; use local delivery")
+            if name not in new:
+                deletions.append({"path":name}); continue
+            mode, oid = new[name]
+            if mode == '120000' or mode != (old.get(name) or ('100644',))[0]:
+                raise ValueError("GitHub delivery does not support symlink or executable-mode changes; use local delivery")
+            content = manager._git(manager.workspace,'cat-file','blob',oid).stdout
+            size += len(content)
+            if size > 4*1024*1024: raise ValueError("Candidate is too large for pilot GitHub delivery; use local delivery")
+            additions.append({"path":name,"contents":base64.b64encode(content).decode()})
+        return {"tree":manager._oid(manager.workspace,commit+'^{tree}'),"baseline":target["base_commit"],"baseline_tree":baseline_tree,
+            "repository":target["full_name"],"base":target["base"],"additions":additions,"deletions":deletions}
 
     async def apply(self, run_id, expected_digest, decision_id):
         if run_id in self.engine.jobs:
@@ -86,12 +114,17 @@ class Candidates:
             if application.get("state") == "applying":
                 if metadata.get("applied"):
                     return self._finish(result, metadata.get("applied_changed_files", []), metadata.get("preservation", {}))
-                raise ValueError("Interrupted application was not replayed. Inspect the project and start a new workflow.")
+                transaction = metadata.get("apply_transaction", {})
+                if transaction.get("state") not in {None, "rolled_back"} or metadata.get("recovery_error"):
+                    raise ValueError("Interrupted application needs inspection before it can be retried.")
+                # A crash before the first write, or a fully verified rollback,
+                # can retry the same saved decision. The exact source, candidate
+                # and evidence are checked again below before any filesystem write.
             current = await self.engine._workspace_call(self._capture, result, manager)
             if current["digest"] != expected_digest:
                 raise ValueError("The approved candidate or its evidence changed. Prepare a new candidate.")
             result["artifacts"]["application"] = {"state":"applying", "digest":expected_digest,
-                "decision_id":decision_id, "approved_at":now(), "policy":POLICY}
+                "decision_id":decision_id, "approved_at":application.get("approved_at", now()), "policy":POLICY}
             self.store.save(result)
             self.store.event(run_id, "application_approved", {"candidate":expected_digest,"decision_id":decision_id})
             applied = await self.engine._workspace_call(manager.apply)

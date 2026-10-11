@@ -1,0 +1,8 @@
+transaction_id,customer,date,kind,amount,currency,note
+t1,Beta,2024-01-01,charge,10.005,usd,old batch
+t2,Alpha,2024-01-02,charge,0.005,USD,round per transaction
+t3,Alpha,2024-01-02,charge,0.005,USD,round per transaction
+t4,Alpha,2024-01-03,refund,0.005,USD,partial refund
+t5,"ACME, East",2024-02-29,charge,100.10,EUR,quoted name
+t6,"ACME, East",2024-03-01,refund,120.105,eur,net can be negative
+t7,Zoë,2024-03-02,charge,0,USD,zero amount is a transaction

@@ -10,6 +10,7 @@ WORKDIR /app
 COPY requirements.lock ./
 RUN pip install --no-cache-dir --require-hashes --only-binary=:all: -r requirements.lock
 COPY src ./src
+COPY scripts/staging_preflight.py ./scripts/staging_preflight.py
 ENV PYTHONPATH=/app/src PYTHONUNBUFFERED=1 PARALLAX_HOME=/data/parallax PARALLAX_PROJECTS_ROOT=/data/projects
 # Provider CLIs are optional and must be installed/authenticated in a custom image.
 CMD ["python", "-m", "parallax.cloud"]

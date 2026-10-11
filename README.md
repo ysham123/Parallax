@@ -1,6 +1,6 @@
 <p align="center"><img src="assets/parallax-hero.svg" alt="Parallax" width="100%"></p>
 
-<p align="center"><strong>Many perspectives. One verified result.</strong></p>
+<p align="center"><strong>Delegate a change. Get back a reviewed patch.</strong></p>
 
 <p align="center">
   <a href="https://github.com/ysham123/Parallax/actions/workflows/tests.yml"><img src="https://github.com/ysham123/Parallax/actions/workflows/tests.yml/badge.svg" alt="Tests"></a>
@@ -10,15 +10,19 @@
 
 Parallax runs a team of coding agents from different providers on your project and integrates only what survives independent review and your project's real checks. Codex, Claude Code, Grok Build and Antigravity can each coordinate, implement or review. Every agent works in an isolated checkout, a different provider reviews each change, and the combined result must pass your checks before a single line reaches your working tree. Each integrated result comes with a verification record.
 
-It runs from Claude Code, from Codex, or from the command line. Studio organizes work by project and task, with team activity beside file diffs, checks, and independent reviews. Start a task, direct the team, and approve the exact candidate when it is ready. Saved recipes preserve your team, instructions, and checks; progress and evidence survive disconnects and worker restarts.
+It runs from Claude Code, from Codex, or from the command line. Studio organizes work by project and task, with team activity beside file diffs, checks, and independent reviews. Start a task, direct the team, revise a saved candidate, and approve the exact candidate when it is ready. New Studio tasks separate approval from local application or draft GitHub PR delivery. Saved recipes preserve your team, instructions, and checks; recorded progress and evidence survive disconnects and worker restarts.
 
-## Install
+This checkout documents the **1.4.0 development preview**. The public local tools are currently 1.3.0 and do not include the saved-candidate workflow, team approval or GitHub delivery shown here. For the preview, use the operator-supplied versioned source package and follow the [first-task guide](docs/FIRST-TASK.md). A reviewed local package is preparation for a pilot; live acceptance is still required.
+
+For a bounded legacy upgrade, try [Modernize one component](examples/legacy-modernization/README.md): a runnable batch-CLI exercise with a versioned compatibility contract and 34 characterization tests. The [domain guide](docs/LEGACY-MODERNIZATION.md) explains the use case and customer comparison; [preview reliability boundaries](docs/RELIABILITY-MODERNIZATION.md) cover provisioning, recovery, evidence limits and unsupported native features.
+
+## Install public local tools
 
 **Claude Code**
 
 ```text
 /plugin marketplace add ysham123/Parallax
-/plugin install parallax-team@parallax
+/plugin install parallax@parallax
 ```
 
 **Codex**
@@ -35,19 +39,20 @@ Start a new chat after installing. The Codex install ID stays `codex-claude-team
 ```sh
 git clone https://github.com/ysham123/Parallax.git
 cd Parallax
+git checkout --detach a5b0ccf84cee50ff0b9c0d69df522aaf1ed4e2ee
 python3 scripts/parallax.py doctor
 ```
 
-Requirements: macOS, Python 3.10+, Git 2.38+, and at least one signed-in agent CLI (`codex`, `claude`, `grok`, `agy`) or an API key. Linux works where bubblewrap with user namespaces is available; CI covers it, including a live sandbox test. On first start, Parallax prepares a private Python environment from hash-locked dependencies. It changes no global packages or provider settings.
+Requirements: macOS, Python 3.10+, Git 2.38+, and a signed-in agent CLI (`codex`, `claude`, `grok`, `agy`) or an API key. Build and Compare also need an available provider that did not implement the candidate to review it independently. A detected sign-in does not establish remaining provider quota. Linux works where bubblewrap with user namespaces is available; CI covers it, including a live sandbox test. On first start, Parallax prepares a private Python environment from hash-locked dependencies. It changes no global packages or provider settings.
 
-## Use it
+## Use the public tools
 
 In Claude Code:
 
 ```text
-/parallax-team:review
-/parallax-team:build Add rate limiting to the login endpoint
-/parallax-team:studio
+/parallax:review
+/parallax:build Add rate limiting to the login endpoint
+/parallax:studio
 ```
 
 You can also just ask: *"Have Parallax review this change with Codex and Grok."*
@@ -72,8 +77,13 @@ flowchart LR
   Plan --> Workers[Isolated workers]
   Workers --> Review[Independent review]
   Review --> Checks[Combined checks]
-  Checks --> Apply[Verified patch]
+  Checks --> Candidate[Saved candidate]
+  Candidate --> Approval[Human approval]
+  Approval --> Apply[Apply locally]
+  Approval --> PR[Draft GitHub PR]
 ```
+
+This is the new Studio workflow. Existing CLI/plugin runs and legacy Studio records retain their recorded integration behavior. Team and GitHub delivery features require the invited-pilot configuration described below.
 
 - **Your work is preserved.** Parallax snapshots staged, unstaged and untracked changes without touching your index, works in private worktrees, and applies only the verified patch. Conflicts, failed checks or unsupported setups stop as **Needs attention**, with all work kept.
 - **Checks are the gate.** Integration requires meaningful check commands, given as argv arrays such as `["npm", "test"]`. An agent saying tests passed is not verification.
@@ -86,11 +96,13 @@ See [architecture](docs/ARCHITECTURE.md) for the full design and [real-project d
 
 ## Studio
 
-Studio opens on **Tasks**. Search the queue, filter by project or status, and open a task to follow activity beside its per-file diff, command results, independent reviews, and saved settings. Send guidance during execution or draft a linked follow-up with the original workflow version and settings. Each follow-up builds a separate candidate from the current project and requires its own approval. **New task** includes project readiness, a workflow selector, and configurable team, instructions, and checks that you can save as versioned recipes. **Approve & apply** rechecks the exact candidate and project before application; declining keeps the project unchanged. Waiting candidates survive worker restarts. [Workflow guide](docs/WORKFLOWS.md)
+Studio opens on **Tasks**. Search the queue, filter by project or status, and open a task to follow activity beside its per-file diff, command results, independent reviews, and saved settings. Send guidance during execution. Afterward, **Revise candidate** starts from the saved patch and original project baseline; **New task from current project** captures the developer's current files. Both create separate candidates with fresh evidence and approval. **New task** includes project readiness, a workflow selector, and configurable team, instructions, and checks that you can save as versioned recipes.
+
+New tasks use **Approve candidate**, followed by an explicit **Apply locally** or **Publish draft PR** action. Team candidates need approval from another human with access to that project; Owners cannot approve their own request. Legacy records retain **Approve & apply**. Source drift, failed checks and failed review stop delivery. Waiting candidates survive worker restarts. See the [workflow guide](docs/WORKFLOWS.md) and [invited-pilot setup](docs/PILOT.md).
 
 **Agent graph** shows the active or selected run, including who coordinates, implements and reviews. The task graph shows dependencies, repairs, reviews and checks. When the coordinator explores alternatives, the task graph shows each variant by round and marks the one it kept. Inspectors show what each agent's context packet contained, by section and size. **Advanced run** keeps the direct review/build/compare controls and project memory settings. You can steer a run at its next checkpoint, pause it, stop it or resume it. **Run evidence** brings together baseline and final checks, the combined diff, findings and the verification record.
 
-Studio binds to loopback only. Its launch link exchanges a local access token for an HttpOnly session cookie and removes the token from the address bar, and Studio rejects cross-origin requests.
+Local Studio binds to loopback only. Its launch link exchanges a local access token for an HttpOnly session cookie and removes the token from the address bar, and Studio rejects cross-origin requests. Hosted Studio uses the authenticated relay described below.
 
 ## Providers
 
@@ -101,11 +113,11 @@ Studio binds to loopback only. Its launch link exchanges a local access token fo
 | Grok Build | `grok` | xAI Responses |
 | Antigravity | `agy` | Gemini through Google's OpenAI-compatible endpoint |
 
-CLI connections use your existing sign-ins. API keys are stored in macOS Keychain or referenced by environment variable. They never appear in run specifications, profiles, the database or browser storage. Custom models can connect through any OpenAI-compatible HTTPS endpoint with an explicit model and capability catalog. Prompts and the relevant project content go to the endpoints you select; orchestration and history stay on your machine.
+CLI connections use your existing sign-ins. API keys are stored in macOS Keychain or referenced by environment variable. They never appear in run specifications, profiles, the database or browser storage. Custom models can connect through any OpenAI-compatible HTTPS endpoint with an explicit model and capability catalog. Prompts and relevant project content go to the endpoints you select. Execution and private working copies stay on your machine; local-only history stays there too. Connected hosted workspaces mirror evidence to their relay, including task prompts and settings, changes, check output, agent output and session metadata.
 
 ## Hosted Studio and paired machines
 
-Parallax can also run as a hosted Studio on Vercel with a runtime on Railway. Visitors sign up with email, GitHub or Google and get a private workspace. Their agents run on machines they pair with an outbound worker, scoped to exact approved project folders. Execution, provider sign-ins and API keys stay on those machines. Only run evidence is mirrored to the workspace, within per-workspace limits. See [deployment](docs/DEPLOYMENT.md) and [paired machines](docs/LOCAL-WORKERS.md). The hosted Studio publishes its privacy policy, terms and support page at `/privacy`, `/terms` and `/support`.
+Parallax can also run as a hosted Studio on Vercel with a runtime on Railway. Depending on the deployment's enrollment settings, users sign in with email, GitHub or Google and get a private personal workspace. Explicit team workspaces add invited members, project permissions and shared versioned recipes. Their agents run on machines paired into that workspace with an outbound worker, scoped to exact locally approved project folders. Execution, provider sign-ins and API keys stay on those machines. Mirrored evidence can contain source code and is retained within the relay's storage limits. A sleeping or offline worker cannot accept new work; team task inspection currently also requires an online worker to enforce project filtering. See [deployment](docs/DEPLOYMENT.md), [paired machines](docs/LOCAL-WORKERS.md) and [pilot privacy and recovery](docs/PILOT.md#data-support-and-recovery). The hosted Studio publishes its privacy policy, terms and support page at `/privacy`, `/terms` and `/support`.
 
 ## Command line
 
@@ -128,18 +140,22 @@ The optional [remote MCP integration](docs/REMOTE-MCP.md) lets account-authorize
 
 - Build and Compare need a Git repository. Review works in any folder.
 - Git submodules and symlinks that point outside the project need manual handling.
-- Automatic environment setup covers Python requirements and PEP 621 dependencies, and locked npm projects with lifecycle scripts disabled. Yarn, pnpm and npm workspaces need a prepared environment.
-- API command execution currently requires the macOS sandbox. SSH workers and remote filesystem mounts are not supported.
-- Parallax changes your working tree only. Committing, pushing and deploying stay with you.
+- Automatic Python setup requires wheel-only requirements with exact versions and hashes. Source builds, editable/VCS installs and unlocked dependency declarations are refused. Locked npm projects run with lifecycle scripts disabled; Yarn, pnpm and npm workspaces need a prepared environment. See [the preview dependency policy](docs/RELIABILITY-MODERNIZATION.md).
+- API command execution requires enforced command isolation: the macOS sandbox or Linux bubblewrap with the required namespaces. Native provider readiness is checked separately. SSH workers and remote filesystem mounts are not supported.
+- CLI/plugin integration remains local. Versioned Studio tasks separate human approval from local application or draft GitHub PR delivery. GitHub delivery requires a configured App and a clean captured remote baseline; merging and deployment stay with you.
+- Team workspaces and GitHub delivery are gated by `PARALLAX_PILOT_ENABLED=on` for staging and invited pilots. See [pilot setup and launch checklist](docs/PILOT.md).
 
 ## Develop
 
 ```sh
 uv sync --extra test
+uv run python -m ensurepip --upgrade
 PYTHONPATH=src uv run python -m unittest discover -s tests
 npm ci --prefix studio && npm run build --prefix studio
 python3 scripts/validate_release.py
 ```
+
+Python check provisioning needs pip in the runtime interpreter. The portable launcher supplies it; existing uv or pipx environments may need the standard-library `ensurepip` step above. If that interpreter omits ensurepip, use a standard Python virtual environment with pip.
 
 Tests use deterministic fake agents, so no provider is called. CI runs Python 3.10 and 3.13 on macOS and Linux, plus Studio and container checks. Recorded native and team runs are in [docs/validation](docs/validation). See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), [CHANGELOG.md](CHANGELOG.md) and [UPGRADE.md](UPGRADE.md).
 

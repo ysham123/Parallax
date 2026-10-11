@@ -4,6 +4,9 @@ import { localStudioUrl } from "./hosted-link";
 import { legalPage } from "./session";
 import Legal from "./Legal";
 import OAuthConsent, { ConnectedApps } from "./OAuthConsent";
+import PublicSite from "./PublicSite";
+import { publicWebsite } from "./entry-routing";
+import { PUBLIC_RELEASE } from "./public-release";
 import "./hosted.css";
 
 const repository = "https://github.com/ysham123/Parallax";
@@ -14,7 +17,8 @@ export default function HostedApp() {
   if (location.pathname === "/oauth/consent") return <OAuthConsent />;
   if (location.pathname === "/connections") return <ConnectedApps />;
   const page = legalPage(location.pathname);
-  return page ? <Legal page={page} /> : <HostedEntry />;
+  if (page) return <Legal page={page} />;
+  return publicWebsite(location.pathname, location.search) ? <PublicSite /> : <HostedEntry />;
 }
 
 function HostedEntry() {
@@ -121,7 +125,7 @@ function HostedEntry() {
           <span className="hosted-eyebrow">OPEN YOUR WORKSPACE</span>
           <h2 id="launch-title">Start in Claude Code or Codex</h2>
           <p>
-            With the Parallax plugin installed, run <code>/parallax-team:studio</code> in Claude
+            With the public Parallax plugin installed, run <code>{PUBLIC_RELEASE.claudeStudio}</code> in Claude
             Code, or ask Codex:
           </p>
           <blockquote>“Open Parallax Studio for this project.”</blockquote>
@@ -176,10 +180,15 @@ function HostedEntry() {
           <a className="hosted-install" href={`${repository}#install`}>
             Install the Parallax plugin ↗
           </a>
+          <p className="hosted-help">
+            Testing the {__PARALLAX_VERSION__} development preview? Use the reviewed build supplied
+            by your operator and the source command above. The public {PUBLIC_RELEASE.version} tools
+            do not include the saved-candidate workflow shown on this website.
+          </p>
         </section>
       </main>
       <footer className="hosted-footer">
-        <span>Parallax {__PARALLAX_VERSION__} · Studio runs locally</span>
+        <span>Parallax {__PARALLAX_VERSION__} development preview · Studio runs locally</span>
         <nav aria-label="Legal and support">
           <a href="/privacy">Privacy</a>
           <a href="/terms">Terms</a>

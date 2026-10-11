@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from .models import Participant
-from .deployment import HOSTED_SECRETS
+from .isolation import NATIVE_PRIVATE_NAMES, native_scopes, native_secret_globs
 
 PROVIDERS = ("codex", "claude", "grok", "antigravity")
 LABELS = {"codex": "Codex", "claude": "Claude Code", "grok": "Grok Build", "antigravity": "Antigravity"}
@@ -36,15 +36,59 @@ MAX_OUTPUT = 8 * 1024 * 1024
 MAX_STDERR = 256 * 1024
 MAX_EVENTS = 20000
 MAX_PROMPT = 200000
-AGY_READ_TOOLS = ("view_file", "list_dir", "find_by_name", "grep_search", "finish")
+AGY_READ_TOOLS = ("view_file", "list_dir", "find_by_name", "finish")
 AGY_EDIT_TOOLS = AGY_READ_TOOLS + ("write_to_file", "replace_file_content", "multi_replace_file_content")
 Callback = Callable[[dict], Awaitable[None] | None]
+
+
+def _native_probe_command() -> str:
+    # macOS ships true in /usr/bin; Linux may expose it in either system path.
+    # Never select a user-provided executable from PATH for the host canary.
+    for path in ("/usr/bin/true", "/bin/true"):
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+    raise ValueError("No executable system true command is available for the native sandbox check")
 
 
 def _safe_error(value: Any) -> str:
     value = str(value)
     value = re.sub(r"(?i)(bearer\s+|(?:api[_ -]?key|token|secret)\s*[:=]\s*)[^\s,\"']+", r"\1[redacted]", value)
     return value[:2000]
+
+
+def _toml_value(value: Any) -> str:
+    if isinstance(value, dict):
+        return '{' + ', '.join(json.dumps(str(k)) + ' = ' + _toml_value(v) for k, v in value.items()) + '}'
+    if isinstance(value, list):
+        return '[' + ', '.join(_toml_value(v) for v in value) + ']'
+    return json.dumps(value)
+
+
+def _supported_native_version(provider: str, value: str) -> bool:
+    match = re.search(r'(?<!\d)(\d+)\.(\d+)\.(\d+)(?!\d)', value)
+    if not match:
+        return False
+    version = tuple(int(part) for part in match.groups())
+    floors = {'codex': (0, 162, 0), 'claude': (2, 1, 295), 'antigravity': (1, 3, 0)}
+    floor = floors.get(provider)
+    return bool(floor and version[0] == floor[0] and version >= floor)
+
+
+def _codex_permissions(workspace: Path, scratch: Path, mode: str) -> list[str]:
+    """The same overrides feed exec and the model-free native sandbox probe."""
+    readable, roots, files = native_scopes(workspace)
+    filesystem = {':root': 'deny', ':minimal': 'read', ':tmpdir': 'deny', ':slash_tmp': 'deny'}
+    filesystem.update({str(path): 'deny' for path in sorted(roots | files)})
+    filesystem.update({str(path): 'write' if mode == 'edit' else 'read' for path in sorted(readable)})
+    filesystem.update({str(workspace / pattern): 'deny' for pattern in native_secret_globs()})
+    command_tmp = scratch / 'command-tmp'
+    command_tmp.mkdir(exist_ok=True)
+    filesystem[str(command_tmp.resolve())] = 'write'
+    profile = {'filesystem': filesystem, 'network': {'enabled': False}}
+    policy = {'inherit': 'none', 'experimental_use_profile': False, 'ignore_default_excludes': False,
+              'set': {'PATH': os.defpath, 'HOME': str(command_tmp), 'TMPDIR': str(command_tmp), 'CI': 'true'}}
+    return ['-c', 'default_permissions="parallax"', '-c', 'permissions.parallax=' + _toml_value(profile),
+            '-c', 'shell_environment_policy=' + _toml_value(policy)]
 
 
 def _json(text: str) -> Any:
@@ -359,6 +403,10 @@ def _catalog_models(rows: list[dict], provider: str) -> list[dict]:
 
 
 class ProviderRegistry:
+    # Vendor session restoration may reapply older permissions or initialization.
+    # Preserve candidate/budget and start a fresh native conversation until the
+    # scoped policy's restoration has live integration evidence.
+    native_session_resume = False
     def __init__(self, binaries: dict[str, str] | None = None, *, home: Path | None = None,
                  cache_seconds: int = 60, max_output: int = MAX_OUTPUT) -> None:
         self.binaries = {**BINARIES, **(binaries or {})}
@@ -374,12 +422,22 @@ class ProviderRegistry:
     async def discover(self, *, refresh: bool = False) -> list[dict]:
         return list(await asyncio.gather(*(self.catalog(provider, refresh=refresh) for provider in PROVIDERS)))
 
+    def _environment(self, *, scratch: Path | None = None) -> dict[str, str]:
+        # Native clients need a sign-in location, not the relay's process secrets,
+        # SSH agent, proxy credentials, Python/Node injection, or cloud tokens.
+        env = {'PATH': os.environ.get('PATH', os.defpath), 'HOME': str(self.home),
+               'CODEX_HOME': str(self.codex_home), 'LANG': 'en_US.UTF-8',
+               'NO_COLOR': '1', 'GROK_DISABLE_AUTOUPDATER': '1', 'GROK_MEMORY': '0',
+               'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1'}
+        if scratch is not None:
+            env['TMPDIR'] = str(scratch)
+        for key in ('SystemRoot', 'WINDIR'):
+            if key in os.environ and os.name == 'nt':
+                env[key] = os.environ[key]
+        return env
+
     async def _metadata(self, executable: str, args: list[str], *, timeout: int = 20) -> Captured:
-        env = os.environ.copy()
-        for secret in HOSTED_SECRETS:
-            env.pop(secret, None)
-        env["GROK_DISABLE_AUTOUPDATER"] = "1"
-        return await _capture([executable, *args], cwd=self.home, env=env, timeout=timeout,
+        return await _capture([executable, *args], cwd=self.home, env=self._environment(), timeout=timeout,
                               max_output=self.max_output)
 
     def _cache_file(self, provider: str) -> dict:
@@ -502,19 +560,36 @@ class ProviderRegistry:
                     info["default_model"] = next((m["id"] for m in info["models"] if m["id"].endswith("-high") and m["id"].startswith("gemini-")), None)
                 if not info["default_model"] and info["models"] and not info.get("default_model_error"):
                     info["default_model"] = info["models"][0]["id"]
-                info["capabilities"] = {"headless": True, "streaming": True, "resume": True,
+                info["capabilities"] = {"headless": True, "streaming": True, "resume": False,
                     "structured_output": True, "effort": True, "consult": True, "edit": True,
                     "coordinate": True, "native_recursion": False,
-                    "edit_shell": provider in ("codex", "grok") and os.name == "posix" or provider == "claude" and self._claude_shell_available(),
+                    "edit_shell": provider == "codex" and os.name == "posix",
                     "authentication": "existing native sign-in", "requires_owned_workspace": True}
                 info["status"] = "ready" if info["authenticated"] and info["models"] else "sign_in_required" if not info["authenticated"] else "catalog_unavailable"
                 if info["status"] != "ready":
                     info["error"] = "Sign in with the native CLI." if not info["authenticated"] else "No selectable models were discovered."
-                if provider == "codex" and sys.platform.startswith("linux") and info["authenticated"]:
+                boundary_error = None
+                if provider != 'grok' and not _supported_native_version(provider, info['version']):
+                    boundary_error = 'Update ' + LABELS[provider] + ': this CLI version has not established the scoped native adapter contract.'
+                elif provider == 'codex' and '--strict-config' not in self._help[provider]:
+                    boundary_error = 'Update Codex: this installed CLI cannot enforce strict scoped filesystem profiles.'
+                elif provider == 'claude' and (not all(flag in self._help[provider] for flag in ('--restricted', '--safe-mode', '--settings')) or 'confines the file tools to the working directories' not in ' '.join(self._help[provider].split())):
+                    boundary_error = 'Update Claude Code: restricted file tools are required for isolated participants.'
+                elif provider == 'grok':
+                    boundary_error = 'Native Grok cannot isolate model tools from its sign-in files or enforce command network denial on this adapter. Use an API connection; native runs are blocked until an enforceable scoped adapter is available.'
+                if boundary_error:
+                    info['capabilities'].update(consult=False, edit=False, coordinate=False, edit_shell=False)
+                    if info['status'] == 'ready':
+                        info['status'], info['error'] = 'boundary_unsupported', boundary_error
+                if provider == "codex" and info["status"] == 'ready' and os.name == 'posix':
                     # Native Codex needs different kernel capabilities from
                     # Parallax's command runner. Login and model discovery do
                     # not establish that it can inspect the assigned files.
-                    probe = await self._metadata(executable, ["sandbox", "--", "/bin/true"])
+                    with tempfile.TemporaryDirectory(prefix='parallax-native-probe-') as folder:
+                        candidate = Path(folder) / 'candidate'
+                        candidate.mkdir()
+                        overrides = _codex_permissions(candidate, Path(folder), 'consult')
+                        probe = await self._metadata(executable, ['sandbox', *overrides, '-P', 'parallax', '-C', str(candidate), '--', _native_probe_command()])
                     available = probe.exit_code == 0 and not probe.failure
                     info["capabilities"]["native_command_sandbox"] = available
                     if not available:
@@ -573,6 +648,7 @@ class ProviderRegistry:
                 raise ValueError("Timeout must be positive")
             if session_id:
                 uuid.UUID(session_id)
+                raise ValueError("Native session reuse is unavailable until scoped-policy restoration is verified. Resume the task with a fresh conversation and its saved candidate and budget.")
             if cancel_event and cancel_event.is_set():
                 return {**result, "error": {"code": "cancelled", "message": "Run was cancelled before launch"}}
             catalog = await self.catalog(provider)
@@ -582,11 +658,11 @@ class ProviderRegistry:
                 scratch_path = Path(scratch)
                 with self._customizations(provider, workspace, scratch_path, mode) as customization:
                     argv, stdin, env, allowed = self._command(provider, catalog["executable"], workspace, prompt, effective, mode, session_id, timeout, schema, scratch_path, customization)
-                    # Sandboxing the entire native client breaks its auth or
-                    # its own sandbox initialization. Contain shell subprocesses
-                    # with native fail-closed sandboxing instead.
-                    effective["shell"] = mode == "edit" and (provider in ("codex", "grok") or provider == "claude" and self._claude_shell_available())
-                    effective["sandbox"] = "native " + ("workspace-write" if mode == "edit" else "read-only") if provider in ("codex", "grok") else "native restricted file tools" + (" + strict shell sandbox" if effective["shell"] else "")
+                    # The client retains its native sign-in transport. Model
+                    # tools receive provider-specific scoped read policies;
+                    # unsupported paths are disabled before execution.
+                    effective["shell"] = mode == 'edit' and provider == 'codex'
+                    effective["sandbox"] = 'native scoped filesystem, command network denied' if provider == 'codex' else 'native restricted file tools; shell and content search disabled' if provider == 'claude' else 'audited pre-tool filesystem gate; shell and content search disabled'
                     captured = await _capture(argv, cwd=workspace, env=env, timeout=timeout, stdin=stdin,
                                               cancel_event=cancel_event, on_event=on_event,
                                               guard=lambda event: self._guard(provider, event, allowed, mode), max_output=self.max_output)
@@ -653,9 +729,7 @@ class ProviderRegistry:
                 save(workspace / name)
             customization = {}
             if provider == "grok":
-                profile = "parallax-edit" if mode == "edit" else "parallax-read"
-                create(workspace / ".grok/sandbox.toml", f'[profiles.{profile}]\nextends = "{"workspace" if mode == "edit" else "read-only"}"\n')
-                customization["profile"] = profile
+                raise ValueError('Native Grok requires an enforceable scoped adapter; use an API connection.')
             if provider == "antigravity":
                 agent = "parallax-" + uuid.uuid4().hex
                 tools = AGY_EDIT_TOOLS if mode == "edit" else AGY_READ_TOOLS
@@ -664,7 +738,12 @@ class ProviderRegistry:
                 gate = scratch / "agy_gate.py"
                 gate.write_text(_AGY_GATE)
                 audit = scratch / "agy_gate_audit.jsonl"
-                command = " ".join(_shell_quote(s) for s in (sys.executable, str(gate), str(workspace), mode, str(audit)))
+                _, roots, files = native_scopes(workspace)
+                policy = scratch / 'native-policy.json'
+                policy.write_text(json.dumps({'roots': [str(path) for path in sorted(roots) if not workspace.is_relative_to(path)],
+                                              'files': [str(path) for path in sorted(files)],
+                                              'names': sorted(NATIVE_PRIVATE_NAMES)}))
+                command = " ".join(_shell_quote(s) for s in (sys.executable, str(gate), str(workspace), mode, str(audit), str(policy)))
                 create(workspace / ".agents/hooks.json", json.dumps({"parallax-gate": {"PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": command, "timeout": 10}]}]}}))
                 customization["agent"] = agent
                 customization["gate_audit"] = audit
@@ -693,15 +772,12 @@ class ProviderRegistry:
     def _command(self, provider: str, executable: str, workspace: Path, prompt: str,
                  settings: dict, mode: str, session: str | None, timeout: int,
                  schema: dict | None, scratch: Path, customization: dict) -> tuple[list[str], str, dict, set[str]]:
-        env = os.environ.copy()
-        for secret in HOSTED_SECRETS:
-            env.pop(secret, None)
+        if session:
+            raise ValueError("Native session reuse is unavailable until scoped-policy restoration is verified")
+        env = self._environment(scratch=scratch)
         env["PARALLAX_OWNED_WORKSPACE"] = str(workspace)
         env["GROK_DISABLE_AUTOUPDATER"] = "1"
         env["GROK_MEMORY"] = "0"
-        env.pop("ANTHROPIC_API_KEY", None)
-        env.pop("XAI_API_KEY", None)
-        env.pop("OPENAI_API_KEY", None)
         instruction = ("You are a bounded Parallax participant. The Parallax runtime owns delegation, validation and integration. Do not spawn other agents, call team tools, create background jobs, change agent configuration, commit, push, or publish. "
                        + ("Inspect files and return the requested response without changing files.\n\n" if mode != "edit" else "Implement only the delegated task in this isolated workspace. Preserve unrelated files. Root runtime will execute final checks.\n\n") + prompt)
         if schema:
@@ -713,9 +789,11 @@ class ProviderRegistry:
             if absent:
                 raise ValueError("Installed CLI cannot enforce this adapter's boundaries; missing " + ", ".join(absent))
         if provider == "codex":
-            require("--config", "--sandbox")
-            args = [executable, "-a", "never", "exec", "--ignore-user-config", "--json", "--color", "never", "--skip-git-repo-check", "--sandbox", "workspace-write" if mode == "edit" else "read-only", "--cd", str(workspace), "--model", model,
-                    "-c", 'features.apps=false', "-c", 'features.plugins=false', "-c", 'features.hooks=false', "-c", 'features.memories=false', "-c", 'features.multi_agent=false', "-c", 'web_search="disabled"']
+            require("--config", "--sandbox", '--strict-config')
+            args = [executable, "-a", "never", "exec", '--strict-config', "--ignore-user-config", '--ignore-rules', "--json", "--color", "never", "--skip-git-repo-check", "--cd", str(workspace), "--model", model,
+                    "-c", 'features.apps=false', "-c", 'features.plugins=false', "-c", 'features.hooks=false', "-c", 'features.memories=false', "-c", 'features.multi_agent=false',
+                    '-c', 'features.shell_snapshot=false', '-c', 'project_doc_max_bytes=0', '-c', 'features.view_image=false', "-c", 'web_search="disabled"']
+            args += _codex_permissions(workspace, scratch, mode)
             if effort:
                 args += ["-c", 'model_reasoning_effort=' + json.dumps(effort)]
             if schema:
@@ -728,14 +806,17 @@ class ProviderRegistry:
             return args, instruction, env, set()
         if provider == "claude":
             require("--safe-mode", "--restricted", "--strict-mcp-config", "--permission-prompts", "--tools", "--settings")
-            tools = "Read,Glob,Grep,Edit,Write" if mode == "edit" else "Read,Glob,Grep"
-            shell = mode == "edit" and self._claude_shell_available()
-            if shell:
-                tools += ",Bash"
+            tools = "Read,Glob,Edit,Write" if mode == "edit" else "Read,Glob"
             args = [executable, "--safe-mode", "--restricted", "--no-chrome", "-p", "--output-format", "stream-json", "--verbose", "--tools", tools, "--permission-mode", "acceptEdits" if mode == "edit" else "dontAsk", "--permission-prompts", "none", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--disable-slash-commands", "--disallowedTools", "Agent,Task,SendMessage,TeamCreate,TeamDelete,WebFetch,WebSearch", "--model", model]
-            if shell:
-                settings = {"sandbox": {"enabled": True, "failIfUnavailable": True, "allowUnsandboxedCommands": False, "autoAllowBashIfSandboxed": True, "excludedCommands": [], "enableWeakerNestedSandbox": False, "filesystem": {"disabled": False, "allowWrite": [str(workspace)]}, "network": {"allowedDomains": []}}}
-                args += ["--settings", json.dumps(settings), "--allowedTools", "Bash"]
+            _, roots, files = native_scopes(workspace)
+            # Read denies cover direct Read/Edit/Write, whereas the vendor only
+            # promises best-effort enforcement for Grep. Do not expose Grep/Bash.
+            patterns = [*native_secret_globs(),
+                        *('/' + str(path) + '/**' for path in sorted(roots) if not workspace.is_relative_to(path)),
+                        *('/' + str(path) for path in sorted(files))]
+            settings = {'permissions': {'blockReadsOutsideWorkingDirectories': True,
+                                       'deny': ['Read(' + pattern + ')' for pattern in patterns]}}
+            args += ['--settings', json.dumps(settings)]
             if effort:
                 args += ["--effort", effort]
             if schema:
@@ -747,24 +828,7 @@ class ProviderRegistry:
             allowed = set(tools.split(",")) | ({"StructuredOutput"} if schema else set())
             return args, instruction, env, allowed
         if provider == "grok":
-            require("--tools", "--deny", "--sandbox", "--no-subagents", "--permission-mode")
-            tools = "read_file,grep,list_dir,search_replace" if mode == "edit" else "read_file,grep,list_dir"
-            if mode == "edit":
-                tools += ",run_terminal_cmd"
-            prompt_path = scratch / "prompt.txt"
-            prompt_path.write_text(instruction)
-            args = [executable, "--prompt-file", str(prompt_path), "--output-format", "json" if schema else "streaming-json", "--cwd", str(workspace), "--model", model, "--tools", tools, "--no-subagents", "--no-plan", "--disable-web-search", "--permission-mode", "dontAsk", "--sandbox", customization["profile"], "--max-turns", "40", "--deny", "MCPTool", "--deny", "WebFetch", "--deny", "WebSearch"]
-            if mode == "edit":
-                args += ["--allow", "Edit", "--allow", "Write", "--allow", "Bash"]
-            else:
-                args += ["--deny", "Bash", "--deny", "Edit", "--deny", "Write"]
-            if effort:
-                args += ["--reasoning-effort", effort]
-            if schema:
-                args += ["--json-schema", json.dumps(schema)]
-            if session:
-                args += ["--resume", session]
-            return args, "", env, set(tools.split(","))
+            raise ValueError('Native Grok requires an enforceable scoped adapter; use an API connection.')
         require("--agent", "--sandbox", "--disable-slash-commands", "--print")
         # v1.3.0 streaming stdin does not honor terminal schema enforcement;
         # a one-shot print call does, and still emits progress NDJSON.
@@ -907,9 +971,12 @@ try:
     event = json.load(sys.stdin)
     root = pathlib.Path(sys.argv[1]).resolve()
     mode = sys.argv[2]
+    policy = json.loads(pathlib.Path(sys.argv[4]).read_text()) if len(sys.argv) > 4 else {}
+    private = [pathlib.Path(value).resolve() for value in policy.get("roots", []) + policy.get("files", [])]
+    protected = set(policy.get("names", [".git", ".parallax-home", ".parallax-api", ".ssh", ".aws", ".config", ".grok", ".claude", ".codex", ".agents", ".netrc", ".npmrc", ".pypirc", ".parallax-owned"]))
     call = event.get("toolCall", {})
     name, args = call.get("name", ""), call.get("args", {})
-    readers = {"view_file", "list_dir", "find_by_name", "grep_search", "finish"}
+    readers = {"view_file", "list_dir", "find_by_name", "finish"}
     writers = {"write_to_file", "replace_file_content", "multi_replace_file_content"}
     allowed = readers | (writers if mode == "edit" else set())
     if name not in allowed:
@@ -919,10 +986,17 @@ try:
         raise ValueError("Cannot establish tool filesystem scope")
     for value in paths:
         path = pathlib.Path(value)
-        path = (root/path).resolve() if not path.is_absolute() else path.resolve()
+        path = root/path if not path.is_absolute() else path
+        if any(item.is_symlink() for item in (path, *path.parents) if item != root and root in item.parents):
+            raise ValueError("Symlink paths are outside native file-tool scope")
+        path = path.resolve()
         path.relative_to(root)
-        if name in writers and any(part in (".agents", ".grok", ".codex", ".claude", ".git", ".parallax-owned") for part in path.relative_to(root).parts):
-            raise ValueError("Agent configuration and repository metadata are protected")
+        if any(part.casefold() in protected or part.casefold().startswith(".env") for part in path.relative_to(root).parts):
+            raise ValueError("Secret files and agent configuration are protected")
+        if any(path == item or item in path.parents for item in private):
+            raise ValueError("Runtime state and credentials are protected")
+        if name == "find_by_name" and args.get("Type") not in (None, "file", "directory", "any"):
+            raise ValueError("Unsupported directory search operation")
     response = {"decision":"allow"}
 except Exception as exc:
     response = {"decision":"deny", "reason":str(exc)}

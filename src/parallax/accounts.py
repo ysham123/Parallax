@@ -88,12 +88,15 @@ class Principal:
     workspace_name: str = ""
     account: dict | None = field(default=None, compare=False)
     session: str | None = None  # SHA-256 of the session cookie, when one exists
+    role: str = "owner"
+    workspace_kind: str = "personal"
 
     def public(self) -> dict:
         return {"ok": True, "mode": "local" if self.kind == "local" else "hosted", "auth": self.kind,
-                "account": {key: self.account.get(key) for key in ("login", "name", "avatar_url", "email", "provider")} if self.account else None,
+                "account": {key: self.account.get(key) for key in ("id", "login", "name", "avatar_url", "email", "provider")} if self.account else None,
                 "workspace": {"id": self.workspace, "name": self.workspace_name,
-                              "kind": "operator" if self.workspace == OWNER_WORKSPACE else "personal",
+                              "kind": "operator" if self.workspace == OWNER_WORKSPACE else self.workspace_kind,
+                              "role": self.role,
                               "hosted_execution": self.hosted_execution}}
 
 
@@ -106,6 +109,8 @@ class Accounts:
         self.store = store
         self.deployment = deployment
         self.transport = transport
+        from .teams import Teams
+        self.teams = Teams(store)
         self._providers: tuple[float, list[str]] | None = None
         with store.connect() as db:
             columns = {row[1] for row in db.execute("PRAGMA table_info(accounts)")}
@@ -138,11 +143,15 @@ class Accounts:
     def principal(self, token: str | None) -> Principal | None:
         if not token or len(token) > 128:
             return None
+        return self.principal_from_hash(digest(token))
+
+    def principal_from_hash(self, session_hash: str) -> Principal | None:
+        """Recheck a server-recorded session without retaining its browser cookie."""
         with self.store.connect() as db:
             row = db.execute("""SELECT s.hash,s.kind,s.account,s.workspace,s.expires,s.credential,w.name AS workspace_name,
-                w.hosted_execution,a.subject,a.provider,a.github_id,a.email,a.login,a.name,a.avatar,a.disabled FROM sessions s
+                w.kind AS workspace_kind,w.hosted_execution,a.subject,a.provider,a.github_id,a.email,a.login,a.name,a.avatar,a.disabled FROM sessions s
                 JOIN workspaces w ON w.id=s.workspace LEFT JOIN accounts a ON a.id=s.account WHERE s.hash=?""",
-                             (digest(token),)).fetchone()
+                             (session_hash,)).fetchone()
         if row is None or row["expires"] < time.time():
             return None
         hosted = bool(row["hosted_execution"]) and row["workspace"] == OWNER_WORKSPACE
@@ -150,13 +159,26 @@ class Accounts:
             valid = row["workspace"] == OWNER_WORKSPACE and hmac.compare_digest(row["credential"] or "", self._credential())
             return operator_principal(row["hash"]) if valid else None
         # "github" is the session kind written by the GitHub-only build.
-        if row["kind"] not in ("account", "github") or row["subject"] is None or row["disabled"]:
+        if row["kind"] not in ("account", "github", "team") or row["subject"] is None or row["disabled"]:
             return None
+        role = "owner"
+        if row["workspace_kind"] == "team":
+            if row["kind"] != "team": return None
+            try: role = self.teams.role(row["workspace"], row["account"])
+            except Exception: return None
         if row["workspace"] == OWNER_WORKSPACE and not self._is_owner(row["email"], row["github_id"]):
             return None  # Removed from the operator list: the session no longer grants that workspace.
         account = {"id": row["account"], "subject": row["subject"], "provider": row["provider"], "github_id": row["github_id"],
                    "email": row["email"], "login": row["login"], "name": row["name"], "avatar_url": row["avatar"]}
-        return Principal("account", row["workspace"], hosted, row["workspace_name"], account, row["hash"])
+        return Principal("account", row["workspace"], hosted, row["workspace_name"], account, row["hash"], role, row["workspace_kind"])
+
+    def switch_workspace(self, principal, workspace):
+        allowed = {w["id"]:w for w in self.teams.list(principal)}
+        if workspace not in allowed: raise ValueError("Workspace membership is required")
+        kind = "team" if allowed[workspace]["kind"] == "team" else "account"
+        token, lifetime = self.create_session(kind, workspace, principal.account["id"])
+        self.end_session(principal.session)
+        return token, lifetime
 
     def _is_owner(self, email: str | None, github_id: int | None) -> bool:
         return bool(email and email in self.deployment.owner_emails) or bool(github_id and github_id in self.deployment.owner_github_ids)
@@ -529,13 +551,21 @@ class Accounts:
             raise PermissionError("The confirmation does not match the signed-in account. Reload and try again.")
         if principal.workspace == OWNER_WORKSPACE:
             raise PermissionError("Operator accounts are managed by the deployment operator")
-        hub.purge_workspace(principal.workspace)
+        with self.store.connect() as db:
+            if db.execute("SELECT 1 FROM memberships WHERE account=? AND role='owner'", (principal.account["id"],)).fetchone():
+                raise PermissionError("Transfer team ownership before deleting your account")
+            personal = db.execute("SELECT workspace FROM accounts WHERE id=?", (principal.account["id"],)).fetchone()[0]
+        if personal: hub.purge_workspace(personal)
         with self.store.connect() as db:
             db.execute("DELETE FROM sessions WHERE account=?", (principal.account["id"],))
+            for table in ("github_flows", "github_installations", "github_bindings", "github_publications"):
+                if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
+                    db.execute(f"DELETE FROM {table} WHERE workspace=?", (personal,))
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='mcp_grants'").fetchone():
                 db.execute("DELETE FROM mcp_grants WHERE account=?", (principal.account["id"],))
             db.execute("DELETE FROM rate_events WHERE bucket=?", ("mcp-consent:" + principal.account["id"],))
-            db.execute("DELETE FROM workspaces WHERE id=? AND kind='personal'", (principal.workspace,))
+            db.execute("DELETE FROM workspaces WHERE id=? AND kind='personal'", (personal,))
+            db.execute("DELETE FROM memberships WHERE account=?", (principal.account["id"],))
             db.execute("DELETE FROM accounts WHERE id=?", (principal.account["id"],))
         subject = principal.account.get("subject") or ""
         project = self.deployment.supabase

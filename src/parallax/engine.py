@@ -4,6 +4,7 @@ import asyncio
 import fnmatch
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -17,7 +18,7 @@ from .store import Store
 from .assessment import assess_project, execution_capability, package_directory
 from .recovery import classify, recovery_options
 from .context import (PROMPT_LIMIT, REQUEST_LIMIT, Packet, consultant_packet, coordinator_packet, distiller_packet,
-                      filter_patch, memory_scrubber, review_packet, synthesis_packet, worker_packet)
+                      filter_patch, findings as context_findings, memory_scrubber, review_packet, synthesis_packet, worker_packet)
 
 TERMINAL = {"completed", "failed", "cancelled", "needs_attention"}
 TASK_DONE = {"completed", "resolved"}
@@ -25,6 +26,43 @@ INTEGRABLE = {"completed", "resolved", "discarded"}
 VARIANT_LIVE = {"pending", "running", "interrupted"}
 RESERVED_IDS = {"coordinator", "baseline", "integration", "distill", "synthesis"}
 MAX_TASKS = 40
+REVIEW_VERDICT_SCHEMA = {
+    "type":"object",
+    "properties":{
+        "approved":{"type":"boolean"},
+        "findings":{"type":"array", "items":{"anyOf":[
+            {"type":"string"},
+            {"type":"object", "properties":{
+                "title":{"type":"string", "minLength":1},
+                "body":{"type":"string", "minLength":1},
+                "priority":{"type":"string", "enum":["P0", "P1", "P2", "P3"]},
+                "code_location":{"anyOf":[
+                    {"type":"null"},
+                    {"type":"object", "properties":{
+                        "path":{"type":"string", "minLength":1},
+                        "line_range":{"type":"object", "properties":{
+                            "start":{"type":"integer", "minimum":1},
+                            "end":{"type":"integer", "minimum":1}},
+                            "required":["start", "end"], "additionalProperties":False}},
+                        "required":["path", "line_range"], "additionalProperties":False}]},
+            }, "required":["title", "body", "priority", "code_location"], "additionalProperties":False},
+        ]}},
+        "summary":{"type":"string"},
+    },
+    "required":["approved", "findings", "summary"],
+    "additionalProperties":False,
+}
+
+
+def _validate_review_verdict(value):
+    # CLI adapters may decode JSON without enforcing its shape. Validate the
+    # same supported schema that API adapters and native providers receive.
+    from .api_agent import _validate_schema
+    _validate_schema(value, REVIEW_VERDICT_SCHEMA)
+    for finding in value["findings"]:
+        location = finding.get("code_location") if isinstance(finding, dict) else None
+        if location and location["line_range"]["end"] < location["line_range"]["start"]:
+            raise ValueError("Review finding line range is reversed")
 
 class RunProblem(Exception):
     pass
@@ -33,6 +71,8 @@ class Engine:
     def __init__(self, store: Store, registry=None, *, memory: bool | None = None):
         from .connections import ConnectionRegistry
         self.store = store
+        from .isolation import register_private_paths
+        register_private_paths(store, state=[store.home])
         # Project memory is on for real providers unless PARALLAX_MEMORY=off; injected registries opt in explicitly.
         self.memory = (registry is None and os.environ.get("PARALLAX_MEMORY", "on").lower() != "off") if memory is None else memory
         self._memory_failed: set[str] = set()
@@ -43,6 +83,8 @@ class Engine:
         self.wakeup: dict[str, asyncio.Event] = {}
         self.shutting_down = False
         self._clocks: dict[str, tuple[float, float]] = {}
+        from .budget import ExecutionBudget
+        self.budget = ExecutionBudget(store)
         self._start_lock = asyncio.Lock()
 
     async def shutdown(self):
@@ -132,7 +174,7 @@ class Engine:
         if clock is not None:
             started, previously_used = clock
             result = self.store.get(run_id)
-            result["artifacts"]["runtime_seconds"] = round(previously_used + time.monotonic() - started, 3)
+            result["artifacts"]["runtime_seconds"] = math.ceil((previously_used + time.monotonic() - started) * 1000) / 1000
             self.store.save(result)
 
     async def _workspace_call(self, operation, *args):
@@ -261,6 +303,9 @@ class Engine:
 
     def _resume_session(self, run_id: str, task_id: str, workspace: Path,
                         participant: Participant, mode: str, *, attempt: int | None = None) -> dict | None:
+        native = getattr(self.registry, "native", self.registry)
+        if participant.transport == "cli" and getattr(native, "native_session_resume", True) is False:
+            return None
         completed = self._bound_session(self.store.get(run_id), task_id, workspace, participant, mode, attempt=attempt)
         if completed is not None:
             return completed
@@ -297,11 +342,14 @@ class Engine:
         with self.store.connect() as db:
             saved = [json.loads(row[0]) for row in db.execute("SELECT result FROM runs")]
         for result in saved:
+            budget_changed = self.budget.recover(result)
             if result["status"] not in TERMINAL | {"paused", "interrupted"}:
                 result["status"] = "interrupted"
                 self._interrupt_tasks(result)
                 self.store.save(result)
                 self.store.event(result["run_id"], "interrupted", {"message":"Runtime restarted. Resume reconciles saved work before continuing."})
+            elif budget_changed:
+                self.store.save(result)
             self._reconcile_actions(result["run_id"])
 
     async def validate_settings(self, spec: RunSpec):
@@ -343,11 +391,11 @@ class Engine:
         self.store.event(run_id, "recovery_requested", {"action": action, "category": choices["category"]})
         return self.control(run_id, "resume")
 
-    async def start(self, spec: RunSpec, *, request_key: str | None = None) -> dict:
+    async def start(self, spec: RunSpec, *, request_key: str | None = None, candidate_seed: dict | None = None, authorization: dict | None = None) -> dict:
         async with self._start_lock:
-            return await self._start(spec.model_copy(deep=True), request_key=request_key)
+            return await self._start(spec.model_copy(deep=True), request_key=request_key, candidate_seed=candidate_seed, authorization=authorization)
 
-    async def _start(self, spec: RunSpec, *, request_key: str | None = None) -> dict:
+    async def _start(self, spec: RunSpec, *, request_key: str | None = None, candidate_seed: dict | None = None, authorization: dict | None = None) -> dict:
         workspace = Path(spec.workspace).expanduser().resolve()
         if not workspace.is_dir():
             raise ValueError("Workspace does not exist")
@@ -374,6 +422,9 @@ class Engine:
             self.store.claim(str(workspace), run_id)
         result = RunResult(run_id=run_id, status="queued", spec=spec).model_dump()
         result["artifacts"] = {"directory":str(self.store.home / "runs" / run_id), "started_at":time.time(), "user_checks":[c.model_dump() for c in spec.checks]}
+        if authorization: result["artifacts"]["authority"] = authorization
+        if candidate_seed:
+            result["artifacts"]["candidate_seed"] = candidate_seed
         if assessment:
             result["artifacts"]["assessment"] = assessment
             result["artifacts"]["required_checks"] = [c.model_dump() for c in spec.checks]
@@ -481,6 +532,7 @@ class Engine:
         spec = RunSpec.model_validate(self.store.get(run_id)["spec"])
         tagged = {"attempt": attempt} if attempt is not None else {}
         manifest = None
+        failure_emitted = False
         if isinstance(prompt, Packet):
             # Record what this agent is given (section names, sizes, hashes; never content) before it runs.
             manifest = prompt.manifest()
@@ -489,10 +541,13 @@ class Engine:
             self.store.event(run_id, "context", {**manifest, "provider": participant.provider, "mode": mode,
                                                  "fresh_session": session_id is None, **tagged}, task_id)
         async def emit(event):
+            nonlocal failure_emitted
             if quiet and not (str(event.get("type", "")).startswith("parallax.") or event.get("type") == "api.session"):
                 return  # Quiet calls keep only process and session bookkeeping, never streamed text.
             self.store.event(run_id,"provider",{**event,"provider":participant.provider,"workspace":str(workspace),"mode":mode,
                 "transport":participant.transport,"connection_id":participant.connection_id,**tagged},task_id)
+            if event.get("type") in {"error", "turn.failed"} or event.get("error") or event.get("is_error"):
+                failure_emitted = True
         extra={}
         from .connections import ConnectionRegistry
         if isinstance(self.registry,ConnectionRegistry):
@@ -513,6 +568,20 @@ class Engine:
         if usage:
             result["usage"].setdefault("reports",[]).append({"provider":participant.provider,"task_id":task_id,**usage,
                 **({"role":role} if role else {}),**({"context_sha256":manifest["sha256"]} if manifest else {})})
+        if not outcome.get("ok"):
+            # Native configuration failures can exit before emitting JSON. Keep
+            # the adapter's bounded, sanitized stderr even when no session exists.
+            from .providers import _safe_error
+            error = outcome.get("error") or {}
+            failure = {"code":"provider_failure", "provider":participant.provider,
+                "task_id":task_id, "mode":mode, "exit_code":outcome.get("exit_code"),
+                "provider_error_code":error.get("code") if isinstance(error, dict) else None,
+                "message":_safe_error(error.get("message", "Provider invocation failed") if isinstance(error, dict) else error), **tagged}
+            if outcome.get("diagnostics"):
+                failure["diagnostics"] = _safe_error(outcome["diagnostics"])
+            failure["category"] = classify(failure["message"])
+            result["errors"].append(failure)
+            self.store.event(run_id, "provider_diagnostics" if failure_emitted else "provider_failure", failure, task_id)
         self.store.save(result)
         return outcome
 
@@ -522,7 +591,8 @@ class Engine:
         run_dir = Path(self.store.get(run_id)["artifacts"]["directory"])
         manager = None
         used = self.store.get(run_id)["artifacts"].get("runtime_seconds", 0)
-        self._clocks[run_id] = (time.monotonic(), used)
+        self._clocks[run_id] = self.budget.begin(run_id, used, spec.limits.minutes * 60)
+        used = self._clocks[run_id][1]
         try:
             run_dir.mkdir(parents=True,exist_ok=True)
             manager = WorkspaceManager(Path(spec.workspace),run_dir)
@@ -538,6 +608,18 @@ class Engine:
                     await self._review_run(run_id,spec,manager,run_dir)
                 else:
                     metadata=await self._workspace_call(manager.prepare)
+                    seed = self.store.get(run_id)["artifacts"].get("candidate_seed")
+                    if seed and not metadata.get("seed_complete"):
+                        from .candidates import Candidates
+                        candidates = Candidates(self)
+                        current = await candidates.capture(seed["run_id"])
+                        if current["digest"] != seed["digest"]:
+                            raise ValueError("Parent candidate changed before revision execution")
+                        parent = await self._workspace_call(candidates.manager, self.store.get(seed["run_id"]))
+                        metadata = await self._workspace_call(manager.seed_candidate, parent, current["identity"]["source"])
+                    delivery = self.store.get(run_id)["artifacts"].get("authority", {}).get("github_target")
+                    if delivery and manager._oid(manager.workspace,metadata["snapshot_commit"]+"^{tree}") != delivery["base_tree"]:
+                        raise ValueError("Captured project does not match the remote base tree. Start a local-delivery task for dirty projects")
                     if metadata.get("applied"):
                         result=self.store.get(run_id)
                         result["status"]="completed"
@@ -587,6 +669,7 @@ class Engine:
             self.store.event(run_id,"failed",{"message":str(exc)})
         finally:
             self._persist_budget(run_id)
+            self.budget.end(run_id, self.store.get(run_id)["artifacts"].get("runtime_seconds", used))
             self._clocks.pop(run_id, None)
             if self.store.get(run_id)["status"] in TERMINAL:
                 self.store.release(run_id)
@@ -813,6 +896,20 @@ class Engine:
                 result["diff"]=manager.diff()
                 result["artifacts"].pop("validated_fingerprint",None)
                 self.store.save(result)
+                writers = {member.provider for member in spec.team if member.role != "reviewer"}
+                if spec.mode == "build" and len(writers) == 1:
+                    for task, outcome in zip(batch, outcomes):
+                        invocation = outcome.get("provider_result") or {}
+                        error = invocation.get("error") or {}
+                        code = str(error.get("code", "")).lower() if isinstance(error, dict) else ""
+                        message = str(error.get("message", "")) if isinstance(error, dict) else str(error)
+                        transient = code in {"rate_limit_exceeded", "rate_limited", "too_many_requests", "request_rate_exceeded", "request_rate_limit_exceeded"}
+                        quota = not transient and (code in {"quota_exceeded", "insufficient_quota", "quota_exhausted"}
+                            or bool(re.search(r"\b(?:individual|account|subscription)\s+quota\s+(?:reached|exhausted|exceeded)\b", message, re.I)))
+                        if (task["provider"] != spec.coordinator.provider and task["provider"] in writers
+                                and invocation.get("ok") is False and quota and not outcome.get("changed_files")):
+                            self.store.event(run_id, "provider_exhausted", {"provider":task["provider"], "reason":"quota", "automatic_retry":False}, task["id"])
+                            raise RunProblem(f"Only enabled implementer {task['provider']} exhausted its provider quota. Restore capacity and explicitly resume from saved execution evidence; no further coordinator call was dispatched.")
         elif action.action=="inspect_results":
             pass
         elif action.action=="explore":
@@ -1209,11 +1306,15 @@ class Engine:
     async def _assess_patch(self,run_id,reviewer,target,request,task,task_id,*,evidence=None,patch="",patch_budget=40000):
         from .workspaces import fingerprint
         before=fingerprint(target)
-        schema={"type":"object","properties":{"approved":{"type":"boolean"},"findings":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}},"required":["approved","findings","summary"],"additionalProperties":False}
+        schema=REVIEW_VERDICT_SCHEMA
         # The evaluator sees the request, the original requirements, this candidate's patch, and this candidate's
         # evidence only: never the implementer's identity or narrative, prior reviews, or other candidates.
         packet=review_packet(request,task,patch=patch,evidence=evidence,patch_budget=patch_budget,task_id="review-"+task_id,
                              run_dir=self.store.get(run_id)["artifacts"].get("directory"))
+        packet.preamble += ("\nReturn findings as objects with title, body, priority (P0 most urgent through P3), "
+            "and code_location. When verified in this candidate, use a project-relative file path and "
+            "a one-based start/end line range. Otherwise set code_location to null. "
+            "Never invent or guess file locations or line numbers. Legacy plain-text findings remain accepted.")
         for attempt in range(2):
             outcome=await self._provider(run_id,reviewer,target,packet,task_id="review-"+task_id,schema=schema,role="reviewer")
             try:
@@ -1222,17 +1323,28 @@ class Engine:
                 structured={}
             if not isinstance(structured,dict):
                 structured={}
-            verdict=isinstance(structured.get("approved"),bool)
-            # A reply without a verdict (prose instead of the schema) is not a rejection; ask once more, freshly.
-            if verdict or not outcome.get("ok") or fingerprint(target)!=before:
+            try:
+                _validate_review_verdict(structured)
+                verdict=True
+            except ValueError:
+                verdict=False
+            # An explicit refusal survives malformed evidence. Asking again
+            # could approve the same candidate without addressing the refusal.
+            if structured.get("approved") is False or verdict or not outcome.get("ok") or fingerprint(target)!=before:
                 break
         unchanged=fingerprint(target)==before
         error=outcome.get("error")
         if not unchanged:
             error={"code":"readonly_changed","message":"Reviewer changed its isolated workspace"}
         elif outcome.get("ok") and not verdict:
-            error={"code":"no_verdict","message":"The reviewer returned no verdict"}
-        review={"provider":reviewer.provider,"task_id":task_id,"ok":bool(unchanged and outcome.get("ok") and structured.get("approved") is True),"findings":structured.get("findings",[]) if isinstance(structured.get("findings"),list) else [],"summary":structured.get("summary",outcome.get("answer") or ""),"error":error}
+            error=({"code":"invalid_review","message":"The reviewer returned invalid structured findings or verdict"}
+                if isinstance(structured.get("approved"),bool) else {"code":"no_verdict","message":"The reviewer returned no verdict"})
+        summary=structured.get("summary") if isinstance(structured.get("summary"),str) else outcome.get("answer")
+        review_findings=structured.get("findings",[]) if verdict else []
+        if not verdict and structured.get("approved") is False:
+            raw=structured.get("findings")
+            review_findings=context_findings(raw if isinstance(raw,list) else [raw] if raw is not None else [], limit=50, each=4000)
+        review={"provider":reviewer.provider,"task_id":task_id,"ok":bool(unchanged and outcome.get("ok") and verdict and structured.get("approved") is True),"findings":review_findings,"summary":summary if isinstance(summary,str) else "","error":error}
         result=self.store.get(run_id);result["reviews"].append(review);self.store.save(result)
         self.store.event(run_id,"review",review,task_id)
         return review
@@ -1260,6 +1372,8 @@ class Engine:
         wants_python=any(Path(c.argv[0]).name.startswith("python") for c in checks)
         lock=next((p for p in (workspace/"package-lock.json",workspace/"npm-shrinkwrap.json") if p.is_file()),None)
         requirements=workspace/"requirements.txt";pyproject=workspace/"pyproject.toml"
+        if not requirements.exists() and (workspace/"requirements.lock").exists():
+            requirements=workspace/"requirements.lock"
         dependencies=[];package={}
         for path in (requirements,pyproject,lock,workspace/"package.json"):
             if path and path.exists() and (not path.is_file() or path.is_symlink() or path.stat().st_size>1_000_000):
@@ -1292,23 +1406,42 @@ class Engine:
         digest=hashlib.sha256(str(workspace.resolve()).encode())
         for path in (requirements,pyproject,lock,workspace/"package.json"):
             if path and path.is_file(): digest.update(path.read_bytes())
+        if python_needed:
+            from .provisioning import locked_python_input
+            canonical_lock=locked_python_input(workspace,requirements if requirements.is_file() else None,dependencies)
+            # Vendored wheel bytes are part of the environment identity, even
+            # when the manifest is unchanged between baseline and final checks.
+            digest.update(canonical_lock.encode("utf-8"))
         environment=run_dir/"environments"/digest.hexdigest()[:16]
         environment.mkdir(parents=True,exist_ok=True)
         private_home=environment/"home";private_home.mkdir(exist_ok=True)
         env={"PATH":os.environ.get("PATH","/usr/bin:/bin"),"HOME":str(private_home),"TMPDIR":str(environment),"TMP":str(environment),"TEMP":str(environment),"CI":"true","PYTHONDONTWRITEBYTECODE":"1"}
+        env["PIP_CONFIG_FILE"] = os.devnull
         steps=[];python=None
         if node_needed:
             steps.append(("npm dependencies",["npm","ci","--ignore-scripts","--no-audit","--no-fund","--cache",str(environment/"npm-cache")]))
         if python_needed:
             python=environment/"venv"/"bin"/"python"
             if not (environment/"python-ready").is_file() or not python.is_file():
+                from .provisioning import locked_python_input
+                stage=environment/"download-stage";stage.mkdir(exist_ok=True)
+                lock_input=stage/"requirements.txt"
+                staged_lock=locked_python_input(workspace,requirements if requirements.is_file() else None,dependencies,stage)
+                canonical_staged="\n".join(line.removeprefix(str(stage)+os.sep) for line in staged_lock.splitlines())+"\n"
+                if canonical_staged!=canonical_lock:
+                    raise ValueError("Dependency input changed during staging; retry checks against the saved candidate")
+                lock_input.write_text(staged_lock)
+                wheelhouse=environment/"wheels";wheelhouse.mkdir(exist_ok=True)
                 steps.append(("Python environment",[sys.executable,"-m","venv",str(environment/"venv")]))
-                args=[str(python),"-m","pip","install","--disable-pip-version-check","--no-cache-dir"]
-                args+=(["-r",str(requirements)] if requirements.is_file() else dependencies)
-                steps.append(("Python dependencies",args))
+                # The network stage has sanitized lock input and vetted wheel
+                # bytes, no repository grant, and uses the trusted interpreter.
+                steps.append(("Python wheel download",[sys.executable,"-m","pip","--isolated","download","--disable-pip-version-check","--no-cache-dir","--no-input","--only-binary=:all:","--require-hashes","--no-deps","--index-url","https://pypi.org/simple","--dest",str(wheelhouse),"-r",str(lock_input)]))
+                steps.append(("Python dependencies",[str(python),"-m","pip","--isolated","install","--disable-pip-version-check","--no-cache-dir","--no-input","--only-binary=:all:","--require-hashes","--no-index","--find-links",str(wheelhouse),"-r",str(lock_input)]))
         for name,argv in steps:
             await self.checkpoint(run_id)
-            try: outcome=await self._command(run_id,argv,workspace,env,300,writable=[environment],readable=[environment],network=True)
+            download = name == "Python wheel download"
+            command_workspace = stage if name.startswith("Python") else workspace
+            try: outcome=await self._command(run_id,argv,command_workspace,env,300,writable=[environment],readable=[environment],network=download or name=="npm dependencies")
             except OSError as exc: raise ValueError(name+" could not start; private environment preserved") from exc
             output=(outcome.stdout+outcome.stderr)[-4000:]
             self.store.event(run_id,"environment",{"name":name,"ok":outcome.exit_code==0 and not outcome.failure,"output":output,"error":outcome.failure})
@@ -1354,7 +1487,7 @@ class Engine:
                 item={"name":check.name,"argv":check.argv,"ok":ok,"exit_code":outcome.exit_code,"output":output,"elapsed_seconds":round(time.monotonic()-started,2),"error":code,"task_id":task_id}
             except OSError as exc:
                 item={"name":check.name,"argv":check.argv,"ok":False,"exit_code":None,"output":str(exc),"elapsed_seconds":0,"error":"check_unavailable","task_id":task_id}
-            manifests={name:hashlib.sha256((root/name).read_bytes()).hexdigest() for name in ("requirements.txt","pyproject.toml","package-lock.json","npm-shrinkwrap.json","package.json") if (root/name).is_file() and not (root/name).is_symlink()}
+            manifests={name:hashlib.sha256((root/name).read_bytes()).hexdigest() for name in ("requirements.txt","requirements.lock","pyproject.toml","package-lock.json","npm-shrinkwrap.json","package.json") if (root/name).is_file() and not (root/name).is_symlink()}
             item.update(schema_version="1.1",cwd=check.cwd,phase=phase,environment={"private":True,"python_venv":project_python is not None,"manifest_sha256":manifests,"sandbox":execution_capability()["backend"]})
             item=CheckEvidence.model_validate(item).model_dump()
             evidence.append(item);self.store.event(run_id,"check",item,task_id)
@@ -1366,7 +1499,7 @@ class Engine:
         result=self.store.get(run_id)
         if result["artifacts"].get("baseline_complete"): return
         checks=[CheckSpec.model_validate(c) for c in result["artifacts"].get("required_checks", [])] or spec.checks
-        target=await self._workspace_call(manager.create_worker,"baseline")
+        target=await self._workspace_call(manager.create_worker,"baseline",manager.prepare()["snapshot_commit"])
         if not checks:
             assessment=await asyncio.to_thread(assess_project,target,spec.package_roots)
             if assessment.status!="ready": raise ValueError("Configure meaningful checks before resuming this legacy run")
@@ -1441,6 +1574,8 @@ class Engine:
         if "validated_fingerprint" not in result["artifacts"] or result["artifacts"]["validated_fingerprint"]!=manager.diff():
             raise ValueError("Current combined changes have not passed verification")
         destination=manager.check_destination()
+        if result["artifacts"].get("candidate_seed") and manager.fingerprint(manager.workspace) != result["artifacts"]["candidate_seed"]["source"]:
+            raise RunProblem("The original project changed. Start a new task from the current project.")
         if not destination["ok"]: raise RunProblem("Destination conflict: " + destination.get("error","Destination changed"))
         if destination.get("revalidate"):
             refreshed=manager.refresh_candidate()
@@ -1545,8 +1680,13 @@ def _node_toolchain_reads(argv):
     return paths
 
 def _sandbox_check(argv,workspace,*,writable=None,readable=None,network=False):
+    from .isolation import (private_paths, validate_grants, macos_private_rules,
+                            linux_runtime_reads, linux_private_masks)
     writable=[workspace.resolve(),*(Path(p).resolve() for p in (writable or []))]
     toolchain = _node_toolchain_reads(argv)
+    allowed={Path(sys.base_prefix).resolve(),Path(sys.prefix).resolve(),*(Path(p).resolve() for p in (readable or [])),*toolchain}
+    roots, secrets = private_paths()
+    validate_grants(roots, set(writable) | allowed)
     if sys.platform=="darwin" and Path("/usr/bin/sandbox-exec").exists():
         readable=[*writable,Path(sys.base_prefix).resolve(),Path(sys.prefix).resolve(),*(Path(p).resolve() for p in (readable or [])),*sorted(toolchain)]
         userdata=["/Users","/Volumes","/private/var/folders","/private/tmp","/tmp","/System/Volumes/Data/Users","/System/Volumes/Data/private/var/folders","/System/Volumes/Data/private/tmp"]
@@ -1556,6 +1696,7 @@ def _sandbox_check(argv,workspace,*,writable=None,readable=None,network=False):
         permitted="(require-any "+" ".join(f'({"literal" if p.is_file() else "subpath"} {quoted(p)})' for p in readable)+")"
         profile=f'(version 1) (allow default) (deny file-write*) (allow file-write* {writes} (literal "/dev/null"))'
         profile+='(deny file-read-data (require-all '+protected+' (require-not '+permitted+')))'
+        profile+=macos_private_rules(roots,secrets,readable=readable,writable=writable)
         from .api_agent import BLOCKED
         import re
         insensitive=lambda name:"".join("["+c.lower()+c.upper()+"]" if c.isascii() and c.isalpha() else re.escape(c) for c in name)
@@ -1572,22 +1713,37 @@ def _sandbox_check(argv,workspace,*,writable=None,readable=None,network=False):
             argv=[str(launch),*argv[1:]]
         return ["/usr/bin/sandbox-exec","-p",profile,*argv]
     if sys.platform.startswith("linux") and shutil.which("bwrap"):
-        # Mounts are applied in order. Hide host user data first, then expose
-        # only the private workspaces and runtime paths the command requires.
-        command=["bwrap","--die-with-parent","--unshare-pid",*(["--unshare-net"] if not network else []),"--ro-bind","/","/","--proc","/proc","--dev","/dev"]
+        # Start with an empty root. Expose OS code/public configuration and
+        # selected toolchains, never arbitrary host mounts or /etc secrets.
+        command=["bwrap","--die-with-parent","--unshare-pid",*(["--unshare-net"] if not network else []),"--tmpfs","/"]
+        runtime=linux_runtime_reads()
+        for path in runtime: command.extend(["--ro-bind",str(path),str(path)])
+        command.extend(["--proc","/proc","--dev","/dev"])
         protected={Path(p) for p in ("/home","/root","/tmp","/var/tmp","/run/user")}
         home=Path.home().resolve()
         if home != Path("/"): protected.add(home)
         for path in sorted(protected,key=lambda p:(len(p.parts),str(p))):
             if path.is_dir(): command.extend(["--tmpfs",str(path)])
+        command.extend(linux_private_masks(roots))
         # Keep exact launcher aliases: masking a home hides ~/.local/bin/node,
         # which npm's /usr/bin/env shebang still locates through PATH. A file
         # bind restores that alias without exposing its directory or siblings.
-        allowed={Path(sys.base_prefix).resolve(),Path(sys.prefix).resolve(),*(Path(p).resolve() for p in (readable or [])),*toolchain}
         for path in sorted(allowed,key=lambda p:(len(p.parts),str(p))):
             if path.exists(): command.extend(["--ro-bind",str(path),str(path)])
         for path in sorted(set(writable),key=lambda p:(len(p.parts),str(p))):
             command.extend(["--bind",str(path),str(path)])
+        # A grant to a project/toolchain that contains a state root must not
+        # undo its mask. Managed candidate/environment children remain usable.
+        nested={root for root in roots if any(root.is_relative_to(grant) for grant in allowed | set(writable))}
+        command.extend(linux_private_masks(nested))
+        for path in sorted(allowed,key=lambda p:(len(p.parts),str(p))):
+            if path.exists() and any(path != root and path.is_relative_to(root) for root in nested):
+                command.extend(["--ro-bind",str(path),str(path)])
+        for path in sorted(set(writable),key=lambda p:(len(p.parts),str(p))):
+            if any(path != root and path.is_relative_to(root) for root in nested):
+                command.extend(["--bind",str(path),str(path)])
+        for path in sorted(secrets):
+            if path.exists(): command.extend(["--ro-bind","/dev/null",str(path)])
         from .api_agent import BLOCKED
         blocked={name.lower() for name in BLOCKED-{"node_modules",".venv","__pycache__"}} | {".parallax-owned"}
         for directory,dirs,files in os.walk(workspace,followlinks=False):

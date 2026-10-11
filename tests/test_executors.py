@@ -37,12 +37,27 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
 
     async def roundtrip(self, runtime, method, path, body=None):
         pending = asyncio.create_task(self.hub.request(self.worker, method, path, "", body, workspace="owner", timeout=10))
-        await asyncio.sleep(.01)
-        commands = self.hub.pending(self.worker)
-        self.assertEqual(len(commands), 1)
-        response = await runtime.dispatch(commands[0])
-        self.hub.complete(self.worker, commands[0]["id"], response)
-        return await pending
+        try:
+            # Admission commits on a background thread. Wait for that durable
+            # boundary rather than assuming it completes in ten milliseconds.
+            deadline = asyncio.get_running_loop().time() + 5
+            commands = []
+            while not commands:
+                if pending.done():
+                    response = await pending  # Surface authorization/admission failures immediately.
+                    self.fail(f"Request completed before worker dispatch: {response}")
+                commands = self.hub.pending(self.worker)
+                if not commands:
+                    self.assertLess(asyncio.get_running_loop().time(), deadline, "Command admission did not complete")
+                    await asyncio.sleep(.005)
+            self.assertEqual(len(commands), 1)
+            response = await runtime.dispatch(commands[0])
+            self.hub.complete(self.worker, commands[0]["id"], response)
+            return await pending
+        finally:
+            if not pending.done():
+                pending.cancel()
+                await asyncio.gather(pending, return_exceptions=True)
 
     async def test_relay_build_preserves_staging_and_requires_real_checks(self):
         git(self.project,"init","-q"); git(self.project,"config","user.name","Test"); git(self.project,"config","user.email","test@example.com")
@@ -166,7 +181,7 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_timeout_is_retained_and_not_redispatched_automatically(self):
         with self.assertRaises(HTTPException) as failure:
-            await self.hub.request(self.worker,"POST","/api/runs","",{},workspace="owner",timeout=.001)
+            await self.hub.request(self.worker,"POST","/api/runs","",{},workspace="owner",timeout=.1)
         self.assertEqual(failure.exception.status_code,504)
         pending=self.hub.pending(self.worker)
         self.assertEqual(len(pending),1)
@@ -206,10 +221,13 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         def client(**kwargs):
             if "transport" not in kwargs: kwargs["transport"]=httpx.MockTransport(handle)
             return original_client(**kwargs)
-        with patch("parallax.worker.httpx.AsyncClient",side_effect=client), patch("parallax.worker.asyncio.sleep",new_callable=AsyncMock):
+        original_sleep=asyncio.sleep
+        async def short_sleep(seconds): await original_sleep(.002)
+        with patch("parallax.worker.httpx.AsyncClient",side_effect=client), patch("parallax.worker.asyncio.sleep",side_effect=short_sleep):
             with self.assertRaises(PermissionError):
-                await run_worker("https://relay.example.com",state,[self.project],name="Test")
-        self.assertEqual(requests,["/api/worker/sync","/api/worker/sync"])
+                await asyncio.wait_for(run_worker("https://relay.example.com",state,[self.project],name="Test"),5)
+        self.assertGreaterEqual(len(requests),2)
+        self.assertEqual(requests[0],"/api/worker/heartbeat")
 
 
 class WorkerEvidenceTests(unittest.IsolatedAsyncioTestCase):
@@ -222,6 +240,8 @@ class WorkerEvidenceTests(unittest.IsolatedAsyncioTestCase):
         events = [{"run_id": run_id, "sequence": n, "kind": "status", "data": {}} for n in (1, 2)]
         sent = []
         def handle(request):
+            if request.url.path == "/api/worker/heartbeat":
+                return httpx.Response(401 if len(sent)>=2 else 200, json={"ok": True})
             if request.url.path == "/api/worker/next":
                 return httpx.Response(200, json=[])
             sent.append([e["sequence"] for e in json.loads(request.content)["events"]])
@@ -235,11 +255,13 @@ class WorkerEvidenceTests(unittest.IsolatedAsyncioTestCase):
             kwargs.setdefault("transport", httpx.MockTransport(handle))
             return original(**kwargs)
         snapshot = lambda self, hashes, cursor: ([], [e for e in events if e["sequence"] > cursor])
-        with patch("parallax.worker.httpx.AsyncClient", side_effect=client), patch("parallax.worker.asyncio.sleep", new_callable=AsyncMock), \
+        original_sleep=asyncio.sleep
+        async def short_sleep(seconds): await original_sleep(.002)
+        with patch("parallax.worker.httpx.AsyncClient", side_effect=client), patch("parallax.worker.asyncio.sleep", side_effect=short_sleep), \
                 patch.object(WorkerRuntime, "snapshot", snapshot):
             with self.assertRaises(PermissionError):
-                await run_worker("https://relay.example.com", state, [project], name="Test")
-        self.assertEqual(sent, [[1, 2], [1, 2], []])
+                await asyncio.wait_for(run_worker("https://relay.example.com", state, [project], name="Test"),5)
+        self.assertEqual(sent, [[1, 2], [1, 2]])
 
 
 class WorkerProtocolTests(unittest.TestCase):

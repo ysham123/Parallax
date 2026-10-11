@@ -16,6 +16,7 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), "parallax-hosted-"));
         "src/session.ts",
         "src/oauth.ts",
         "src/workflow-state.ts",
+        "src/entry-routing.ts",
         "--target",
         "ES2022",
         "--module",
@@ -56,6 +57,13 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), "parallax-hosted-"));
     ])
       assert.throws(() => localStudioUrl(value));
     const session = require(path.join(temp, "session.js"));
+    const { publicWebsite } = require(path.join(temp, "entry-routing.js"));
+    assert.equal(publicWebsite("/", ""), true);
+    assert.equal(publicWebsite("/", "?utm_source=github"), true);
+    for (const search of ["?invite=token", "?workspace=id", "?github_connected=1", "?auth_error=expired"])
+      assert.equal(publicWebsite("/", search), false, "Legacy callbacks still open Studio");
+    for (const route of ["/studio", "/login", "/signup", "/reset", "/operator", "/oauth/consent", "/connections"])
+      assert.equal(publicWebsite(route, ""), false);
     const oauth = require(path.join(temp, "oauth.js"));
     const authId = "b783d119-0110-42c0-8c17-1ecc6a8dca8d";
     assert.equal(oauth.consentIdentifier(`?authorization_id=${authId}`), authId);

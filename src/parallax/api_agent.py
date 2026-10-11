@@ -111,7 +111,10 @@ def _directory(root,parts,*,create=False):
     except BaseException: os.close(descriptor);raise
 
 class ApiAgent:
-    def __init__(self,home:Path,client=None): self.home=home;self.client=client
+    def __init__(self,home:Path,client=None):
+        self.home=home;self.client=client
+        from .isolation import register_private_paths
+        register_private_paths(self,state=[home])
     async def run(self,config,*,session_id=None,**kwargs):
         identifier=session_id or "api-"+str(uuid.uuid4())
         try:
@@ -393,9 +396,12 @@ class ApiAgent:
         return {"ok":result.exit_code==0 and not result.failure,"exit_code":result.exit_code,"output":result.stdout+result.stderr,"error":result.failure}
 
 def _command_scope(root,temporary):
+    from .isolation import private_paths, validate_grants, macos_private_rules
     root=root.resolve();temporary=temporary.resolve()
     writable=[str(root),str(temporary)]
     readable=[str(root),str(temporary),str(Path(sys.prefix).resolve()),str(Path(sys.base_prefix).resolve())]
+    private, secrets = private_paths()
+    validate_grants(private,{Path(path) for path in readable})
     userdata=["/Users","/Volumes","/private/var/folders","/private/tmp","/tmp","/System/Volumes/Data/Users","/System/Volumes/Data/private/var/folders","/System/Volumes/Data/private/tmp"]
     rule="(version 1)(allow default)(deny network*)(deny file-write*)"
     rule+="(allow file-write* "+" ".join("(subpath "+json.dumps(p)+")" for p in writable)+' (literal "/dev/null"))'
@@ -404,6 +410,7 @@ def _command_scope(root,temporary):
     protected_scope="(require-any "+" ".join("(subpath "+json.dumps(p)+")" for p in userdata)+")"
     permitted_scope="(require-any "+" ".join("(subpath "+json.dumps(p)+")" for p in readable)+")"
     rule+="(deny file-read-data (require-all "+protected_scope+" (require-not "+permitted_scope+")))"
+    rule+=macos_private_rules(private,secrets,readable=[Path(path) for path in readable],writable=[Path(path) for path in writable])
     protected=sorted(BLOCKED-{"node_modules",".venv","__pycache__"})+[".parallax-owned"]
     for name in protected:
         rule+="(deny file-read* file-write* (subpath "+json.dumps(str(root/name))+"))"

@@ -291,7 +291,7 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(Path(self.store.get(run_id)["artifacts"]["directory"]).glob("environments/*/python-ready")))
 
     async def test_dependency_install_failure_preserves_private_attempt_and_source(self):
-        (self.project/"requirements.txt").write_text("--no-index\nparallax-certainly-missing-dependency==12345\n")
+        (self.project/"requirements.txt").write_text("--no-index\nparallax-certainly-missing-dependency==12345 --hash=sha256:"+"0"*64+"\n")
         git(self.project,"add","requirements.txt");git(self.project,"commit","-qm","missing dependency fixture")
         run_id,spec,manager=self.seed();engine=Engine(self.store,FakeRegistry());engine.cancel_flags[run_id]=asyncio.Event()
         before=manager.fingerprint(manager.integration_path)

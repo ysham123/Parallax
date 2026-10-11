@@ -81,6 +81,7 @@ class Deployment:
     allowed_emails: frozenset[str] = frozenset()
     remote_mcp: bool = False
     openai_challenge: str = ""
+    pilot_enabled: bool = False
 
     def __repr__(self):
         return (f"Deployment(origins={sorted(self.origins)!r}, hosts={sorted(self.hosts)!r}, projects={str(self.projects)!r}, "
@@ -161,7 +162,7 @@ class Deployment:
             raise ValueError("PARALLAX_OPENAI_CHALLENGE must be the domain verification token")
         return cls(token, frozenset(origins), frozenset(hosts), projects, public_origin, github,
                    _github_ids("PARALLAX_OWNER_GITHUB_IDS"), signup, _github_ids("PARALLAX_ALLOWED_GITHUB_IDS"), int(raw_limit),
-                   supabase, _emails("PARALLAX_OWNER_EMAILS"), _emails("PARALLAX_ALLOWED_EMAILS"), mcp == "on", challenge)
+                   supabase, _emails("PARALLAX_OWNER_EMAILS"), _emails("PARALLAX_ALLOWED_EMAILS"), mcp == "on", challenge, os.environ.get("PARALLAX_PILOT_ENABLED", "off") == "on")
 
     def check_workspace(self, value: str):
         if not Path(value).expanduser().resolve().is_relative_to(self.projects.resolve()):

@@ -1,0 +1,5 @@
+customer,currency,charges,refunds,net,transactions
+"ACME, East",EUR,100.10,120.11,-20.01,2
+Alpha,USD,0.02,0.01,0.01,3
+Beta,USD,10.01,0.00,10.01,1
+Zoë,USD,0.00,0.00,0.00,1

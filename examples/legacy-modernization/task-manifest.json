@@ -1,0 +1,43 @@
+{
+  "schema_version": "1.0",
+  "task_id": "settlement-parser-modernization-v1",
+  "kind": "bounded_modernization_fixture",
+  "baseline": {
+    "application_version": "settlement 1.2",
+    "supported_python": ["3.10", "3.13"],
+    "component": "optparse.OptionParser(option_list=...)",
+    "deprecated_api_reference": "https://docs.python.org/3.13/library/optparse.html#creating-the-parser",
+    "note": "The option_list construction API is deprecated; the optparse module remains supported. This is an owner-approved parser standardization, not a security or runtime-EOL claim.",
+    "check": ["python3", "acceptance/verify_candidate.py"]
+  },
+  "target": {
+    "component": "argparse",
+    "outcome": "Replace the parser component while preserving settlement CLI compatibility contract v1.0.",
+    "allowed_change_paths": ["settlement.py"],
+    "protected_paths": ["ledger.py", "README.md", "CONTRACT.md", "AGENTS.md", "task-manifest.json", "sample-input/", "tests/", "acceptance/"],
+    "check": ["python3", "acceptance/verify_candidate.py", "--require-modernized"]
+  },
+  "acceptance": [
+    "The fixed transaction batch produces the unchanged golden CSV report.",
+    "Retain all supported CLI flags, standard-stream defaults, attached values, unique long-option abbreviations and last-value semantics.",
+    "Keep hyphen-prefixed and option-looking filenames as option values.",
+    "Keep inclusive date filtering and validate every row before date/currency filtering.",
+    "Keep per-transaction half-up cent rounding, refunds, zero amounts and separate sorted customer/currency groups.",
+    "Keep validation and failure exit codes; invalid input produces no report and preserves existing output.",
+    "Keep UTF-8 file input, BOM, quoting, multiline fields, LF report bytes and exact version output.",
+    "Change only settlement.py; protected business logic, test evidence and contract remain unchanged.",
+    "Remove optparse import and construct/use argparse for the actual CLI; an unused import is insufficient.",
+    "Characterization and target acceptance pass on supplied Python 3.10 and 3.13 environments."
+  ],
+  "delivery": {
+    "default": "local_disposable_project",
+    "human_approval": "Approve the exact candidate after independent review and fresh check evidence.",
+    "application": "Apply only through an explicit separate action; no automatic merge or deployment.",
+    "rollback": "Retain the captured Git baseline. The developer reviews and performs normal Git revert/restore if needed; no automatic rollback of outputs, consumers or deployments."
+  },
+  "exclusions": ["whole_application_rewrite", "production_data_migration", "COBOL_conversion", "automatic_deployment", "financial_correctness_certification", "performance_or_productivity_claim"],
+  "measurement": {
+    "record": ["baseline_identity", "candidate_digest", "providers_models_settings", "full_revision_lineage", "active_human_time", "all_failures", "observed_usage_and_unknown_cost", "accepted_delivery"],
+    "note": "This manifest describes a reproducible exercise. It is not consumed as a new Parallax API contract, proof of market demand or a live-provider result."
+  }
+}

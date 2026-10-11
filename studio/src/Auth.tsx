@@ -155,7 +155,7 @@ export default function Auth({
     if (mode === "signup") setSent({ kind: "confirm", email: address });
     else if (mode === "forgot") setSent({ kind: "reset", email: address });
     else {
-      window.history.replaceState(null, "", "/");
+      window.history.replaceState(null, "", "/studio");
       onSignedIn();
     }
   }

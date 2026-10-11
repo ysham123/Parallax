@@ -21,6 +21,7 @@ import {
   VariantDetail,
 } from "./Exploration";
 import { Workflows } from "./Workflows";
+import type { EvidenceTransport } from "./session";
 import { contextManifest, explorations } from "./run-inspection";
 import {
   INITIAL_SPEC,
@@ -1139,16 +1140,22 @@ export default function App({
   execution,
   executionControls,
   accountControl,
+  teamWorkspace = false,
+  onReconnect,
 }: {
   execution?: {
+    id?: string;
     name: string;
     workspace?: string;
     platform?: string;
     online?: boolean;
     paired?: boolean;
+    transport_status?: EvidenceTransport;
   };
   executionControls?: ReactNode;
   accountControl?: ReactNode;
+  teamWorkspace?: boolean;
+  onReconnect?: () => void;
 } = {}) {
   const hostedWorkspace = import.meta.env.MODE === "cloud";
   const [tab, setTab] = useState<Tab>("workflows");
@@ -1194,6 +1201,7 @@ export default function App({
   const toastTimer = useRef<number | undefined>(undefined);
   const mounted = useRef(true);
   const lifecycle = useRef(0);
+  const loadRequest = useRef(0);
   const providerRequest = useRef<{
     promise: Promise<void>;
     controller: AbortController;
@@ -1311,10 +1319,24 @@ export default function App({
   const load = useCallback(
     async (forceProviders = false) => {
       const generation = lifecycle.current;
-      const current = () => mounted.current && lifecycle.current === generation;
+      const request = ++loadRequest.current;
+      const current = () =>
+        mounted.current &&
+        lifecycle.current === generation &&
+        loadRequest.current === request;
       setLoading(true);
       setHistoryLoading(true);
       setError("");
+      if (execution?.online === false) {
+        setConnected(false);
+        setLoading(false);
+        setHistoryLoading(false);
+        if (teamWorkspace) {
+          setRuns([]);
+          setRun(null);
+        }
+        return;
+      }
       const labels = [
         "Providers",
         "Profiles",
@@ -1324,7 +1346,10 @@ export default function App({
       ];
       const results = await Promise.allSettled([
         refreshProviders(forceProviders),
-        api<Profile[]>("/profiles").then((profiles) => {
+        (teamWorkspace
+          ? Promise.resolve([] as Profile[])
+          : api<Profile[]>("/profiles")
+        ).then((profiles) => {
           if (current()) setProfiles(profiles);
         }),
         api<RunResult[]>("/runs")
@@ -1385,25 +1410,27 @@ export default function App({
       if (failures.length) setError([...new Set(failures)].join(" "));
       setLoading(false);
     },
-    [updateRun, refreshProviders],
+    [updateRun, refreshProviders, teamWorkspace, execution?.online],
   );
 
   useEffect(() => {
     void load();
   }, [load]);
   useEffect(() => {
-    if (tab === "team") void refreshProviders().catch(() => undefined);
-  }, [tab, refreshProviders]);
+    if (tab === "team" && execution?.online !== false)
+      void refreshProviders().catch(() => undefined);
+  }, [tab, refreshProviders, execution?.online]);
   useEffect(() => {
     const onVisible = () => {
-      if (document.visibilityState === "visible")
+      if (document.visibilityState === "visible" && execution?.online !== false)
         void refreshProviders().catch(() => undefined);
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
-  }, [refreshProviders]);
+  }, [refreshProviders, execution?.online]);
   useEffect(() => {
-    if (!run?.run_id || tab === "workflows") return;
+    if (!run?.run_id || tab === "workflows" || execution?.online === false)
+      return;
     activeId.current = run.run_id;
     cursor.current = 0;
     setEvents([]);
@@ -1466,7 +1493,7 @@ export default function App({
       window.clearTimeout(debounce.current);
       debounce.current = undefined;
     };
-  }, [run?.run_id, updateRun, tab]);
+  }, [run?.run_id, updateRun, tab, execution?.online]);
 
   async function chooseRun(id: string, target: Tab = "run") {
     setBusy("open");
@@ -1888,7 +1915,7 @@ export default function App({
           </div>
         </header>
         <main id="main" className="main-content" ref={mainRef} tabIndex={-1}>
-          {error && (
+          {error && !(tab === "workflows" && execution?.online === false) && (
             <div className="alert" role="alert">
               <Icon name="warning" size={19} />
               <p>{error}</p>
@@ -1903,6 +1930,8 @@ export default function App({
           )}
           <div className="task-host" hidden={tab !== "workflows"}>
             <Workflows
+              teamWorkspace={teamWorkspace}
+              executionWorker={execution?.id}
               active={
                 tab === "workflows" && !connectionsOpen && !workspaceOverlay
               }
@@ -1911,6 +1940,8 @@ export default function App({
                 setSpec((previous) => ({ ...previous, workspace }))
               }
               online={execution?.online !== false}
+              evidenceTransport={execution?.transport_status}
+              onReconnect={onReconnect}
               onInspect={(id) => void chooseRun(id, "run")}
               knownProjects={runs.map((r) => r.spec.workspace)}
               renderEvidence={(run, tab) => (

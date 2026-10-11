@@ -401,6 +401,32 @@ class WorkspaceManager:
             self._save()
             return dict(self._metadata)
 
+    def seed_candidate(self, parent: "WorkspaceManager", expected_source: str) -> dict:
+        """Internal operation: copy a managed candidate, retaining its original baseline."""
+        with self._lock:
+            metadata = self.prepare()
+            if metadata.get("seed_complete"):
+                return metadata
+            if parent.workspace != self.workspace or parent.fingerprint(parent.workspace) != expected_source:
+                raise WorkspaceError("The original project changed. Start a new task from the current project.")
+            parent._integration_clean()
+            source = parent._metadata
+            if source.get("applied") or metadata["workers"]:
+                raise WorkspaceError("Only an unapplied candidate can seed a new run")
+            target = self.run_dir / "revision"
+            # Recover a crash after materialization but before the atomic metadata save.
+            if target.exists():
+                if target.is_symlink() or (target / MARKER).read_bytes() != MARKER_CONTENT:
+                    raise WorkspaceError("Interrupted revision has invalid ownership")
+                self._git(self.workspace, "worktree", "remove", "--force", str(target))
+            gitfile = self._worktree(target, source["integration_commit"])
+            self._metadata.update(snapshot_commit=source["snapshot_commit"], patch_base_commit=source["patch_base_commit"],
+                source_state=source["source_state"], integration_commit=source["integration_commit"],
+                integration_path=str(target), integration_gitfile=gitfile,
+                integration_files=self._scan(target, source["integration_commit"]), seed_complete=True)
+            self._save()
+            return dict(self._metadata)
+
     def create_worker(self, task_id: str, base: str | None = None) -> Path:
         with self._lock:
             # Public task IDs allow 64 characters; engine attempt suffixes need
@@ -701,8 +727,11 @@ class WorkspaceManager:
                         "error": "Source changed outside team files; refresh the candidate and rerun checks"}
             changed = destination["changed_files"]
             if not changed:
+                self._metadata.update(applied=True, applied_changed_files=[],
+                    preservation={"staging": True, "head": True, "branch": True, "unrelated_files": True})
+                self._save()
                 return {"ok": True, "changed_files": [], "error": None,
-                        "preservation": {"staging": True, "head": True, "branch": True, "unrelated_files": True}}
+                        "preservation": self._metadata["preservation"]}
             backups: dict[str, dict | None] = {}
             written: list[str] = []
             applied: dict[str, dict | None] = {}

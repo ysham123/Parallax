@@ -5,17 +5,29 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { api, messageOf, viaMachine } from "./api";
+import { api, relayApi, messageOf, viaMachine } from "./api";
 import {
   LABELS,
   type CheckSpec,
   type Participant,
   type RunSpec,
 } from "./types";
-import { canApprove, workflowGroup, workflowLabels } from "./workflow-state";
+import {
+  canApprove,
+  workflowGroup,
+  workflowLabels,
+  workflowAccess,
+  workflowOperationId,
+  workflowReviewAccess,
+  githubBindingsForProject,
+  type WorkflowAuthority,
+} from "./workflow-state";
 import { TaskPreflight, type TaskAssessment } from "./TaskPreflight";
 import { TaskWorkspace } from "./TaskWorkspace";
+import { PilotMetrics } from "./PilotMetrics";
 import { WorkIcon } from "./WorkIcon";
+import { ArchivedHistory } from "./ArchivedHistory";
+import type { EvidenceTransport } from "./session";
 import "./workflows.css";
 
 type Recipe = Pick<RunSpec, "coordinator" | "team" | "limits" | "checks"> & {
@@ -39,6 +51,21 @@ export type Workflow = {
   prompt?: string;
   original_goal?: string;
   parent_workflow_id?: string | null;
+  schema_version?: string;
+  required_worker_features?: string[];
+  requester?: string;
+  reviewer?: string;
+  publication_operation?: string;
+  github_target?: { id: string; full_name: string; base: string };
+  publication?: {
+    url: string;
+    pr: number;
+    branch: string;
+    commit: string;
+    repository: string;
+  };
+  revision?: { lineage: string; parent: string; parent_digest: string };
+  superseded_by?: string;
   template_details?: Pick<
     Recipe,
     "id" | "version" | "name" | "description" | "instructions"
@@ -56,7 +83,19 @@ export type Workflow = {
   error?: string;
   candidate?: Candidate;
   spec?: RunSpec;
-  decision?: { action: string };
+  task_settings?: {
+    schema_version: "1.0";
+    instructions: string;
+    checks: CheckSpec[];
+  };
+  decision?: { action: string; actor?: string | null; at?: string | null };
+  approval?: { action?: string; status?: string; actor?: string; at?: string };
+  comments?: {
+    id: string;
+    actor?: string | null;
+    message: string;
+    at?: string | null;
+  }[];
   timeline?: { stage: string; at: string }[];
 };
 
@@ -71,10 +110,14 @@ const when = (value: string) =>
   });
 
 export function Workflows({
+  teamWorkspace = false,
+  executionWorker,
   active,
   workspace,
   onWorkspace,
   online,
+  evidenceTransport,
+  onReconnect,
   onInspect,
   onConnections,
   knownProjects,
@@ -82,6 +125,8 @@ export function Workflows({
   renderParticipant,
   renderCheck,
 }: {
+  teamWorkspace?: boolean;
+  executionWorker?: string;
   active: boolean;
   knownProjects: string[];
   renderEvidence: (
@@ -91,6 +136,8 @@ export function Workflows({
   workspace: string;
   onWorkspace: (value: string) => void;
   online: boolean;
+  evidenceTransport?: EvidenceTransport;
+  onReconnect?: () => void;
   onInspect: (id: string) => void;
   onConnections: () => void;
   renderParticipant: (
@@ -109,6 +156,11 @@ export function Workflows({
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [recipe, setRecipe] = useState<Recipe | null>(null);
   const [history, setHistory] = useState<Workflow[]>([]);
+  const [historyState, setHistoryState] = useState<
+    "loading" | "ready" | "unavailable"
+  >("loading");
+  const [historyError, setHistoryError] = useState("");
+  const [archiveView, setArchiveView] = useState(false);
   const [selected, setSelected] = useState<Workflow | null>(null);
   const selectedId = useRef<string | null>(null);
   const [prompt, setPrompt] = useState("");
@@ -119,12 +171,36 @@ export function Workflows({
   const [instructions, setInstructions] = useState("");
   const [checks, setChecks] = useState<CheckSpec[]>([]);
   const [invalidChecks, setInvalidChecks] = useState<Set<number>>(new Set());
+  const [caller, setCaller] = useState<WorkflowAuthority | null>(null);
+  const [authorityLoaded, setAuthorityLoaded] = useState(false);
+  const access = workflowAccess(caller, viaMachine());
+  const reviewAccess = workflowReviewAccess(
+    caller,
+    viaMachine(),
+    teamWorkspace,
+    selected?.schema_version,
+  );
+  const [members, setMembers] = useState<
+    { account: string; name: string; login: string }[]
+  >([]);
+  const [githubBindings, setGithubBindings] = useState<
+    {
+      id: string;
+      worker?: string;
+      project: string;
+      full_name: string;
+      base: string;
+    }[]
+  >([]);
+  const [githubBinding, setGithubBinding] = useState("");
   const [filter, setFilter] = useState("all");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [setupError, setSetupError] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
   const [readiness, setReadiness] = useState<TaskAssessment | null>(null);
+  const readinessKey = useRef<string | null>(null);
   const [search, setSearch] = useState("");
   const [projectFilter, setProjectFilter] = useState("");
   const [composing, setComposing] = useState(false);
@@ -140,11 +216,19 @@ export function Workflows({
   const firstLoad = useRef(true);
   const searchRef = useRef<HTMLInputElement>(null);
   const pendingStart = useRef<{ signature: string; id: string } | null>(null);
+  const pendingComments = useRef(
+    new Map<string, { signature: string; id: string }>(),
+  );
   const alive = useRef(true);
   const activeRef = useRef(active);
   activeRef.current = active;
+  const onlineRef = useRef(online);
+  onlineRef.current = online;
+  const historyRequest = useRef(0);
   const assessmentKey = JSON.stringify([
     taskWorkspace,
+    executionWorker,
+    minutes,
     coordinator,
     team,
     checks,
@@ -152,6 +236,13 @@ export function Workflows({
   ]);
   const assessmentKeyRef = useRef(assessmentKey);
   assessmentKeyRef.current = assessmentKey;
+  // Hide and ignore a result immediately when its inputs change, before effects
+  // clear state. An older in-flight response cannot gate a different task.
+  const currentReadiness =
+    readinessKey.current === assessmentKey ? readiness : null;
+  const readinessBlocked =
+    currentReadiness?.status === "blocked" ||
+    currentReadiness?.issues?.some((issue) => issue.severity === "blocker");
 
   const chooseRecipe = useCallback((value: Recipe) => {
     setRecipe(value);
@@ -165,48 +256,128 @@ export function Workflows({
     setReadiness(null);
   }, []);
 
-  const refresh = useCallback(async (signal?: AbortSignal) => {
-    const rows = await api<Workflow[]>("/workflows", { signal });
-    if (!alive.current || signal?.aborted) return;
-    setHistory(rows);
-    if (firstLoad.current) {
-      const deepLink = new URLSearchParams(location.hash.slice(1)).get("task");
-      const linkedId =
-        deepLink &&
-        /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(deepLink)
-          ? deepLink
-          : null;
-      if (rows.length || linkedId) firstLoad.current = false;
-      selectedId.current =
-        linkedId ||
-        rows.find((row) => workflowGroup(row.status) === "approval")?.id ||
-        rows[0]?.id ||
-        null;
-    }
-    const id = selectedId.current;
-    if (id) {
-      const value = await api<Workflow>(`/workflows/${id}`, { signal });
-      if (alive.current && !signal?.aborted && selectedId.current === id)
-        setSelected(value);
-    }
-  }, []);
+  const refresh = useCallback(
+    async (signal?: AbortSignal) => {
+      const request = ++historyRequest.current;
+      if (!online) {
+        setHistoryState("unavailable");
+        if (teamWorkspace) {
+          setHistory([]);
+          setSelected(null);
+        }
+        return;
+      }
+      let rows: Workflow[];
+      try {
+        rows = await api<Workflow[]>("/workflows", { signal });
+      } catch (failure) {
+        if (
+          !alive.current ||
+          signal?.aborted ||
+          historyRequest.current !== request ||
+          !onlineRef.current
+        )
+          return;
+        setHistoryState("unavailable");
+        setHistoryError(messageOf(failure));
+        if (teamWorkspace) {
+          setHistory([]);
+          setSelected(null);
+        }
+        return;
+      }
+      if (
+        !alive.current ||
+        signal?.aborted ||
+        historyRequest.current !== request ||
+        !onlineRef.current
+      )
+        return;
+      setHistoryState("ready");
+      setHistoryError("");
+      setHistory(rows);
+      if (firstLoad.current) {
+        const deepLink = new URLSearchParams(location.hash.slice(1)).get(
+          "task",
+        );
+        const linkedId =
+          deepLink &&
+          /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(deepLink)
+            ? deepLink
+            : null;
+        if (rows.length || linkedId) firstLoad.current = false;
+        selectedId.current =
+          linkedId ||
+          rows.find((row) => workflowGroup(row.status) === "approval")?.id ||
+          rows[0]?.id ||
+          null;
+      }
+      const id = selectedId.current;
+      if (id) {
+        const value = await api<Workflow>(`/workflows/${id}`, { signal });
+        if (
+          alive.current &&
+          !signal?.aborted &&
+          historyRequest.current === request &&
+          onlineRef.current &&
+          selectedId.current === id
+        )
+          setSelected(value);
+      }
+    },
+    [online, teamWorkspace],
+  );
 
   useEffect(() => {
     alive.current = true;
     const abort = new AbortController();
+    setSetupError("");
+    if (online)
+      void api<{ authority: typeof caller }>("/context", {
+        signal: abort.signal,
+      })
+        .then((c) => {
+          if (!abort.signal.aborted) {
+            setCaller(c.authority);
+            setAuthorityLoaded(true);
+          }
+        })
+        .catch((e) => {
+          if (!abort.signal.aborted && viaMachine())
+            setSetupError(
+              `Workspace permissions could not be loaded: ${messageOf(e)}`,
+            );
+        });
+    if (viaMachine()) {
+      void relayApi<typeof githubBindings>("/github/bindings", {
+        signal: abort.signal,
+      })
+        .then((v) => {
+          if (!abort.signal.aborted) setGithubBindings(v);
+        })
+        .catch(() => {});
+      void relayApi<typeof members>("/workspaces/members", {
+        signal: abort.signal,
+      })
+        .then((v) => {
+          if (!abort.signal.aborted) setMembers(v);
+        })
+        .catch(() => {});
+    }
     void Promise.all([
-      api<Recipe[]>("/workflow-templates", { signal: abort.signal }).then(
-        (rows) => {
-          if (abort.signal.aborted) return;
-          setRecipes(rows);
-          if (rows[0]) chooseRecipe(rows[0]);
-        },
-      ),
+      (online
+        ? api<Recipe[]>("/workflow-templates", { signal: abort.signal })
+        : Promise.resolve([] as Recipe[])
+      ).then((rows) => {
+        if (abort.signal.aborted) return;
+        setRecipes(rows);
+        if (rows[0]) chooseRecipe(rows[0]);
+      }),
       refresh(abort.signal),
     ])
       .catch((failure) => {
         if (!abort.signal.aborted)
-          setError(
+          setSetupError(
             messageOf(failure) === "Not Found"
               ? "Update Parallax on this machine to use saved tasks. Advanced run is still available from the sidebar."
               : messageOf(failure),
@@ -235,11 +406,25 @@ export function Workflows({
       abort.abort();
       window.clearInterval(timer);
     };
-  }, [chooseRecipe, refresh]);
+  }, [chooseRecipe, refresh, online]);
 
   useEffect(() => {
     setReadiness(null);
   }, [assessmentKey, minutes]);
+  useEffect(() => {
+    setGithubBinding((current) =>
+      githubBindingsForProject(
+        githubBindings,
+        taskWorkspace,
+        executionWorker,
+      ).some(
+        (binding) =>
+          binding.id === current && binding.project === taskWorkspace,
+      )
+        ? current
+        : "",
+    );
+  }, [taskWorkspace, githubBindings, executionWorker]);
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
       if (!activeRef.current) return;
@@ -261,6 +446,7 @@ export function Workflows({
   }, []);
 
   async function choose(value: Workflow) {
+    setArchiveView(false);
     selectedId.current = value.id;
     setSelected(value);
     setComposing(false);
@@ -278,11 +464,27 @@ export function Workflows({
     }
   }
   async function start() {
-    if (!recipe || !coordinator || busy) return;
+    if (!recipe || !coordinator || busy || !access.deliver) return;
+    if (
+      loading ||
+      !online ||
+      !taskWorkspace ||
+      !prompt.trim() ||
+      invalidSettings
+    )
+      return;
+    if (readinessBlocked) {
+      setError(
+        "Resolve the blocked setup and check readiness again before starting.",
+      );
+      return;
+    }
     setBusy("start");
     setError("");
     setNotice("");
     const body = {
+      schema_version: "2.0",
+      ...(githubBinding ? { github_binding: githubBinding } : {}),
       template_id: recipe.id,
       template_version: recipe.version,
       ...(parentTask ? { parent_workflow_id: parentTask.id } : {}),
@@ -291,6 +493,9 @@ export function Workflows({
       coordinator,
       team,
       minutes,
+      ...(taskSettingsEdits
+        ? { task_settings: { schema_version: "1.0", instructions, checks } }
+        : {}),
     };
     const signature = JSON.stringify(body);
     if (pendingStart.current?.signature !== signature)
@@ -343,7 +548,7 @@ export function Workflows({
     }
   }
   async function assess() {
-    if (!recipe || !coordinator || busy) return;
+    if (!recipe || !coordinator || busy || !access.deliver) return;
     const assessedKey = assessmentKey;
     setBusy("assess");
     setError("");
@@ -357,8 +562,10 @@ export function Workflows({
           participants: [coordinator, ...team],
         }),
       });
-      if (assessmentKeyRef.current === assessedKey)
+      if (assessmentKeyRef.current === assessedKey) {
+        readinessKey.current = assessedKey;
         setReadiness({ ...result, assessed_at: new Date().toISOString() });
+      }
     } catch (failure) {
       if (assessmentKeyRef.current === assessedKey)
         setError(messageOf(failure));
@@ -367,7 +574,7 @@ export function Workflows({
     }
   }
   async function saveRecipe(update = false) {
-    if (!recipe || !coordinator || busy) return;
+    if (!recipe || !coordinator || busy || !access.deliver) return;
     setBusy("save");
     setError("");
     try {
@@ -407,8 +614,17 @@ export function Workflows({
       setBusy("");
     }
   }
-  async function act(action: "approve" | "reject" | "resume" | "cancel") {
-    if (!selected) return;
+  async function act(
+    action: "approve" | "reject" | "resume" | "cancel" | "apply",
+  ) {
+    if (
+      !selected ||
+      busy ||
+      (action === "approve" || action === "reject"
+        ? !reviewAccess
+        : !access.deliver)
+    )
+      return;
     const actingId = selected.id;
     setBusy(action);
     setError("");
@@ -416,13 +632,26 @@ export function Workflows({
     try {
       const deciding = action === "approve" || action === "reject";
       const value = await api<Workflow>(
-        `/workflows/${selected.id}/${deciding ? "decision" : action}`,
+        `/workflows/${selected.id}/${deciding ? (selected.schema_version === "2.0" ? "approve" : "decision") : action}`,
         {
           method: "POST",
-          ...(deciding
+          ...(deciding || action === "apply"
             ? {
                 body: JSON.stringify({
-                  action,
+                  ...(action !== "apply" ? { action } : {}),
+                  ...(selected.schema_version === "2.0" || action === "apply"
+                    ? {
+                        request_id: workflowOperationId(
+                          JSON.stringify([
+                            caller?.actor || "local",
+                            selected.workspace,
+                            selected.id,
+                          ]),
+                          action,
+                          selected.candidate?.digest || "",
+                        ),
+                      }
+                    : {}),
                   candidate_digest: selected.candidate?.digest,
                 }),
               }
@@ -439,10 +668,13 @@ export function Workflows({
     }
   }
   function useAgain(feedback = "") {
-    if (!selected?.spec || busy) return;
+    if (!selected?.spec || busy || !access.deliver) return;
     const savedRecipe = selected.template_details
       ? {
           ...selected.template_details,
+          instructions:
+            selected.task_settings?.instructions ??
+            selected.template_details.instructions,
           coordinator: selected.spec.coordinator,
           team: selected.spec.team,
           limits: selected.spec.limits,
@@ -470,6 +702,45 @@ export function Workflows({
       document.getElementById("workflow-prompt")?.focus(),
     );
   }
+  async function reviseCandidate(
+    findings: { review: number; finding: number }[] = [],
+  ) {
+    if (!selected?.candidate || busy || !access.deliver) return;
+    const correction = feedbackDrafts[selected.id]?.trim();
+    if (!correction) {
+      setError(
+        "Describe the correction in the direction field before revising.",
+      );
+      return;
+    }
+    setBusy("revise");
+    setError("");
+    const body = {
+      candidate_digest: selected.candidate.digest,
+      correction,
+      findings,
+    };
+    const signature = JSON.stringify({ parent: selected.id, ...body });
+    if (pendingStart.current?.signature !== signature)
+      pendingStart.current = { id: crypto.randomUUID(), signature };
+    try {
+      const value = await api<Workflow>(`/workflows/${selected.id}/revise`, {
+        method: "POST",
+        body: JSON.stringify({ ...body, request_id: pendingStart.current.id }),
+      });
+      pendingStart.current = null;
+      selectedId.current = value.id;
+      setSelected(value);
+      setNotice(
+        "Revision started from the saved candidate. Fresh checks, review and approval are required.",
+      );
+      await refresh();
+    } catch (failure) {
+      setError(messageOf(failure));
+    } finally {
+      setBusy("");
+    }
+  }
   async function openRelated(id: string) {
     const recent = history.find((row) => row.id === id);
     if (recent) {
@@ -495,6 +766,42 @@ export function Workflows({
       setError(messageOf(failure));
     } finally {
       setBusy("");
+    }
+  }
+  async function updateReview(
+    action: "reviewer" | "comment",
+    body: Record<string, unknown>,
+  ) {
+    if (
+      !selected ||
+      busy ||
+      (action === "reviewer" ? !access.deliver : !access.review)
+    )
+      return;
+    const actingId = selected.id;
+    setBusy(action);
+    setError("");
+    if (action === "comment") {
+      const signature = JSON.stringify(body);
+      const previous = pendingComments.current.get(actingId);
+      const id =
+        previous?.signature === signature ? previous.id : crypto.randomUUID();
+      pendingComments.current.set(actingId, { signature, id });
+      body = { ...body, request_id: id };
+    }
+    try {
+      const value = await api<Workflow>(`/workflows/${actingId}/${action}`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      if (action === "comment") pendingComments.current.delete(actingId);
+      if (alive.current && selectedId.current === actingId) setSelected(value);
+      await refresh();
+    } catch (failure) {
+      if (alive.current && selectedId.current === actingId)
+        setError(messageOf(failure));
+    } finally {
+      if (alive.current) setBusy("");
     }
   }
   async function sendDirection(value: Workflow) {
@@ -546,15 +853,21 @@ export function Workflows({
   );
   const visible = projectHistory.filter(
     (w) =>
-      (filter === "all" || workflowGroup(w.status) === filter) &&
+      (filter === "all" ||
+        (filter === "your-review"
+          ? w.status === "awaiting_approval" &&
+            w.requester !== caller?.actor &&
+            (!w.reviewer || w.reviewer === caller?.actor)
+          : workflowGroup(w.status) === filter)) &&
       `${w.title} ${w.workspace} ${w.template.name} ${w.id}`
         .toLowerCase()
         .includes(search.toLowerCase().trim()),
   );
   function newTask() {
-    if (busy) return;
+    if (busy || !access.deliver) return;
     firstLoad.current = false;
     setComposing(true);
+    setArchiveView(false);
     setQueueOpen(false);
     setNotice("");
     if (projectFilter && !parentTask) onWorkspace(projectFilter);
@@ -564,8 +877,14 @@ export function Workflows({
   }
   const ready =
     !!selected &&
-    canApprove(selected.status, selected.candidate, selected.decision);
-  const instructionEdits =
+    online &&
+    historyState === "ready" &&
+    reviewAccess &&
+    canApprove(selected.status, selected.candidate, selected.decision) &&
+    (!caller?.team ||
+      (selected.requester !== caller.actor &&
+        (!selected.reviewer || selected.reviewer === caller.actor)));
+  const taskSettingsEdits =
     !!recipe &&
     (instructions !== recipe.instructions ||
       JSON.stringify(checks) !== JSON.stringify(recipe.checks));
@@ -597,7 +916,11 @@ export function Workflows({
             <WorkIcon name="close" />
           </button>
         </div>
-        <button className="new-task-button" onClick={newTask}>
+        <button
+          className="new-task-button"
+          disabled={!access.deliver}
+          onClick={newTask}
+        >
           <WorkIcon name="plus" /> New task <span>↗</span>
         </button>
         <label className="queue-search">
@@ -630,26 +953,51 @@ export function Workflows({
           {[
             ["all", "All tasks", "stack"],
             ["approval", "Awaiting approval", "review"],
+            ...(caller?.team
+              ? [["your-review", "Awaiting your review", "review"]]
+              : []),
             ["running", "In progress", "activity"],
             ["attention", "Needs attention", "warning"],
             ["finished", "Completed & closed", "check"],
           ].map(([id, label, icon]) => (
             <button
               key={id}
-              aria-pressed={filter === id}
-              onClick={() => setFilter(id)}
+              aria-pressed={!archiveView && filter === id}
+              onClick={() => {
+                setFilter(id);
+                setArchiveView(false);
+              }}
             >
               <WorkIcon name={icon} />
               <span>{label}</span>
               <small>
-                {
-                  projectHistory.filter(
-                    (w) => id === "all" || workflowGroup(w.status) === id,
-                  ).length
-                }
+                {historyState !== "ready" || !online
+                  ? "—"
+                  : projectHistory.filter(
+                      (w) =>
+                        id === "all" ||
+                        (id === "your-review"
+                          ? w.status === "awaiting_approval" &&
+                            w.requester !== caller?.actor &&
+                            (!w.reviewer || w.reviewer === caller?.actor)
+                          : workflowGroup(w.status) === id),
+                    ).length}
               </small>
             </button>
           ))}
+          {viaMachine() && (
+            <button
+              aria-pressed={archiveView}
+              onClick={() => {
+                setArchiveView(true);
+                setComposing(false);
+                setQueueOpen(false);
+              }}
+            >
+              <WorkIcon name="stack" />
+              <span>Archived records</span>
+            </button>
+          )}
         </nav>
         <div className="queue-list-heading">
           <span>{search ? "SEARCH RESULTS" : "RECENT TASKS"}</span>
@@ -662,7 +1010,11 @@ export function Workflows({
           </button>
         </div>
         <div className="queue-scroll">
-          {loading ? (
+          {historyState === "unavailable" || !online ? (
+            <p className="queue-empty">
+              Task history unavailable. Counts are unknown.
+            </p>
+          ) : loading ? (
             <p className="queue-empty" role="status">
               Loading tasks…
             </p>
@@ -737,13 +1089,32 @@ export function Workflows({
             className="text-button"
             onClick={() => setQueueOpen(!queueOpen)}
           >
-            <WorkIcon name="stack" /> Tasks <span>{history.length}</span>
+            <WorkIcon name="stack" /> Tasks{" "}
+            <span>
+              {historyState === "ready" && online ? history.length : "—"}
+            </span>
           </button>
-          <button className="text-button" onClick={newTask}>
+          <button
+            className="text-button"
+            disabled={!access.deliver}
+            onClick={newTask}
+          >
             <WorkIcon name="plus" /> New task
           </button>
         </div>
-        {error && (
+        {viaMachine() && authorityLoaded && !caller && (
+          <div className="task-alert" role="alert">
+            Update Parallax on this machine to use versioned tasks and separate
+            delivery. Existing personal task approval remains available.
+          </div>
+        )}
+        {setupError && online && historyState !== "unavailable" && (
+          <div className="task-alert" role="alert">
+            <WorkIcon name="warning" />
+            <p>{setupError}</p>
+          </div>
+        )}
+        {error && online && (
           <div className="task-alert" role="alert">
             <WorkIcon name="warning" />
             <p>{error}</p>
@@ -768,15 +1139,61 @@ export function Workflows({
             </button>
           </div>
         )}
-        {!online && (
-          <p className="task-offline">
-            Worker offline. Reconnect to start, approve, or resume work.
-            Displayed evidence may be out of date.
-          </p>
+        {!archiveView && (!online || historyState === "unavailable") && (
+          <div className="task-availability" role="status">
+            <div>
+              <strong>
+                {!online ? "Machine offline" : "Task history unavailable"}
+              </strong>
+              <p>
+                {teamWorkspace
+                  ? "Team task history needs a connected machine and current project permissions. Counts are unknown; reconnect to inspect evidence or approve work."
+                  : "Task counts are unknown. Any displayed personal evidence may be out of date. Reconnect before starting or approving work."}
+              </p>
+              {online && historyError && <p>{historyError}</p>}
+            </div>
+            {onReconnect && (
+              <button className="secondary-button" onClick={onReconnect}>
+                Reconnect machine
+              </button>
+            )}
+            {online && (
+              <button className="text-button" onClick={() => void refresh()}>
+                Retry task history
+              </button>
+            )}
+          </div>
         )}
+        {!archiveView &&
+          evidenceTransport?.status === "local_evidence_only" && (
+            <div className="task-availability" role="status">
+              <div>
+                <strong>
+                  Some full evidence is available only on the machine
+                </strong>
+                <p>
+                  Full evidence is retained locally.{" "}
+                  {evidenceTransport.problem_count} record
+                  {evidenceTransport.problem_count === 1 ? " exceeds" : "s exceed"} the
+                  relay limit and cannot be inspected in remote Studio. Remote
+                  approval is blocked for affected candidates. Open local Studio
+                  on the machine to inspect the saved evidence.
+                </p>
+                {evidenceTransport.detail && <p>{evidenceTransport.detail}</p>}
+              </div>
+            </div>
+          )}
+        {archiveView && <ArchivedHistory />}
         <div
           className="task-compose-scroll"
-          hidden={!composing && (!!selected || loading)}
+          hidden={
+            archiveView ||
+            (!composing &&
+              (!!selected ||
+                loading ||
+                !online ||
+                historyState === "unavailable"))
+          }
         >
           <fieldset disabled={!!busy} className="composer-fieldset">
             <section
@@ -917,9 +1334,7 @@ export function Workflows({
                 <span>{minutes} min limit</span>
               </div>
               <details className="workflow-settings">
-                <summary>
-                  Configure team, checks, and reusable instructions
-                </summary>
+                <summary>Configure team, task instructions, and checks</summary>
                 <p className="workflow-muted">
                   Use different providers for implementation and independent
                   review. Provider usage is charged to your configured accounts.
@@ -987,7 +1402,7 @@ export function Workflows({
                 </p>
                 <div hidden={!!parentTask}>
                   <label className="workflow-field">
-                    <span>Reusable instructions</span>
+                    <span>Task instructions</span>
                     <textarea
                       rows={3}
                       value={instructions}
@@ -995,6 +1410,11 @@ export function Workflows({
                       maxLength={4000}
                     />
                   </label>
+                  <p className="workflow-muted">
+                    Instructions and checks apply to this task. Your saved
+                    workflow stays unchanged. Save as a recipe only when you
+                    want to reuse these settings.
+                  </p>
                   <label className="workflow-field">
                     <span>Recipe name</span>
                     <input
@@ -1007,9 +1427,9 @@ export function Workflows({
                   <div className="workflow-checks">
                     <h3>Project checks</h3>
                     <p className="workflow-muted">
-                      Leave this empty to use the project's detected checks.
-                      Save explicit commands when your project needs a
-                      particular test or package root.
+                      Leave this empty to use the project's detected checks. Add
+                      explicit commands when your project needs a particular
+                      test or package root.
                     </p>
                     {checks.map((check, index) => (
                       <div key={`${recipe?.id}-${recipe?.version}-${index}`}>
@@ -1070,7 +1490,8 @@ export function Workflows({
                         !!busy ||
                         !online ||
                         invalidSettings ||
-                        !recipeName.trim()
+                        !recipeName.trim() ||
+                        !access.deliver
                       }
                       onClick={() => void saveRecipe()}
                     >
@@ -1079,7 +1500,12 @@ export function Workflows({
                     {recipe && !recipe.builtin && (
                       <button
                         className="secondary-button"
-                        disabled={!!busy || !online || invalidSettings}
+                        disabled={
+                          !!busy ||
+                          !online ||
+                          invalidSettings ||
+                          !access.deliver
+                        }
                         onClick={() => void saveRecipe(true)}
                       >
                         Save new version
@@ -1089,14 +1515,9 @@ export function Workflows({
                 </div>
               </details>
 
-              {instructionEdits && (
-                <p className="task-offline">
-                  Save your instructions and checks as a recipe before starting.
-                </p>
-              )}
-              {readiness && (
+              {currentReadiness && (
                 <TaskPreflight
-                  assessment={readiness}
+                  assessment={currentReadiness}
                   configuredChecks={checks}
                   disabled={!!busy || !!parentTask}
                   onUseChecks={(value) => {
@@ -1105,6 +1526,37 @@ export function Workflows({
                   }}
                 />
               )}
+              {viaMachine() && (
+                <label>
+                  Delivery
+                  <select
+                    value={githubBinding}
+                    onChange={(e) => setGithubBinding(e.target.value)}
+                  >
+                    <option value="">Apply locally after approval</option>
+                    {githubBindingsForProject(
+                      githubBindings,
+                      taskWorkspace,
+                      executionWorker,
+                    ).map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.full_name} · {b.base} · draft PR
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {readinessBlocked && (
+                <p className="task-offline" role="status">
+                  Resolve the blocked setup, then check readiness again to
+                  start.
+                </p>
+              )}
+              <p className="workflow-muted">
+                {minutes} minutes limits execution time across restarts.
+                Approval waiting time is excluded. Provider usage is charged to
+                your configured accounts; this time limit is not a spending cap.
+              </p>
               <div className="compose-submit">
                 <button
                   className="secondary-button"
@@ -1113,7 +1565,8 @@ export function Workflows({
                     !online ||
                     !taskWorkspace ||
                     !recipe ||
-                    invalidSettings
+                    invalidSettings ||
+                    !access.deliver
                   }
                   onClick={() => void assess()}
                 >
@@ -1128,8 +1581,9 @@ export function Workflows({
                     !taskWorkspace ||
                     !prompt.trim() ||
                     !coordinator ||
-                    instructionEdits ||
-                    invalidSettings
+                    readinessBlocked ||
+                    invalidSettings ||
+                    !access.deliver
                   }
                   onClick={() => void start()}
                 >
@@ -1144,11 +1598,16 @@ export function Workflows({
             </section>
           </fieldset>
         </div>
-        {!composing && selected ? (
+        {!archiveView &&
+        !composing &&
+        selected &&
+        (!teamWorkspace || (online && historyState === "ready")) ? (
           <TaskWorkspace
             visible={active}
-            key={selected.id}
+            key={`task:${selected.id}`}
             workflow={selected}
+            viewerActor={caller?.actor}
+            actorDirectory={members}
             feedback={feedbackDrafts[selected.id] || ""}
             sending={sendingTasks.has(selected.id)}
             sent={sendNotices[selected.id] || ""}
@@ -1171,22 +1630,57 @@ export function Workflows({
               }))
             }
             ready={ready}
+            approvalHint={
+              caller?.team && selected.status === "awaiting_approval"
+                ? selected.requester === caller.actor
+                  ? "Another workspace member must approve this candidate. Owners follow the same rule."
+                  : selected.reviewer && selected.reviewer !== caller.actor
+                    ? "The assigned reviewer must approve this candidate."
+                    : undefined
+                : undefined
+            }
             busy={busy}
             online={online}
             onAction={(action) => void act(action)}
             onAgain={useAgain}
+            onRevise={(findings) => void reviseCandidate(findings)}
+            canDeliver={access.deliver}
+            members={
+              caller?.team
+                ? members.filter((member) =>
+                    caller.reviewers_by_project?.[selected.workspace]?.includes(
+                      member.account,
+                    ),
+                  )
+                : members
+            }
+            onAssign={(reviewer) => void updateReview("reviewer", { reviewer })}
+            onRefresh={() => void refresh()}
+            onComment={() =>
+              void updateReview("comment", {
+                message: feedbackDrafts[selected.id] || "",
+              })
+            }
             onInspect={onInspect}
             renderEvidence={renderEvidence}
           />
-        ) : !composing && loading ? (
+        ) : !archiveView && !composing && loading ? (
           <div className="task-loading" role="status">
             <WorkIcon name="stack" size={28} />
             <p>Opening your workspace…</p>
           </div>
         ) : null}
+        {!archiveView && (
+          <PilotMetrics
+            key={`metrics:${selected?.id || "report"}`}
+            workflow={selected}
+          />
+        )}
         <footer className="task-statusbar">
           <span>
-            {approvalCount} awaiting approval · {runningCount} in progress
+            {historyState === "ready" && online
+              ? `${approvalCount} awaiting approval · ${runningCount} in progress`
+              : "Task counts unavailable"}
           </span>
           <span>Parallax v{__PARALLAX_VERSION__}</span>
         </footer>

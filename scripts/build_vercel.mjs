@@ -29,5 +29,5 @@ writeFileSync(
   JSON.stringify(outputConfig(origin), null, 2) + "\n",
 );
 console.log(
-  `Prepared Vercel Build Output API v3: ${mode === "cloud" ? "Railway-backed Studio" : "local Studio entry"}.`,
+  `Prepared Vercel Build Output API v3: public website with ${mode === "cloud" ? "Railway-backed Studio" : "local Studio launcher"}.`,
 );

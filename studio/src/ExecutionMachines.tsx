@@ -16,12 +16,18 @@ export function ExecutionMachines({
   onSelect,
   refresh,
   hostedExecution,
+  reconnectSignal = 0,
+  teamWorkspace = false,
+  canManageMachines = true,
 }: {
   machines: ExecutionMachine[];
   selected: string;
   onSelect: (id: string) => void;
   refresh: () => Promise<void>;
   hostedExecution: boolean;
+  reconnectSignal?: number;
+  teamWorkspace?: boolean;
+  canManageMachines?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState<string | null>(null);
@@ -29,6 +35,12 @@ export function ExecutionMachines({
   const [error, setError] = useState("");
   const close = useRef<HTMLButtonElement>(null);
   const dialog = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (reconnectSignal) {
+      setError("");
+      setOpen(true);
+    }
+  }, [reconnectSignal]);
   useEffect(() => {
     if (!open) return;
     const previous = document.activeElement as HTMLElement;
@@ -109,11 +121,6 @@ export function ExecutionMachines({
       >
         Machines
       </button>
-      {selected !== HOSTED_EXECUTOR && !current?.online && (
-        <span className="machine-offline" role="status">
-          Offline · saved evidence
-        </span>
-      )}
       {open && (
         <div
           className="machine-backdrop"
@@ -146,12 +153,40 @@ export function ExecutionMachines({
               Studio controls the run. The chosen machine owns project files,
               CLI sign-ins, checks, and integration.
             </p>
+            {current && !current.online && (
+              <section className="pair-machine">
+                <h3>Reconnect {current.name}</h3>
+                <p>
+                  {canManageMachines
+                    ? "On that machine, restart"
+                    : "Ask a workspace owner to restart"}{" "}
+                  the Parallax worker with its original state directory, relay
+                  URL and approved project paths. An existing pairing reconnects
+                  without a new code. Keep that terminal process running, then
+                  check the connection here.
+                </p>
+                <button
+                  className="secondary-button"
+                  disabled={busy}
+                  onClick={() => {
+                    setError("");
+                    void refresh().catch((failure) =>
+                      setError(messageOf(failure)),
+                    );
+                  }}
+                >
+                  Check machine connection
+                </button>
+              </section>
+            )}
             <div className="machine-list">
               {hostedExecution && (
                 <article>
                   <div>
                     <strong>Railway</strong>
-                    <small>Hosted projects and CLI connections · operator only</small>
+                    <small>
+                      Hosted projects and CLI connections · operator only
+                    </small>
                   </div>
                   <span>Cloud</span>
                 </article>
@@ -164,6 +199,14 @@ export function ExecutionMachines({
                       {platformLabel(machine.platform)} ·{" "}
                       {machine.online ? "Connected" : "Offline"}
                     </small>
+                    {machine.transport_status?.status ===
+                      "local_evidence_only" && (
+                      <p className="machine-confirm">
+                        Full evidence is retained locally. Some evidence exceeds
+                        the relay limit and is unavailable in remote Studio;
+                        affected candidates cannot receive remote approval.
+                      </p>
+                    )}
                     <details>
                       <summary>
                         {machine.workspaces.length} approved project
@@ -176,67 +219,80 @@ export function ExecutionMachines({
                     {confirming === machine.id && (
                       <p className="machine-confirm" role="alert">
                         Disconnecting revokes this machine and deletes its
-                        mirrored evidence from Parallax. Its local history
-                        stays on the machine.
+                        mirrored code and full evidence from Parallax. Read-only
+                        receipts remain visible to permitted workspace members;
+                        local history stays on the machine.
                       </p>
                     )}
                   </div>
-                  {confirming === machine.id ? (
-                    <span className="machine-confirm-actions">
+                  {canManageMachines &&
+                    (confirming === machine.id ? (
+                      <span className="machine-confirm-actions">
+                        <button
+                          className="text-button"
+                          disabled={busy}
+                          onClick={() => setConfirming(null)}
+                        >
+                          Keep
+                        </button>
+                        <button
+                          className="danger-button"
+                          disabled={busy}
+                          onClick={() => void revoke(machine.id)}
+                        >
+                          {busy ? "Disconnecting…" : "Disconnect"}
+                        </button>
+                      </span>
+                    ) : (
                       <button
                         className="text-button"
                         disabled={busy}
-                        onClick={() => setConfirming(null)}
+                        onClick={() => setConfirming(machine.id)}
                       >
-                        Keep
+                        Disconnect
                       </button>
-                      <button
-                        className="danger-button"
-                        disabled={busy}
-                        onClick={() => void revoke(machine.id)}
-                      >
-                        {busy ? "Disconnecting…" : "Disconnect"}
-                      </button>
-                    </span>
-                  ) : (
-                    <button
-                      className="text-button"
-                      disabled={busy}
-                      onClick={() => setConfirming(machine.id)}
-                    >
-                      Disconnect
-                    </button>
-                  )}
+                    ))}
                 </article>
               ))}
               {!machines.length && !hostedExecution && (
                 <article>
                   <div>
                     <strong>No machines yet</strong>
-                    <small>Pair one below to start a run.</small>
+                    <small>
+                      {canManageMachines
+                        ? "Pair one below to start a run."
+                        : "Ask a workspace owner to connect a machine."}
+                    </small>
                   </div>
                 </article>
               )}
             </div>
-            <section className="pair-machine">
-              <h3>Connect another machine</h3>
-              <p>
-                From a Parallax checkout on that machine, run this with a
-                project you approve. It connects outward over HTTPS; no inbound
-                port is opened and provider credentials stay on the machine.
-              </p>
-              <pre className="machine-command">
-                <code>{command}</code>
-              </pre>
-              <p>
-                {hostedExecution
-                  ? "Anyone signed in to the operator workspace can operate approved projects on its machines."
-                  : "Only your account can see or operate machines in this workspace."}{" "}
-                Disconnect revokes future commands; an offline machine receives
-                the revocation when it reconnects.
-              </p>
-              <PairingCode />
-            </section>
+            {canManageMachines ? (
+              <section className="pair-machine">
+                <h3>Connect another machine</h3>
+                <p>
+                  From a Parallax checkout on that machine, run this with a
+                  project you approve. It connects outward over HTTPS; no
+                  inbound port is opened and provider credentials stay on the
+                  machine.
+                </p>
+                <pre className="machine-command">
+                  <code>{command}</code>
+                </pre>
+                <p>
+                  {hostedExecution
+                    ? "Anyone signed in to the operator workspace can operate approved projects on its machines."
+                    : teamWorkspace
+                      ? "Workspace members can inspect or operate this machine according to their role and project permissions."
+                      : "Only your account can see or operate machines in this workspace."}{" "}
+                  Disconnect revokes future commands; an offline machine
+                  receives the revocation when it reconnects.
+                </p>
+                <PairingCode />
+              </section>
+            ) : (
+              <p>Workspace owners manage machine pairing and disconnection.</p>
+            )}
             {error && (
               <p role="alert" className="machine-error">
                 {error}

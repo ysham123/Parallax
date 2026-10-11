@@ -1,14 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import App from "./App";
 import { onUnauthorized, setApiExecutor, messageOf } from "./api";
+import { WorkspaceControls } from "./WorkspaceControls";
 import { ExecutionMachines } from "./ExecutionMachines";
+import { ArchivedHistory } from "./ArchivedHistory";
 import Onboarding from "./Onboarding";
 import OperatorGate from "./OperatorGate";
 import PublicEntry from "./PublicEntry";
+import PublicSite from "./PublicSite";
+import { publicWebsite } from "./entry-routing";
 import Auth, { type AuthMode } from "./Auth";
 import Legal from "./Legal";
 import OAuthConsent, { ConnectedApps } from "./OAuthConsent";
-import { AccountMenu, DeleteAccountDialog, Mark, applyStoredTheme } from "./PublicChrome";
+import {
+  AccountMenu,
+  DeleteAccountDialog,
+  Mark,
+  applyStoredTheme,
+} from "./PublicChrome";
 import {
   HOSTED_EXECUTOR,
   accountName,
@@ -16,6 +25,8 @@ import {
   deletionConfirmation,
   executorKey,
   forgetMachines,
+  invitationToken,
+  rememberInvitation,
   legalPage,
   signInError,
   storedMachine,
@@ -43,7 +54,13 @@ const OPERATOR_SESSION: Session["workspace"] = {
 /** Accept older runtimes, whose session response only reported that a session exists. */
 function normalize(value: Partial<Session>): Session {
   if (value.workspace && value.auth) return value as Session;
-  return { ok: true, mode: "hosted", auth: "operator", account: null, workspace: OPERATOR_SESSION };
+  return {
+    ok: true,
+    mode: "hosted",
+    auth: "operator",
+    account: null,
+    workspace: OPERATOR_SESSION,
+  };
 }
 
 export default function CloudApp() {
@@ -51,16 +68,26 @@ export default function CloudApp() {
   if (location.pathname === "/connections") return <ConnectedApps />;
   // Policy and support pages are static and never wait on the runtime or a session.
   const page = legalPage(location.pathname);
-  return page ? <Legal page={page} /> : <CloudWorkspace />;
+  if (page) return <Legal page={page} />;
+  return publicWebsite(location.pathname, location.search) ? (
+    <PublicSite hosted />
+  ) : (
+    <CloudWorkspace />
+  );
 }
 
 function CloudWorkspace() {
+  useEffect(() => {
+    const invitation = invitationToken(location.search);
+    if (invitation) rememberInvitation(invitation);
+  }, []);
   const [view, setView] = useState<View>({ kind: "checking" });
   const [config, setConfig] = useState<AuthConfig | null>(null);
   const [machines, setMachines] = useState<ExecutionMachine[]>([]);
   const [machinesLoaded, setMachinesLoaded] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [machineDialogRequest, setMachineDialogRequest] = useState(0);
   // Set while a workspace with no machines is onboarding, so a newly paired machine is
   // announced in place and Studio opens only when the user chooses it.
   const [onboarding, setOnboarding] = useState(false);
@@ -75,6 +102,13 @@ function CloudWorkspace() {
   const hosted = session?.workspace.hosted_execution === true;
   const workspaceRef = useRef(workspace);
   workspaceRef.current = workspace;
+  const scope = session
+    ? `${session.account?.id || session.auth}:${workspace}:${session.workspace.role || ""}`
+    : "";
+  const scopeRef = useRef(scope);
+  scopeRef.current = scope;
+  const sessionRequest = useRef(0);
+  const machinesRequest = useRef(0);
   // The execution target is derived on every render: the explicit or remembered choice for
   // this workspace while it still exists, otherwise a connected machine. Personal
   // workspaces never fall back to the hosted runtime.
@@ -93,6 +127,8 @@ function CloudWorkspace() {
   }, [authError]);
 
   const endSession = useCallback((notice?: string) => {
+    sessionRequest.current += 1;
+    machinesRequest.current += 1;
     viewRef.current = "signed-out";
     forgetMachines();
     setApiExecutor(null);
@@ -107,18 +143,29 @@ function CloudWorkspace() {
    *  failure leaves Studio as it is for the next poll or focus to retry. */
   const checkSession = useCallback(
     async (background = false) => {
+      const request = ++sessionRequest.current;
       try {
-        const response = await fetch("/api/session", { credentials: "same-origin" });
-        if (background && (viewRef.current !== "ready" || exiting.current)) return;
+        const response = await fetch("/api/session", {
+          credentials: "same-origin",
+        });
+        if (request !== sessionRequest.current || exiting.current) return;
+        if (background && (viewRef.current !== "ready" || exiting.current))
+          return;
         if (response.status === 401) {
-          if (background) return endSession("Your session has ended. Sign in again to continue.");
+          if (background)
+            return endSession(
+              "Your session has ended. Sign in again to continue.",
+            );
           return setView({ kind: "signed-out" });
         }
         if (!response.ok) throw new Error(String(response.status));
         const next = normalize(await response.json());
-        if (background && (viewRef.current !== "ready" || exiting.current)) return;
+        if (request !== sessionRequest.current || exiting.current) return;
+        if (background && (viewRef.current !== "ready" || exiting.current))
+          return;
         exiting.current = false;
-        if (workspaceRef.current && workspaceRef.current !== next.workspace.id) {
+        const nextScope = `${next.account?.id || next.auth}:${next.workspace.id}:${next.workspace.role || ""}`;
+        if (scopeRef.current && scopeRef.current !== nextScope) {
           // A different account now owns this browser's session: drop every trace of the previous one.
           setApiExecutor(null);
           setMachines([]);
@@ -128,9 +175,14 @@ function CloudWorkspace() {
           setOnboarding(false);
         }
         setView({ kind: "ready", session: next });
-        if (["/operator", "/signup", "/login", "/forgot", "/reset"].includes(location.pathname))
-          window.history.replaceState(null, "", "/");
+        if (
+          ["/operator", "/signup", "/login", "/forgot", "/reset"].includes(
+            location.pathname,
+          )
+        )
+          window.history.replaceState(null, "", "/studio");
       } catch {
+        if (request !== sessionRequest.current || exiting.current) return;
         if (background) return;
         // The public page never dead-ends on the runtime; visitors keep the plugin install path.
         setView(
@@ -160,14 +212,20 @@ function CloudWorkspace() {
   // Another tab may have signed out or switched accounts; re-check when this tab returns.
   useEffect(() => {
     const recheck = () => {
-      if (document.visibilityState === "visible" && viewRef.current === "ready" && !exiting.current)
+      if (
+        document.visibilityState === "visible" &&
+        viewRef.current === "ready" &&
+        !exiting.current
+      )
         void checkSession(true);
     };
     document.addEventListener("visibilitychange", recheck);
     window.addEventListener("focus", recheck);
+    const timer = window.setInterval(recheck, 15000);
     return () => {
       document.removeEventListener("visibilitychange", recheck);
       window.removeEventListener("focus", recheck);
+      window.clearInterval(timer);
     };
   }, [checkSession]);
 
@@ -175,32 +233,50 @@ function CloudWorkspace() {
     if (view.kind !== "signed-out" || config) return;
     fetch("/api/auth/config", { credentials: "same-origin" })
       .then(async (response) =>
-        setConfig(response.ok ? await response.json() : { github: false, signup: "closed" }),
+        setConfig(
+          response.ok
+            ? await response.json()
+            : { github: false, signup: "closed" },
+        ),
       )
       .catch(() => setConfig({ github: false, signup: "closed" }));
   }, [view.kind, config]);
 
   const refreshMachines = useCallback(async () => {
     if (exiting.current) return;
+    const requestedScope = scopeRef.current;
+    const requestedWorkspace = workspaceRef.current;
+    const request = ++machinesRequest.current;
+    const current = () =>
+      request === machinesRequest.current &&
+      requestedScope === scopeRef.current &&
+      viewRef.current === "ready" &&
+      !exiting.current;
     try {
-      const response = await fetch("/api/executors", { credentials: "same-origin" });
+      const response = await fetch("/api/executors", {
+        credentials: "same-origin",
+      });
+      if (!current()) return;
       if (response.status === 401) {
         if (viewRef.current === "ready" && !exiting.current)
           endSession("Your session has ended. Sign in again to continue.");
         return;
       }
-      if (!response.ok) throw new Error("Machines could not be loaded. Retrying.");
+      if (!response.ok)
+        throw new Error("Machines could not be loaded. Retrying.");
       const scope = response.headers.get("X-Parallax-Workspace");
-      if (scope && scope !== workspaceRef.current) {
+      if (scope && scope !== requestedWorkspace) {
         // The cookie now belongs to a different workspace (another tab switched accounts).
         void checkSession(true);
         return;
       }
-      setMachines((await response.json()) as ExecutionMachine[]);
+      const rows = (await response.json()) as ExecutionMachine[];
+      if (!current()) return;
+      setMachines(rows);
       setMachinesLoaded(true);
       setError("");
     } catch (failure) {
-      setError(messageOf(failure));
+      if (current()) setError(messageOf(failure));
     }
   }, [checkSession, endSession]);
 
@@ -209,10 +285,11 @@ function CloudWorkspace() {
     void refreshMachines();
     const timer = window.setInterval(() => void refreshMachines(), 4000);
     return () => window.clearInterval(timer);
-  }, [workspace, refreshMachines]);
+  }, [scope, refreshMachines]);
 
   useEffect(() => {
-    if (workspace && machinesLoaded) writeStored(executorKey(workspace), resolved);
+    if (workspace && machinesLoaded)
+      writeStored(executorKey(workspace), resolved);
   }, [workspace, machinesLoaded, resolved]);
 
   useEffect(() => {
@@ -228,10 +305,15 @@ function CloudWorkspace() {
     exiting.current = true;
     let response: Response;
     try {
-      response = await fetch("/api/session", { method: "DELETE", credentials: "same-origin" });
+      response = await fetch("/api/session", {
+        method: "DELETE",
+        credentials: "same-origin",
+      });
     } catch {
       exiting.current = false;
-      throw new Error("Sign-out did not reach Parallax. Check your connection and try again.");
+      throw new Error(
+        "Sign-out did not reach Parallax. Check your connection and try again.",
+      );
     }
     // Only a confirmed revocation (or an already ended session) counts as signed out.
     if (!response.ok && response.status !== 401) {
@@ -243,18 +325,25 @@ function CloudWorkspace() {
 
   async function deleteAccount() {
     const login =
-      view.kind === "ready" && view.session.account ? deletionConfirmation(view.session.account) : "";
+      view.kind === "ready" && view.session.account
+        ? deletionConfirmation(view.session.account)
+        : "";
     exiting.current = true;
-    const response = await fetch("/api/account?confirm=" + encodeURIComponent(login), {
-      method: "DELETE",
-      credentials: "same-origin",
-    }).catch(() => null);
+    const response = await fetch(
+      "/api/account?confirm=" + encodeURIComponent(login),
+      {
+        method: "DELETE",
+        credentials: "same-origin",
+      },
+    ).catch(() => null);
     if (!response || !response.ok) {
       exiting.current = false;
       const body = response ? await response.json().catch(() => ({})) : {};
       if (response?.status === 409) void checkSession(true);
       throw new Error(
-        typeof body.detail === "string" ? body.detail : "The account could not be deleted. Try again.",
+        typeof body.detail === "string"
+          ? body.detail
+          : "The account could not be deleted. Try again.",
       );
     }
     setDeleting(false);
@@ -273,7 +362,11 @@ function CloudWorkspace() {
       <div className="pub-splash">
         <Mark size={30} />
         <p role="alert">Parallax could not reach its runtime.</p>
-        <button type="button" className="pub-secondary" onClick={() => void checkSession()}>
+        <button
+          type="button"
+          className="pub-secondary"
+          onClick={() => void checkSession()}
+        >
           Retry
         </button>
       </div>
@@ -283,14 +376,31 @@ function CloudWorkspace() {
     return operatorRoute ? (
       <OperatorGate onSignedIn={() => void checkSession()} />
     ) : authRoute ? (
-      <Auth mode={authRoute} config={config} error={authError} onSignedIn={() => void checkSession()} />
+      <Auth
+        mode={authRoute}
+        config={config}
+        error={authError}
+        onSignedIn={() => void checkSession()}
+      />
     ) : (
       <PublicEntry config={config} error={authError} notice={view.notice} />
     );
 
   const active = view.session;
   const account = (
-    <AccountMenu session={active} onSignOut={signOut} onDelete={() => setDeleting(true)} />
+    <>
+      <WorkspaceControls
+        key={scope}
+        session={active}
+        machines={machines}
+        onSwitch={() => void checkSession(true)}
+      />
+      <AccountMenu
+        session={active}
+        onSignOut={signOut}
+        onDelete={() => setDeleting(true)}
+      />
+    </>
   );
   const dialog = deleting && active.account && (
     <DeleteAccountDialog
@@ -303,12 +413,20 @@ function CloudWorkspace() {
 
   if (!machinesLoaded)
     return (
-      <div className="pub-splash" role="status" aria-label="Opening your workspace">
+      <div
+        className="pub-splash"
+        role="status"
+        aria-label="Opening your workspace"
+      >
         <Mark size={30} />
         {error && (
           <>
             <p role="alert">{error}</p>
-            <button type="button" className="pub-secondary" onClick={() => void refreshMachines()}>
+            <button
+              type="button"
+              className="pub-secondary"
+              onClick={() => void refreshMachines()}
+            >
               Retry
             </button>
           </>
@@ -320,8 +438,14 @@ function CloudWorkspace() {
     return (
       <>
         <Onboarding
-          workspaceName={active.account ? accountName(active.account) : active.workspace.name}
+          workspaceName={
+            active.account ? accountName(active.account) : active.workspace.name
+          }
           machines={machines}
+          canManageMachines={
+            active.workspace.kind !== "team" ||
+            active.workspace.role === "owner"
+          }
           loading={!machinesLoaded}
           account={account}
           onOpen={(id) => {
@@ -329,6 +453,10 @@ function CloudWorkspace() {
             select(id);
           }}
         />
+        <details className="onboarding-archives" key={`archives:${scope}`}>
+          <summary>Archived records from disconnected machines</summary>
+          <ArchivedHistory />
+        </details>
         {dialog}
       </>
     );
@@ -339,20 +467,30 @@ function CloudWorkspace() {
   return (
     <>
       <App
-        key={`${workspace}:${resolved}`}
+        teamWorkspace={active.workspace.kind === "team"}
+        onReconnect={() => setMachineDialogRequest((value) => value + 1)}
+        key={`${scope}:${resolved}`}
         execution={
           resolved === HOSTED_EXECUTOR
             ? undefined
             : {
+                id: resolved,
                 name: machine?.name || "paired machine",
                 workspace: machine?.workspaces[0],
                 platform: machine?.platform,
                 online: machine?.online,
+                transport_status: machine?.transport_status,
                 paired: true,
               }
         }
         executionControls={
           <ExecutionMachines
+            reconnectSignal={machineDialogRequest}
+            teamWorkspace={active.workspace.kind === "team"}
+            canManageMachines={
+              active.workspace.kind !== "team" ||
+              active.workspace.role === "owner"
+            }
             machines={machines}
             selected={resolved}
             onSelect={select}

@@ -94,7 +94,7 @@ class DeploymentTests(unittest.TestCase):
         from unittest.mock import AsyncMock
         from parallax.providers import ProviderRegistry
         registry=ProviderRegistry(home=Path(self.temp.name))
-        registry._help["codex"]="--config --sandbox"
+        registry._help["codex"]="--config --sandbox --strict-config"
         with patch.dict(os.environ,{"PARALLAX_ACCESS_TOKEN":self.token,"PARALLAX_GITHUB_CLIENT_SECRET":"github-secret-value-0123456789"}):
             _,_,env,_=registry._command("codex","codex",self.projects,"Review",{"model":"model","effort":"high"},"consult",None,60,None,self.projects,{})
             self.assertNotIn("PARALLAX_ACCESS_TOKEN",env)

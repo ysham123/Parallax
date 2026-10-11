@@ -177,7 +177,7 @@ class SupabaseFixture(unittest.TestCase):
         self.assertEqual(self.post(client, "/api/auth/email/signup", {"email": email, "password": password}).status_code, 200)
         confirm = client.get("/api/auth/confirm", params={"token_hash": self.supabase.link(email, "email"), "type": "email"},
                              follow_redirects=False)
-        self.assertEqual((confirm.status_code, confirm.headers["location"]), (303, "/"), confirm.text)
+        self.assertEqual((confirm.status_code, confirm.headers["location"]), (303, "/studio"), confirm.text)
         return client
 
 
@@ -203,7 +203,7 @@ class EmailPasswordTests(SupabaseFixture):
         phone = self.browser()
         confirm = phone.get("/api/auth/confirm", params={"token_hash": self.supabase.link("ada@example.com", "email"), "type": "email"},
                             follow_redirects=False)
-        self.assertEqual((confirm.status_code, confirm.headers["location"]), (303, "/"))
+        self.assertEqual((confirm.status_code, confirm.headers["location"]), (303, "/studio"))
         session = phone.get("/api/session").json()
         self.assertEqual((session["auth"], session["account"]["email"], session["account"]["name"], session["workspace"]["kind"]),
                          ("account", "ada@example.com", "Ada", "personal"))
@@ -287,7 +287,7 @@ class OAuthTests(SupabaseFixture):
         self.assertEqual((query["provider"], query["redirect_to"]), (["github"], [ORIGIN + "/api/auth/oauth/callback"]))
         callback = urlsplit(self.supabase.authorize(url))
         done = client.get(callback.path + "?" + callback.query, follow_redirects=False)
-        self.assertEqual((done.status_code, done.headers["location"]), (303, "/"), done.text)
+        self.assertEqual((done.status_code, done.headers["location"]), (303, "/studio"), done.text)
         account = client.get("/api/session").json()["account"]
         self.assertEqual((account["login"], account["name"], account["provider"]), ("octocat", "Octo Cat", "github"))
         with self.store.connect() as db:

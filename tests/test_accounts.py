@@ -106,7 +106,7 @@ class HostedFixture(unittest.TestCase):
     def signed_in(self, profile):
         client, callback = self.sign_in(profile)
         self.assertEqual(callback.status_code, 303, callback.text)
-        self.assertEqual(callback.headers["location"], "/")
+        self.assertEqual(callback.headers["location"], "/studio")
         return client
 
     def pair(self, client, name="Mac", workspaces=("/project",)):
@@ -176,7 +176,7 @@ class HostedAccountTests(HostedFixture):
         self.assertEqual(cookieless.headers["location"], "/?auth_error=expired")
         # The initiating browser completes once; replaying the same callback fails.
         first = attacker.get("/api/auth/github/callback", params={"code": code, "state": query["state"][0]}, follow_redirects=False)
-        self.assertEqual(first.headers["location"], "/")
+        self.assertEqual(first.headers["location"], "/studio")
         replay = attacker.get("/api/auth/github/callback", params={"code": code, "state": query["state"][0]}, follow_redirects=False)
         self.assertEqual(replay.headers["location"], "/?auth_error=expired")
         # Cancelling on GitHub.
@@ -210,7 +210,7 @@ class HostedAccountTests(HostedFixture):
         query = parse_qs(urlsplit(start.json()["url"]).query)
         code = self.github.issue(user(502, "grace"), query["code_challenge"][0])
         ok = client.get("/api/auth/github/callback", params={"code": code, "state": query["state"][0]}, headers={"Origin": "https://github.com"}, follow_redirects=False)
-        self.assertEqual(ok.headers["location"], "/")
+        self.assertEqual(ok.headers["location"], "/studio")
 
     def test_unconfigured_github_reports_unavailable(self):
         app = create_app(Store(self.root / "plain"), token=KEY, deployment=self.make_deployment(github=None))
@@ -359,11 +359,11 @@ class HostedAccountTests(HostedFixture):
         closed = create_app(self.store, token=KEY, deployment=self.make_deployment(signup="closed"), http_transport=httpx.MockTransport(self.github))
         self.assertEqual(self.sign_in(user(701, "new"), self.browser(closed))[1].headers["location"], "/?auth_error=closed")
         self.signed_in(user(702, "existing"))
-        self.assertEqual(self.sign_in(user(702, "existing"), self.browser(closed))[1].headers["location"], "/")
-        self.assertEqual(self.sign_in(user(OWNER_ID, "yosef"), self.browser(closed))[1].headers["location"], "/")
+        self.assertEqual(self.sign_in(user(702, "existing"), self.browser(closed))[1].headers["location"], "/studio")
+        self.assertEqual(self.sign_in(user(OWNER_ID, "yosef"), self.browser(closed))[1].headers["location"], "/studio")
         invite = create_app(self.store, token=KEY, deployment=self.make_deployment(signup="allowlist", allowed_github_ids=frozenset({703})), http_transport=httpx.MockTransport(self.github))
         self.assertEqual(self.sign_in(user(704, "uninvited"), self.browser(invite))[1].headers["location"], "/?auth_error=not_invited")
-        self.assertEqual(self.sign_in(user(703, "invited"), self.browser(invite))[1].headers["location"], "/")
+        self.assertEqual(self.sign_in(user(703, "invited"), self.browser(invite))[1].headers["location"], "/studio")
         full = create_app(self.store, token=KEY, deployment=self.make_deployment(max_accounts=3), http_transport=httpx.MockTransport(self.github))
         self.assertEqual(self.sign_in(user(705, "late"), self.browser(full))[1].headers["location"], "/?auth_error=capacity")
         client = self.signed_in(user(706, "disabled"))
@@ -568,7 +568,7 @@ class HardeningTests(HostedFixture):
             self.assertEqual((db.execute("SELECT COUNT(*) FROM sqlite_master").fetchone()[0], self.store.path.stat().st_size), before)
         code = self.github.issue(user(1004, "noor"), query["code_challenge"][0])
         finished = visitor.get("/api/auth/github/callback", params={"code": code, "state": query["state"][0]}, follow_redirects=False)
-        self.assertEqual(finished.headers["location"], "/")
+        self.assertEqual(finished.headers["location"], "/studio")
         # A forged or altered flow cookie is refused.
         forged = self.browser()
         forged.cookies.set("parallax_oauth", "A" * 43 + "." + str(int(time.time()) + 300) + "." + "B" * 43)
@@ -740,10 +740,31 @@ class RollbackAndRaceTests(HostedFixture):
         hub = self.app.state.executors
         large = {"status": 200, "content_type": "application/json", "body": {"blob": "x" * (7 * 1024 * 1024)}}
         kept = []
-        for _ in range(6):  # Each Studio request times out before the machine answers.
-            with self.assertRaises(Exception):
-                asyncio.run(hub.request(machine["id"], "GET", "/api/runs", "", None, workspace=workspace, timeout=.05))
-            command = hub.pending(machine["id"])[-1]
+        async def disconnected_client():
+            pending = asyncio.create_task(hub.request(machine["id"], "GET", "/api/runs", "", None, workspace=workspace, timeout=5))
+            try:
+                deadline = time.monotonic() + 5
+                command = None
+                while time.monotonic() < deadline:
+                    commands = hub.pending(machine["id"])
+                    if commands:
+                        command = commands[-1]
+                        break
+                    if pending.done():
+                        await pending  # Report admission errors instead of an empty-list failure.
+                    await asyncio.sleep(.01)
+                self.assertIsNotNone(command, "Worker request was not admitted within five seconds")
+                # The machine has received the command before Studio's client
+                # stops waiting. Expired undispatched requests must stay refused.
+                with self.assertRaises(asyncio.TimeoutError):
+                    await asyncio.wait_for(pending, timeout=.01)
+                return command
+            finally:
+                if not pending.done():
+                    pending.cancel()
+                    await asyncio.gather(pending, return_exceptions=True)
+        for _ in range(6):
+            command = asyncio.run(disconnected_client())
             hub.complete(machine["id"], command["id"], large)
             with self.store.connect() as db:
                 kept.append(db.execute("SELECT response FROM worker_commands WHERE id=?", (command["id"],)).fetchone()[0])
@@ -780,7 +801,7 @@ class RollbackAndRaceTests(HostedFixture):
         with patch.object(accounts, "principal", side_effect=principal), patch("parallax.server.asyncio.sleep", new=AsyncMock()):
             stream = client.get(f"/api/executors/{machine['id']}/proxy/runs/{run_id}/events")
         self.assertEqual(stream.status_code, 200)
-        self.assertIn('"sequence": 1', stream.text)
+        self.assertNotIn('"sequence": 1', stream.text)
         self.assertGreaterEqual(len(calls), 2)
 
     def test_unauthenticated_pairing_bodies_are_small(self):

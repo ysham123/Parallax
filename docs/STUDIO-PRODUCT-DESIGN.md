@@ -2,6 +2,8 @@
 
 Research and source review: October 9, 2026. This is a product direction for the current development branch, not a claim about the deployed release. Competitor observations below come from their public documentation; they are not hands-on evaluations of paid products.
 
+Status update, October 10, 2026: the local `codex/delegation-pilot` branch implements saved-candidate revision, original-baseline preservation, separate approval/application/publication, team reviewer handoff, GitHub App draft-PR delivery and CI/review refresh. Live provider, GitHub App and staged acceptance remain unverified; see [the adversarial audit](ADVERSARIAL-AUDIT.md) and [pilot checklist](PILOT.md). The public website now prioritizes installation and source downloads; local Studio remains the developer workspace, with hosted Studio a secondary invited-pilot entry. Historical design discussion below describes the decisions leading to that implementation.
+
 ## Product decision
 
 Parallax should open on the developer's work: projects, active tasks, decisions that need attention, and the selected task's evidence. Starting a task is one action within that workspace. Recipes belong in task configuration; three recipe cards do not provide a useful home for someone managing ongoing work.
@@ -35,9 +37,9 @@ Durable workflow records and checkpoint recovery exist in the runtime. Browser r
 
 ## Important remaining gaps
 
-- **Candidate revision:** linked follow-ups now preserve task history and settings, but start from the current project. Revising an unapplied isolated candidate requires a separate revision operation with explicit base, lineage, recovery, and new verification semantics.
+- **Candidate revision acceptance:** saved-candidate revision is implemented locally with immutable lineage, original-baseline preservation and fresh checks/review/approval. Successful live provider correction and staged recovery remain acceptance gates.
 - **Project configuration:** the task composer now exposes concrete readiness evidence. Selecting package roots and saved project profiles still requires the advanced path; those controls need to join the same task configuration flow.
-- **Delivery:** application to the local working tree and patch/receipt downloads exist. An integrated issue-to-PR lifecycle, branch publication, CI tracking, and review-comment synchronization do not exist in this task workspace. Buttons must not imply those capabilities.
+- **Delivery acceptance:** explicit local application and GitHub App draft-PR publication, CI/review refresh and approved same-PR revisions are implemented locally. Real App authorization, publication, webhook recovery and remote-drift checks remain unverified live. Issue scheduling and automatic merge remain outside the pilot.
 - **Product evidence:** the redesign has not yet demonstrated lower intervention time or better accepted results on representative developer tasks. Visual density alone does not establish product value.
 
 ## Implementation decisions and next priorities
@@ -56,7 +58,7 @@ On the child, link back to its source task. On the parent, show related follow-u
 
 **Acceptance:** a developer can inspect a candidate, draft a correction, see the source task and exact inherited settings, start a separate candidate against the current project, and return to both records. Duplicate starts remain idempotent. Cross-project/account parent references are rejected. Changing a recipe after the parent ran cannot change the child's defaults. Both candidates retain independent digests and decisions.
 
-**Later, true candidate revision:** an explicit revision operation would reuse or clone the previous isolated candidate, record its base and lineage, re-run relevant checks and independent review, and produce a new digest requiring a new decision. It needs its own recovery and concurrency design. A parent link alone does not provide this behavior.
+**Saved-candidate revision, now implemented locally:** an explicit revision operation clones the saved isolated candidate, records its base and lineage, re-runs checks and independent review, and produces a new digest requiring a new decision. This is distinct from a parent-linked current-project follow-up. Live acceptance is still required.
 
 ### 2. Project readiness: assessment implemented, profile editing remains
 

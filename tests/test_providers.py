@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 from parallax.models import Participant
-from parallax.providers import Captured, ProviderRegistry, _AGY_GATE, _codex_schema, _public_event, _stop
+from parallax.providers import Captured, ProviderRegistry, _AGY_GATE, _codex_schema, _public_event, _stop, _native_probe_command
 
 
 FAKE = r'''#!PYTHON
@@ -21,14 +21,14 @@ a=sys.argv[1:]
 provider=pathlib.Path(sys.argv[0]).name
 def emit(x): print(json.dumps(x),flush=True)
 if '--version' in a:
- print('fake 1.3.0'); sys.exit()
+ print({'codex':'codex-cli 0.162.1','claude':'2.1.295 (Claude Code)','grok':'grok 1.0.50','antigravity':'1.3.3'}[provider]); sys.exit()
 if '--help' in a:
- print('--config --sandbox --tools --deny --no-subagents --permission-mode --agent --input-format --print --disable-slash-commands --safe-mode --restricted --strict-mcp-config --permission-prompts --settings --effort low medium high xhigh max sonnet opus fable'); sys.exit()
+ print('--config --sandbox --strict-config --tools --deny --no-subagents --permission-mode --agent --input-format --print --disable-slash-commands --safe-mode --restricted --strict-mcp-config --permission-prompts --settings --effort low medium high xhigh max sonnet opus fable; confines the file tools to the working directories'); sys.exit()
 if a==['login','status']:
  print('Logged in using ChatGPT'); sys.exit()
 if a==['auth','status']:
  emit({'loggedIn':True});sys.exit()
-if a==['sandbox','--','/bin/true']:
+if a and a[0]=='sandbox':
  sys.exit()
 if 'models' in a:
  if provider=='codex':
@@ -129,7 +129,7 @@ class ProvidersTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_discovery_and_validation(self):
         catalogs=await self.registry.discover()
-        self.assertEqual([c['status'] for c in catalogs],['ready']*4)
+        self.assertEqual([c['status'] for c in catalogs],['ready','ready','boundary_unsupported','ready'])
         self.assertTrue(all(c['catalog_source'] for c in catalogs))
         self.assertNotIn('never-expose-this',json.dumps(catalogs))
         settings=self.registry.validate(Participant(provider='codex',effort='low'))
@@ -137,7 +137,7 @@ class ProvidersTest(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError,'unsupported'):
             self.registry.validate(Participant(provider='codex',effort='ultra'))
         with self.assertRaisesRegex(ValueError,'not in'):
-            self.registry.validate(Participant(provider='grok',model='missing'))
+            self.registry.validate(Participant(provider='codex',model='missing'))
 
     async def test_missing_binary(self):
         registry=ProviderRegistry({'grok':'/definitely/missing'},home=self.home)
@@ -169,14 +169,17 @@ class ProvidersTest(unittest.IsolatedAsyncioTestCase):
         args=self.args()
         self.assertIn('--ignore-user-config',args)
         self.assertIn('--skip-git-repo-check',args)
-        self.assertEqual(args[args.index('--sandbox')+1],'read-only')
+        self.assertNotIn('--sandbox',args)
+        self.assertIn('--strict-config',args)
+        self.assertIn('default_permissions="parallax"',args)
+        self.assertIn('":root" = "deny"',next(arg for arg in args if arg.startswith('permissions.parallax=')))
         self.assertIn('features.multi_agent=false',args)
         self.assertNotIn('agents.enabled=false',args)
         self.assertIn('model_reasoning_effort="high"',args)
         resumed=await self.run_provider('codex',session_id=result['session_id'])
-        self.assertTrue(resumed['ok'])
-        self.assertIn('resume',self.args())
-        self.assertIn(result['session_id'],self.args())
+        self.assertFalse(resumed['ok'])
+        self.assertIn('Native session reuse',resumed['error']['message'])
+        self.assertNotIn('resume',self.args())
         self.assertTrue(events)
 
     async def test_claude_readonly_tools_and_thinking_filter(self):
@@ -184,7 +187,7 @@ class ProvidersTest(unittest.IsolatedAsyncioTestCase):
         result=await self.run_provider('claude',on_event=lambda event:events.append(event))
         self.assertTrue(result['ok'],result)
         args=self.args()
-        self.assertEqual(args[args.index('--tools')+1],'Read,Glob,Grep')
+        self.assertEqual(args[args.index('--tools')+1],'Read,Glob')
         self.assertEqual(args[args.index('--permission-mode')+1],'dontAsk')
         self.assertIn('--strict-mcp-config',args)
         self.assertNotIn('native-private-reasoning',json.dumps(events))
@@ -198,11 +201,9 @@ class ProvidersTest(unittest.IsolatedAsyncioTestCase):
         original.write_text('[plugins]\n')
         events=[]
         result=await self.run_provider('grok',on_event=lambda event:events.append(event))
-        self.assertTrue(result['ok'],result)
-        args=self.args()
-        self.assertIn('MCPTool',args)
-        self.assertIn('--no-subagents',args)
-        self.assertNotIn('run_terminal_cmd',args[args.index('--tools')+1])
+        self.assertFalse(result['ok'],result)
+        self.assertIn('native runs are blocked',result['error']['message'])
+        self.assertFalse((self.workspace/'argv.json').exists())
         self.assertEqual(original.read_text(),'[plugins]\n')
         self.assertFalse((self.workspace/'.grok/sandbox.toml').exists())
         self.assertNotIn('native-private-reasoning',json.dumps(events))
@@ -265,6 +266,8 @@ class ProvidersTest(unittest.IsolatedAsyncioTestCase):
     async def test_structured_results_all_providers(self):
         schema={'type':'object','properties':{'answer':{'type':'string'}},'required':['answer']}
         for provider in self.binaries:
+            if provider == 'grok':
+                continue  # Unsupported boundary is tested independently.
             with self.subTest(provider=provider):
                 result=await self.run_provider(provider,schema=schema)
                 self.assertTrue(result['ok'],result)
@@ -283,12 +286,12 @@ class ProvidersTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_timeout_and_cancel_cleanup(self):
         (self.workspace/'behavior').write_text('sleep')
-        result=await self.run_provider('grok',timeout=.1)
+        result=await self.run_provider('codex',timeout=.1)
         self.assertFalse(result['ok'])
         self.assertEqual(result['error']['code'],'timeout')
         self.assertFalse((self.workspace/'.grok').exists())
         cancel=asyncio.Event()
-        task=asyncio.create_task(self.run_provider('grok',cancel_event=cancel))
+        task=asyncio.create_task(self.run_provider('codex',cancel_event=cancel))
         await asyncio.sleep(.1)
         cancel.set()
         result=await task
@@ -321,19 +324,17 @@ class ProvidersTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await check('finish',{'result_path':'/etc/passwd'}),'allow')
         self.assertEqual(await check('write_to_file',{'TargetFile':str(self.workspace/'file.py')},'consult'),'deny')
 
-    async def test_claude_native_shell_sandbox_is_strict(self):
+    async def test_claude_shell_is_not_exposed_even_on_sandbox_capable_host(self):
         with patch.object(self.registry, '_claude_shell_available', return_value=True):
             result=await self.run_provider('claude',mode='edit')
         self.assertTrue(result['ok'],result)
         args=self.args()
-        self.assertIn('Bash',args[args.index('--tools')+1])
-        settings=json.loads(args[args.index('--settings')+1])['sandbox']
-        self.assertTrue(settings['enabled'])
-        self.assertTrue(settings['failIfUnavailable'])
-        self.assertFalse(settings['allowUnsandboxedCommands'])
-        self.assertEqual(settings['excludedCommands'],[])
-        self.assertFalse(settings['filesystem']['disabled'])
-        self.assertEqual(settings['filesystem']['allowWrite'],[str(self.workspace.resolve())])
+        self.assertNotIn('Bash',args[args.index('--tools')+1])
+        self.assertNotIn('Grep',args[args.index('--tools')+1])
+        settings=json.loads(args[args.index('--settings')+1])['permissions']
+        self.assertTrue(settings['blockReadsOutsideWorkingDirectories'])
+        self.assertTrue(any('.[eE][nN][vV]' in rule for rule in settings['deny']))
+        self.assertFalse(result['effective_settings']['shell'])
 
     async def test_process_events_and_provider_spoof_filter(self):
         events=[]
@@ -403,6 +404,22 @@ class ProvidersTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn('restored',result['error']['message'])
 
 
+class NativeProbeCommandTests(unittest.TestCase):
+    def test_system_probe_supports_macos_and_linux_without_path_lookup(self):
+        for available in ({"/usr/bin/true"}, {"/bin/true"}):
+            with patch("parallax.providers.os.path.isfile", side_effect=lambda path: path in available), \
+                    patch("parallax.providers.os.access", side_effect=lambda path, mode: path in available), \
+                    patch.dict(os.environ, {"PATH": "/untrusted/user/bin"}):
+                self.assertEqual(_native_probe_command(), next(iter(available)))
+
+    def test_missing_or_nonexecutable_system_probe_is_refused(self):
+        with patch("parallax.providers.os.path.isfile", return_value=False), self.assertRaisesRegex(ValueError, "system true"):
+            _native_probe_command()
+        with patch("parallax.providers.os.path.isfile", return_value=True), \
+                patch("parallax.providers.os.access", return_value=False), self.assertRaisesRegex(ValueError, "system true"):
+            _native_probe_command()
+
+
 class ProcessExitRaceTests(unittest.IsolatedAsyncioTestCase):
     @unittest.skipUnless(os.name == "posix", "POSIX process group race")
     async def test_missing_process_group_waits_for_pending_exit_callback(self):
@@ -436,7 +453,7 @@ class CodexCatalogRegressionTests(unittest.IsolatedAsyncioTestCase):
         original_metadata = registry._metadata
 
         async def metadata(executable, args, *, timeout=20):
-            if args == ['sandbox', '--', '/bin/true']:
+            if args and args[0] == 'sandbox':
                 return Captured(1, '', 'bwrap: No permissions to create a new namespace', [])
             return await original_metadata(executable, args, timeout=timeout)
 

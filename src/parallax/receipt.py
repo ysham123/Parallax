@@ -70,6 +70,16 @@ def build_receipt(result: dict, *, final: bool = False) -> dict:
                 "environment":{"private":check.get("environment",{}).get("private"),"python_venv":check.get("environment",{}).get("python_venv"),"sandbox":check.get("environment",{}).get("sandbox"),"manifest_sha256":check.get("environment",{}).get("manifest_sha256",{})}}
     baseline=artifacts.get("baseline_checks",[])
     application = artifacts.get("application", {})
+    provider_failures = []
+    for failure in result.get("errors", []):
+        if failure.get("code") != "provider_failure":
+            continue
+        summary = {key:failure.get(key) for key in ("provider", "task_id", "mode", "provider_error_code", "exit_code", "attempt")}
+        # CLI diagnostics can contain absolute paths and command output. Export
+        # their identity, while retaining their bounded content in the local journal.
+        if isinstance(failure.get("diagnostics"), str):
+            summary["diagnostics_sha256"] = _digest(failure["diagnostics"])
+        provider_failures.append(summary)
     return {"contract_version": "1.1", "run_id": result["run_id"], "generated_at": now(),
             "record_state": "final" if final else "snapshot",
             "outcome": "applied" if applied else "verified" if verified else "partial",
@@ -82,6 +92,7 @@ def build_receipt(result: dict, *, final: bool = False) -> dict:
             "baseline": {"recorded":artifacts.get("baseline_complete",False),"snapshot_sha256":artifacts.get("baseline_snapshot_sha256"),"checks":[safe_check(c,i) for i,c in enumerate(baseline)]},
             "final_checks": [safe_check(c,i) for i,c in enumerate(checks)],
             "reviews": [{key: review.get(key) for key in ("provider", "task_id", "ok")} for review in reviews],
+            "provider_failures": provider_failures,
             "limitations": ["Evidence covers recorded checks and reviews; it does not prove correctness.",
                             "Manifest hashes identify declared setup; unpinned dependencies may resolve differently.",
                             "This local record is not signed. Its hashes identify the patch and run specification.",

@@ -36,9 +36,10 @@ function Privacy() {
       </p>
       <Section title="The local software">
         <p>
-          The Claude Code and Codex plugins and the command line tool run on your computer. Project
-          files, working copies, run history, provider sign-ins and API keys stay on your machine.
-          Parallax does not receive them.
+          The Claude Code and Codex plugins and the command line tool run on your computer. Working
+          copies, provider sign-ins and API keys stay on your machine. When you use only the local
+          software, run history also stays there. Connecting a hosted workspace mirrors the run
+          evidence described below to its relay.
         </p>
         <ul>
           <li>
@@ -84,9 +85,30 @@ function Privacy() {
             folders and when it was last online.
           </li>
           <li>
-            <strong>Run evidence:</strong> results, changes, check output and progress events that
+            <strong>Run evidence:</strong> task prompts and settings, results, changes, check output,
+            agent output, session metadata and progress events that
             your machines mirror so your workspace can show them, kept within a fixed storage limit
-            per machine with the oldest removed first. Your source files stay on your machine.
+            per machine with the oldest removed first. This evidence can contain source code and
+            other project content. Your original project folders, private working copies and complete
+            provider-session files stay on your machine.
+          </li>
+          <li>
+            <strong>Team workspaces:</strong> membership, roles, invitation hashes, project access,
+            shared recipe versions and recorded actors for approval and delivery operations.
+            Invitations use copyable links; we do not send invitation emails automatically.
+          </li>
+          <li>
+            <strong>GitHub delivery:</strong> authorized installation and repository identifiers,
+            captured base, approved tree, publication operation, branch, commit and draft PR number.
+            The separate GitHub App authorization token is discarded after installation discovery.
+            Installation tokens are short lived and are not saved. Approved file content reaches
+            GitHub only when you explicitly publish. CI and review feedback are fetched on request.
+          </li>
+          <li>
+            <strong>Pilot measurements:</strong> setup readiness, task outcomes, revisions, recorded
+            interventions, execution and approval times, and publication results. Provider usage is
+            included only when available; unknown cost is marked explicitly. Comparison results are
+            entered by a pilot participant and retained with the task on their worker.
           </li>
           <li>
             <strong>Abuse protection:</strong> counters keyed by one-way hashes, such as a hash of an
@@ -112,7 +134,7 @@ function Privacy() {
           <li>Resend, to deliver account emails</li>
           <li>Vercel, to serve this website</li>
           <li>Railway, to host the service and its storage</li>
-          <li>GitHub or Google, only if you choose to sign in with them</li>
+          <li>GitHub or Google, if you sign in with them; GitHub also receives explicit draft PR publications</li>
         </ul>
         <p>
           These providers process data on our behalf and may keep standard request logs, including
@@ -128,8 +150,11 @@ function Privacy() {
           </li>
           <li>
             Disconnecting a machine deletes its mirrored evidence. Deleting your account, from the
-            account menu, removes your workspace, machines, pairing codes, mirrored evidence,
-            sessions and sign-in record.
+            account menu, removes your personal workspace, machines, pairing codes, mirrored evidence,
+            sessions, personal GitHub bindings and publication journals, and sign-in record.
+            Transfer team ownership before deletion. Team task evidence and recorded actors remain
+            with that team, and your membership is removed. The team owner and deployment operator
+            manage retention and deletion of team records during the invited pilot.
           </li>
           <li>
             Backups made for maintenance are kept only as long as needed to recover from a failed
@@ -149,8 +174,9 @@ function Privacy() {
       </Section>
       <Section title="Security">
         <p>
-          Traffic is encrypted, sessions are stored as hashes, and each account&apos;s workspace is
-          isolated from every other account on the server. No system is perfectly secure; report
+          Traffic is encrypted, sessions are stored as hashes, and personal workspaces are isolated
+          from other accounts. Team workspace access follows membership, roles and project permissions.
+          No system is perfectly secure; report
           vulnerabilities privately through{" "}
           <a href={`${REPOSITORY}/security/advisories/new`}>GitHub</a>.
         </p>
