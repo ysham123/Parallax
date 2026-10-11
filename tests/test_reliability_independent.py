@@ -114,7 +114,10 @@ class IndependentProvisioningTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(kwargs["network"])
                 self.assertNotEqual(workspace, self.project)
                 self.assertNotIn(self.project, kwargs["readable"])
-                probe = "from pathlib import Path\nimport urllib.request\ntry:\n data=Path(" + repr(str(secret)) + ").read_bytes()\nexcept PermissionError:\n print('PROJECT_READ_BLOCKED')\nelse:\n urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:" + str(server.server_port) + "/',data=data),timeout=2)\n"
+                # Seatbelt refuses reads; Linux's isolated mount namespace hides
+                # the project entirely. Both must prevent the same exfiltration.
+                self.assertEqual(secret.read_bytes(), b"SYNTHETIC_PROJECT_CANARY")
+                probe = "from pathlib import Path\nimport urllib.request\ntry:\n data=Path(" + repr(str(secret)) + ").read_bytes()\nexcept (PermissionError, FileNotFoundError):\n print('PROJECT_READ_BLOCKED')\nelse:\n urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:" + str(server.server_port) + "/',data=data),timeout=2)\n"
                 outcome = await command(run_id, [argv[0], "-I", "-c", probe], workspace, env, 10, **kwargs)
                 self.assertEqual(outcome.exit_code, 0, outcome.stderr)
                 self.assertEqual(outcome.stdout.strip(), "PROJECT_READ_BLOCKED")

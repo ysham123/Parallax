@@ -9,6 +9,61 @@ import urllib.error
 import urllib.request
 
 
+class DockerResources:
+    """Track only this smoke run's resources until explicit removal succeeds."""
+
+    def __init__(self):
+        self.containers = []
+        self.volumes = []
+
+    def create_volume(self, name):
+        subprocess.run(["docker", "volume", "create", name], check=True,
+                       stdout=subprocess.DEVNULL, timeout=30)
+        self.volumes.append(name)
+
+    def create_container(self, arguments):
+        container = subprocess.check_output(["docker", "create", *arguments],
+                                            text=True, timeout=30).strip()
+        self.containers.append(container)
+        return container
+
+    def remove_container(self, container, *, force=False):
+        if container not in self.containers:
+            raise ValueError("Container is not owned by this smoke run")
+        arguments = ["docker", "rm"]
+        if force:
+            arguments.append("--force")
+        subprocess.run([*arguments, container], check=True,
+                       stdout=subprocess.DEVNULL, timeout=30)
+        self.containers.remove(container)
+
+    def stop_container(self, container):
+        if container not in self.containers:
+            raise ValueError("Container is not owned by this smoke run")
+        subprocess.run(["docker", "stop", container], check=True,
+                       stdout=subprocess.DEVNULL, timeout=30)
+        # Auto-removal after `docker stop` is asynchronous. Keep ownership
+        # until this explicit removal has released the volume attachment.
+        self.remove_container(container)
+
+    def cleanup(self):
+        failures = []
+        for container in reversed(self.containers[:]):
+            try:
+                self.remove_container(container, force=True)
+            except (OSError, subprocess.SubprocessError) as error:
+                failures.append(error)
+        for volume in reversed(self.volumes[:]):
+            try:
+                subprocess.run(["docker", "volume", "rm", volume], check=True,
+                               stdout=subprocess.DEVNULL, timeout=30)
+                self.volumes.remove(volume)
+            except (OSError, subprocess.SubprocessError) as error:
+                failures.append(error)
+        if failures:
+            raise RuntimeError("Docker smoke cleanup failed: " + "; ".join(str(error) for error in failures)) from failures[0]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--image", default="parallax-runtime", help="Image to test; a unique audit tag avoids replacing another user's image.")
@@ -17,7 +72,7 @@ def main():
     image = options.image
     token = secrets.token_urlsafe(48)
     volume = "parallax-smoke-" + secrets.token_hex(8)
-    volumes = [volume]
+    resources = DockerResources()
     container = None
     origin = "https://studio.example.com"
     admin = {"Authorization": "Bearer " + token}
@@ -41,13 +96,15 @@ def main():
 
     def start():
         nonlocal container, url
-        container = subprocess.check_output([
-            "docker", "run", "--rm", "-d", "-p", "127.0.0.1::8080",
+        container = resources.create_container([
+            "-p", "127.0.0.1::8080",
             "--mount", f"type=volume,source={volume},target=/data",
             "-e", "PARALLAX_ACCESS_TOKEN=" + token,
             "-e", "PARALLAX_STUDIO_ORIGINS=" + origin,
             "-e", "PARALLAX_ALLOWED_HOSTS=runtime.example.com", image,
-        ], text=True).strip()
+        ])
+        subprocess.run(["docker", "start", container], check=True,
+                       stdout=subprocess.DEVNULL, timeout=30)
         address = subprocess.check_output(["docker", "port", container, "8080"], text=True).strip()
         url = "http://" + address
         for _ in range(100):
@@ -62,10 +119,10 @@ def main():
     def stop():
         nonlocal container
         if container:
-            subprocess.run(["docker", "stop", container], check=True, stdout=subprocess.DEVNULL)
+            resources.stop_container(container)
             container = None
 
-    subprocess.run(["docker", "volume", "create", volume], check=True, stdout=subprocess.DEVNULL)
+    resources.create_volume(volume)
     try:
         start()
         request("/api/runs", status=401)
@@ -120,8 +177,7 @@ def main():
         stop()
         if options.restore:
             restored = volume + "-restored"
-            subprocess.run(["docker", "volume", "create", restored], check=True, stdout=subprocess.DEVNULL)
-            volumes.append(restored)
+            resources.create_volume(restored)
             # The source process is stopped. Copy the entire private data tree,
             # including SQLite sidecars, into a different empty volume. Keep
             # the runtime mount path the same; saved managed paths are absolute.
@@ -137,9 +193,11 @@ def manifest(root):
 assert manifest(source) and manifest(source) == manifest(target), 'Cold restore bytes differ'
 print('Cold fixture volume restored with identical file hashes.')
 """
-            subprocess.run(["docker", "run", "--rm", "--network", "none", "--entrypoint", "python",
+            copy_container = resources.create_container(["--network", "none", "--entrypoint", "python",
                 "--mount", f"type=volume,source={volume},target=/source,readonly",
-                "--mount", f"type=volume,source={restored},target=/restored", image, "-c", copy], check=True)
+                "--mount", f"type=volume,source={restored},target=/restored", image, "-c", copy])
+            subprocess.run(["docker", "start", "--attach", copy_container], check=True, timeout=60)
+            resources.remove_container(copy_container)
             volume = restored
         start()
         request("/api/worker/next", headers=worker, status=401)
@@ -151,8 +209,7 @@ print('Cold fixture volume restored with identical file hashes.')
         try:
             stop()
         finally:
-            for owned_volume in reversed(volumes):
-                subprocess.run(["docker", "volume", "rm", owned_volume], check=True, stdout=subprocess.DEVNULL)
+            resources.cleanup()
 
 
 if __name__ == "__main__":

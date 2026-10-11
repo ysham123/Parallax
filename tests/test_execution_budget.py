@@ -1,7 +1,9 @@
 import json
+import queue
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -68,6 +70,7 @@ class ExecutionBudgetTests(unittest.TestCase):
                      ("config", "user.email", "fixture@example.invalid"), ("add", "."), ("commit", "-qm", "baseline")):
             subprocess.run(["git", "-C", str(project), *args], check=True, capture_output=True)
         script = '''import asyncio,json,sys
+sys.path.insert(0,sys.argv[3])
 from pathlib import Path
 from parallax.store import Store
 from parallax.engine import Engine
@@ -86,10 +89,25 @@ async def main():
 asyncio.run(main())
 '''
         state = self.root / "killed-state"
-        child = subprocess.Popen([sys.executable, "-c", script, str(state), str(project)],
+        # unittest discovery adds tests to the parent interpreter's sys.path.
+        # A fresh interpreter does not inherit it, so pass the fixture directory
+        # explicitly instead of relying on an ambient test PYTHONPATH.
+        child = subprocess.Popen([sys.executable, "-c", script, str(state), str(project),
+                                  str(Path(__file__).resolve().parent)],
                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        startup = queue.Queue()
+        reader = threading.Thread(target=lambda: startup.put(child.stdout.readline()), daemon=True)
+        reader.start()
         try:
-            marker = json.loads(child.stdout.readline())
+            try:
+                line = startup.get(timeout=30)
+            except queue.Empty:
+                self.fail("Provider fixture did not start within 30 seconds")
+            if not line:
+                child.wait(timeout=5)
+                self.fail(f"Provider fixture exited before startup ({child.returncode}): "
+                          + child.stderr.read()[-2000:])
+            marker = json.loads(line)
             time.sleep(.25)
             child.kill(); child.wait(timeout=5)
             store = Store(state)
@@ -105,4 +123,5 @@ asyncio.run(main())
             finally: store.close()
         finally:
             if child.poll() is None: child.kill(); child.wait(timeout=5)
+            reader.join(timeout=5)
             child.stdout.close(); child.stderr.close()
