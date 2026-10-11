@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "parallax-team"
 version = "1.4.0"
-description = "Autonomous coding teams across Codex, Claude, Grok Build, and Antigravity."
+description = "Delegate changes to coding agents with independent review and recorded project checks."
 requires-python = ">=3.10"
 license = "MIT"
 dependencies = [
