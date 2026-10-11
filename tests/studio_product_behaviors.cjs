@@ -63,6 +63,7 @@ Module._load = function(request, parent, ...rest) {
   if (parent?.filename.startsWith(src)) {
     if (request === './api') return api;
     if (/\.(css|svg|png)$/.test(request)) return {};
+    if (request === './TaskGraph') return {TaskGraph:()=>null};
     if (['./RunWorkspace', './Brand', './TaskPreflight', './Onboarding'].includes(request)) {
       return { eventSummary: () => '', ProviderMark: () => null, TaskPreflight: () => null, CopyBlock: () => null };
     }
@@ -70,7 +71,7 @@ Module._load = function(request, parent, ...rest) {
   return savedLoad.call(this, request, parent, ...rest);
 };
 function compile(module, filename) {
-  const output = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
+  const output = ts.transpileModule(fs.readFileSync(filename, 'utf8').replaceAll('import.meta.env.MODE', '"development"'), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true },
   }).outputText;
   module._compile(output, filename);
@@ -405,6 +406,153 @@ const taskProps = {
     assert.match(text(reviewerMachines.tree),/Ask a workspace owner to restart/);
   });
   waitingReviewer.unmount(); ownerSetup.unmount(); reviewerMachines.unmount();
+  const evidenceView = require(path.join(src,'evidence-presentation.ts'));
+  const phaseId = '66666666-6666-4666-8666-666666666666';
+  const priorPhase = '77777777-7777-4777-8777-777777777777';
+  const observation = (id, phase=phaseId, unchanged=true) => ({id,content_sha256:'e'.repeat(64),phase_attempt_id:phase,phase:'final',provenance:{scheme:'readonly-workspace-state-v1',before_sha256:'a'.repeat(64),after_sha256:unchanged === false ? 'b'.repeat(64) : 'a'.repeat(64),unchanged}});
+  const checkRow = {name:'candidate compatibility',ok:true,exit_code:0,observation:observation('88888888-8888-4888-8888-888888888888')};
+  const reviewRow = {provider:'claude',task_id:'integration',ok:true,verdict:'approved',observation:observation('99999999-9999-4999-8999-999999999999')};
+  check('Check failures, unavailable commands, skipped commands and missing evidence remain distinct', () => {
+    assert.equal(evidenceView.checkPresentation({ok:false,error:'check_unavailable',exit_code:null}).state,'unavailable');
+    assert.equal(evidenceView.checkPresentation({ok:false,error:'check_failed',exit_code:1}).state,'failed');
+    assert.equal(evidenceView.checkPresentation({status:'skipped'}).state,'skipped');
+    assert.equal(evidenceView.checkPresentation({}).state,'unrecorded');
+    assert.deepEqual(evidenceView.checkCounts([]),{passed:0,failed:0,unavailable:0,skipped:0,unrecorded:0});
+  });
+  check('Explicit reviewer rejection differs from no verdict, provider failure and modified review workspace', () => {
+    assert.equal(evidenceView.reviewPresentation({ok:false,verdict:'rejected',error:{code:'invalid_review'}}).label,'Changes requested');
+    assert.equal(evidenceView.reviewPresentation({ok:false,error:{code:'no_verdict'}}).state,'unavailable');
+    assert.equal(evidenceView.reviewPresentation({ok:false,error:{code:'quota_exhausted'}}).state,'unavailable');
+    assert.equal(evidenceView.reviewPresentation({...reviewRow,observation:observation(reviewRow.observation.id,phaseId,false)}).state,'unavailable');
+  });
+  check('Missing provenance never masquerades as a changed workspace or a recorded binding', () => {
+    assert.match(evidenceView.bindingPresentation({ok:true}),/unrecorded/i);
+    assert.match(evidenceView.bindingPresentation({observation:{...checkRow.observation,provenance:null}}),/unrecorded/i);
+    assert.match(evidenceView.bindingPresentation({observation:observation(checkRow.observation.id,phaseId,null)}),/unrecorded/i);
+    assert.match(evidenceView.bindingPresentation(checkRow),/not a Git tree ID/);
+  });
+  check('Current combined review requires the exact durable verification phase and matching check observations', () => {
+    assert.equal(evidenceView.finalReview([reviewRow],[checkRow],phaseId),reviewRow);
+    assert.equal(evidenceView.finalReview([{ok:true}],[checkRow],phaseId),undefined);
+    assert.equal(evidenceView.finalReview([reviewRow],[],phaseId),undefined);
+    assert.equal(evidenceView.finalReview([reviewRow],[checkRow],priorPhase),undefined);
+    assert.equal(evidenceView.finalReview([reviewRow],[checkRow],null),undefined);
+    assert.deepEqual(evidenceView.currentFinalChecks([checkRow],priorPhase),[]);
+  });
+  const evidenceRun = {run_id:'evidence-run',status:'completed',tasks:[],errors:[],reviews:[reviewRow],checks:[checkRow],changed_files:['maths.py'],spec:{},diff:'',sessions:[],usage:{},summary:'Preserved behavior while replacing parser',artifacts:{current_verification_attempt:{phase:'final',phase_attempt_id:phaseId},baseline_checks:[{name:'original compatibility',ok:false,error:'check_failed',exit_code:1}]}};
+  responder = async p => p === '/runs/evidence-run' ? evidenceRun : (()=>{throw new Error('Unexpected request '+p)})();
+  const summary = renderer(TaskWorkspace,{...taskProps,workflow:{...base,run_id:'evidence-run',candidate:{...base.candidate,changed_files:['maths.py'],summary:'Saved result'},delivery:{local:'pending',github:'pending'}}}); summary.render(); await settle(summary);
+  nodes(summary.tree).find(n=>n.type==='button' && n.props['aria-label']==='Hide task activity').props.onClick(); summary.render();
+  check('Candidate result and separate human/local/GitHub states remain visible when activity is hidden', () => {
+    const result = nodes(summary.tree).find(n=>n.props.className==='candidate-summary');
+    assert.match(text(result),/Saved result/); assert.match(text(result),/1 passed/); assert.match(text(result),/Reviewed/);
+    assert.match(text(result),/Awaiting a recorded decision/); assert.match(text(result),/Not applied/); assert.match(text(result),/Not published/);
+    assert.ok(nodes(result).some(n=>n.type==='a' && /verification record/.test(text(n)) && /partial/.test(text(n))));
+    assert.equal(nodes(summary.tree).some(n=>n.props.className==='task-conversation'),false);
+  });
+  evidenceRun.artifacts.current_verification_attempt.phase_attempt_id = priorPhase;
+  summary.render();
+  check('Starting a new validation immediately makes older checks and positive review historical', () => {
+    const result = nodes(summary.tree).find(n=>n.props.className==='candidate-summary');
+    assert.match(text(result),/No current final checks recorded/); assert.match(text(result),/Unrecorded/); assert.doesNotMatch(text(result),/1 passed/);
+  }); summary.unmount();
+  const {ReviewContent,TaskDetail} = require(path.join(src,'App.tsx'));
+  evidenceRun.artifacts.current_verification_attempt.phase_attempt_id = phaseId;
+  const checkSections = renderer(ReviewContent,{run:evidenceRun,tab:'checks'}); checkSections.render();
+  check('Task checks present failed original baseline separately from current final compatibility evidence', () => {
+    const sections = nodes(checkSections.tree).filter(n=>n.type==='section');
+    assert.match(text(sections[0]),/Baseline checks.*original compatibility.*Failed/);
+    assert.match(text(sections[1]),/Current final candidate checks.*candidate compatibility.*Passed/);
+    assert.match(text(sections[1]),/Browser coverage.*explicit recorded browser check/);
+  }); checkSections.unmount();
+  const legacyFindings = renderer(ReviewContent,{run:{...evidenceRun,reviews:[{provider:'claude',ok:false,error:{code:'provider_failed'}},{provider:'codex',ok:false,verdict:'rejected'}]},tab:'findings'}); legacyFindings.render();
+  check('Legacy review tab preserves provider failure separately from explicit requested changes', () => {
+    const badges = nodes(legacyFindings.tree).filter(n=>n.type==='span' && String(n.props.className).startsWith('evidence-outcome'));
+    assert.deepEqual(badges.map(text),['Unavailable','Changes requested']);
+  }); legacyFindings.unmount();
+  const resolution = renderer(TaskDetail,{task:{id:'repaired',resolved_by:'replacement',resolution_review:{provider:'claude',ok:false,error:{code:'no_verdict',message:'No review verdict'}}},onClose(){},onSelect(){}}); resolution.render();
+  check('Repair-resolution card shows unavailable evidence rather than an agent rejection', () => {
+    const card = nodes(resolution.tree).find(n=>n.props.className==='task-resolution-review');
+    assert.match(text(card),/Unavailable/); assert.doesNotMatch(text(card),/rejected|Changes requested/);
+    assert.match(text(resolution.tree),/No review verdict/);
+  });
+  resolution.props.task.resolution_review={provider:'claude',ok:false,verdict:'rejected',error:{code:'invalid_review'}}; resolution.render();
+  check('Repair-resolution card preserves an explicit refusal even with invalid finding structure', () => assert.match(text(nodes(resolution.tree).find(n=>n.props.className==='task-resolution-review')),/Changes requested/)); resolution.unmount();
+  const {reviewState,eventSummary} = require(path.join(src,'RunWorkspace.tsx'));
+  const reviewEvent = row => ({run_id:'evidence-run',sequence:1,timestamp:'2026-10-11T12:00:00Z',kind:'review',data:row});
+  check('Graph review state and activity preserve unavailable versus explicit rejected evidence', () => {
+    assert.equal(reviewState({ok:false,error:{code:'provider_failed'}}),'Unavailable');
+    assert.equal(reviewState({ok:false,verdict:'rejected'}),'Changes requested');
+    assert.equal(reviewState({}),'Unrecorded');
+    assert.equal(reviewState({ok:true}),'Reviewed');
+    assert.match(eventSummary(reviewEvent({provider:'claude',ok:false,error:{code:'no_verdict'},summary:'Provider prose cannot assert acceptance'})),/^claude · Unavailable:/);
+    assert.match(eventSummary(reviewEvent({provider:'claude',ok:false,verdict:'rejected'})),/Changes requested/);
+    assert.match(eventSummary({kind:'check',data:{name:'compatibility',ok:false,error:'check_unavailable'}}),/Unavailable/);
+  });
+  const {Verification} = require(path.join(src,'Verification.tsx'));
+  responder = async () => ({run_id:'evidence-run',record_state:'snapshot',outcome:'partial',gates:[{id:'checks',label:'Checks',status:'unknown',detail:'No final result'}]});
+  const receipt = renderer(Verification,{run:evidenceRun}); receipt.render(); await settle(receipt);
+  check('Pre-application verification record labels partial evidence and exposes downloads without approval', () => {
+    assert.match(text(receipt.tree),/Partial evidence snapshot/); assert.match(text(receipt.tree),/Unrecorded/);
+    assert.ok(nodes(receipt.tree).some(n=>n.type==='a' && text(n).includes('Download JSON')));
+    assert.equal(nodes(receipt.tree).some(n=>n.type==='button' && /approve|apply|publish/i.test(text(n))),false);
+  }); receipt.unmount();
+  const {PilotMetrics} = require(path.join(src,'PilotMetrics.tsx'));
+  let capturedComparison, capturedLabel;
+  const historicalObservation = observation('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',priorPhase);
+  const historicalReview = observation('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',priorPhase);
+  responder = async (p, init) => {
+    if (p==='/context') return {pilot_features:['pilot-evaluation-v1','pilot-observations-v1']};
+    if (p==='/runs/evidence-run') return evidenceRun;
+    if (p==='/pilot/report') return {evidence_observations:[
+      {workflow_id:base.id,kind:'check',name:'interrupted historical compatibility',phase:'final',outcome:'unknown',observation:historicalObservation},
+      {workflow_id:base.id,kind:'review',provider:'claude',phase:'final',outcome:'failed',observation:historicalReview,findings:[{index:0,title:'Confirmed refund defect',summary:'Refund settlement differs'},{index:1,title:'Disputed rounding finding',summary:'Compare unchanged rounding policy'}]},
+      {workflow_id:base.id,kind:'check',name:checkRow.name,phase:'final',outcome:'passed',observation:checkRow.observation},
+      {workflow_id:'another-workflow',kind:'check',name:'Private unrelated task',phase:'final',outcome:'passed',observation:observation('cccccccc-cccc-4ccc-8ccc-cccccccccccc')},
+    ],evidence_observations_truncated:true};
+    if (p==='/pilot/benchmark') { capturedComparison=JSON.parse(init.body); return {comparability:{baseline:'unverified'}}; }
+    if (p==='/pilot/observations') { capturedLabel=JSON.parse(init.body); return {}; }
+    throw new Error('Unexpected request '+p);
+  };
+  const metricsView = renderer(PilotMetrics,{workflow:{...base,run_id:'evidence-run'}}); metricsView.render(); await settle(metricsView);
+  const comparisonForm = () => nodes(metricsView.tree).find(n=>n.props['aria-label']==='Participant-reported comparison');
+  comparisonForm().props.onSubmit({preventDefault(){}}); await settle(metricsView);
+  check('Unknown manual time/counters/cost stay null and blocked attempts are preserved without invented success', () => {
+    assert.equal(capturedComparison.duration_seconds,null); assert.equal(capturedComparison.interventions,null); assert.equal(capturedComparison.provider_cost_usd,null);
+    assert.equal(capturedComparison.evaluation.active_human_seconds,null); assert.equal(capturedComparison.evaluation.outcome,'blocked'); assert.equal(capturedComparison.accepted,false);
+    assert.equal(capturedComparison.evaluation.observed_baseline_scheme,null);
+    assert.equal('actor' in capturedComparison,false);
+  });
+  // A select is intentionally chosen by its readable label, not pasted IDs.
+  const observationSelect = nodes(metricsView.tree).find(n=>n.type==='label' && text(n.props.children?.[0])==='Observation').props.children[1];
+  observationSelect.props.onChange({target:{value:checkRow.observation.id}}); metricsView.render();
+  nodes(metricsView.tree).find(n=>n.props['aria-label']==='Human observation assessment').props.onSubmit({preventDefault(){}}); await settle(metricsView);
+  check('Manual labels bind to saved observation identity/hash and cannot set the actor or acceptance', () => {
+    assert.equal(capturedLabel.observation_id,checkRow.observation.id); assert.equal(capturedLabel.content_sha256,checkRow.observation.content_sha256);
+    assert.equal(capturedLabel.classification,'unresolved'); assert.equal('actor' in capturedLabel,false); assert.equal('accepted' in capturedLabel,false);
+    assert.equal(capturedLabel.comment,'');
+    assert.match(text(metricsView.tree),/does not change runtime checks, approval or delivery/);
+  });
+  check('Readable report observations include interrupted history absent current arrays and explain caps', () => {
+    assert.match(text(metricsView.tree),/interrupted historical compatibility/);
+    assert.match(text(metricsView.tree),/observation list is capped/);
+    assert.doesNotMatch(text(metricsView.tree),/Private unrelated task/);
+  });
+  nodes(metricsView.tree).find(n=>n.type==='label' && text(n.props.children?.[0])==='Observation').props.children[1].props.onChange({target:{value:historicalReview.id}}); metricsView.render();
+  const findingSelect = nodes(metricsView.tree).find(n=>n.type==='label' && text(n.props.children?.[0])==='Finding to assess').props.children[1];
+  findingSelect.props.onChange({target:{value:'1'}}); metricsView.render();
+  nodes(metricsView.tree).find(n=>n.props['aria-label']==='Human observation assessment').props.onSubmit({preventDefault(){}}); await settle(metricsView);
+  check('Individual finding assessment preserves the original persisted index and historical observation identity', () => {
+    assert.equal(capturedLabel.finding_index,1); assert.equal(capturedLabel.observation_id,historicalReview.id);
+    assert.equal(capturedLabel.content_sha256,historicalReview.content_sha256);
+    assert.match(text(metricsView.tree),/Compare unchanged rounding policy/);
+  }); metricsView.unmount();
+  responder = async () => ({pilot_features:[]});
+  const oldWorkerMetrics = renderer(PilotMetrics,{workflow:base}); oldWorkerMetrics.render(); await settle(oldWorkerMetrics);
+  check('Older workers explain the update requirement and expose no unsupported measurement mutations', () => {
+    assert.match(text(oldWorkerMetrics.tree),/Update the pilot worker/);
+    assert.equal(nodes(oldWorkerMetrics.tree).some(n=>n.type==='form'),false);
+  }); oldWorkerMetrics.unmount();
   console.log(`${passed} product behavior checks passed.`);
 })().catch(e => { console.error(e); process.exitCode = 1; }).finally(() => {
   Module._load = savedLoad;

@@ -16,7 +16,7 @@ export const graphTone = (
     graphText(value),
   )
     ? "bad"
-    : /\b(?:complete|completed|accepted|success|succeeded|resolved|approved|passed|integrated|candidate)\b|^verified candidate(?: ready)?$/i.test(
+    : /\b(?:complete|completed|accepted|success|succeeded|resolved|approved|reviewed|passed|integrated|candidate)\b|^verified candidate(?: ready)?$/i.test(
           graphText(value),
         )
       ? "good"
@@ -54,7 +54,10 @@ export function explorations(tasks: Data[]): Map<string, Exploration> {
   tasks.forEach((task) => {
     const entry = result.get(graphText(task.id));
     const chosen = graphText(task.resolved_by);
-    if (entry && entry.variants.some((variant) => graphText(variant.id) === chosen))
+    if (
+      entry &&
+      entry.variants.some((variant) => graphText(variant.id) === chosen)
+    )
       entry.selected = chosen;
   });
   result.forEach((entry) =>
@@ -72,9 +75,13 @@ export type ContextManifest = {
   sections: { name: string; chars: number; truncated: number }[];
 };
 
-export function contextManifest(event: RunEvent | undefined): ContextManifest | undefined {
+export function contextManifest(
+  event: RunEvent | undefined,
+): ContextManifest | undefined {
   if (!event || event.kind !== "context") return undefined;
-  const sections = Array.isArray(event.data.sections) ? event.data.sections : [];
+  const sections = Array.isArray(event.data.sections)
+    ? event.data.sections
+    : [];
   return {
     role: graphText(event.data.role, "agent"),
     chars: Number(event.data.chars) || 0,
@@ -90,7 +97,9 @@ export function contextManifest(event: RunEvent | undefined): ContextManifest | 
 }
 
 const sizeText = (chars: number) =>
-  chars >= 1000 ? `${(chars / 1000).toFixed(chars >= 10000 ? 0 : 1)}k chars` : `${chars} chars`;
+  chars >= 1000
+    ? `${(chars / 1000).toFixed(chars >= 10000 ? 0 : 1)}k chars`
+    : `${chars} chars`;
 
 const connectionOf = (member: Participant | Data) =>
   graphText(member.connection_id) ||
@@ -166,7 +175,9 @@ export function describeRunEvent(event: RunEvent): string {
   };
   if (event.kind === "context") {
     const manifest = contextManifest(event)!;
-    const trimmed = manifest.sections.filter((section) => section.truncated).length;
+    const trimmed = manifest.sections.filter(
+      (section) => section.truncated,
+    ).length;
     const role = manifest.role.charAt(0).toUpperCase() + manifest.role.slice(1);
     return `${role} context · ${sizeText(manifest.chars)} in ${manifest.sections.length} ${manifest.sections.length === 1 ? "section" : "sections"}${trimmed ? ` · ${trimmed} trimmed` : ""}`;
   }

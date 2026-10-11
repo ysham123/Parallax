@@ -103,6 +103,23 @@ export type RunSpec = {
 };
 export type Profile = { name: string; spec: RunSpec };
 export type Data = Record<string, unknown>;
+export type EvidenceObservation = {
+  id: string;
+  content_sha256: string;
+  phase_attempt_id: string;
+  phase: string;
+  task_id?: string | null;
+  worker_attempt?: number;
+  provenance?: {
+    scheme: string;
+    before_sha256: string | null;
+    after_sha256: string | null;
+    unchanged: boolean | null;
+  };
+  patch_sha256?: string;
+  requirements_sha256?: string;
+  check_spec_sha256?: string;
+};
 export type RunResult = {
   schema_version: "1.0" | "1.1";
   run_id: string;

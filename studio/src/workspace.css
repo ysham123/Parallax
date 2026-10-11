@@ -1517,3 +1517,34 @@
     flex-direction: column;
   }
 }
+@media (max-width: 360px) {
+  .studio-workspace .sidebar {
+    height: 64px;
+    gap: 4px;
+  }
+  .studio-workspace .sidebar .brand {
+    flex: 0 0 28px;
+  }
+  .studio-workspace .sidebar nav {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    flex: 1;
+    min-width: 0;
+  }
+  .studio-workspace .sidebar nav > .nav-item {
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    padding: 4px 2px;
+  }
+  .studio-workspace .sidebar nav > .nav-item > span {
+    text-align: center;
+    white-space: normal;
+  }
+  .studio-workspace .sidebar-bottom {
+    flex: 0 0 23px;
+  }
+}

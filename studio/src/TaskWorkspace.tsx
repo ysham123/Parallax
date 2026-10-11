@@ -18,6 +18,16 @@ import { WorkIcon } from "./WorkIcon";
 import { workflowGroup, workflowLabels } from "./workflow-state";
 import { LABELS, type RunEvent, type RunResult } from "./types";
 import type { Workflow } from "./Workflows";
+import {
+  bindingPresentation,
+  checkCounts,
+  currentFinalChecks,
+  currentVerificationAttempt,
+  finalReview,
+  gatePresentation,
+  observationOf,
+  reviewPresentation,
+} from "./evidence-presentation";
 
 const text = (v: unknown, fallback = "") =>
   v == null ? fallback : typeof v === "string" ? v : JSON.stringify(v);
@@ -108,6 +118,7 @@ export function TaskWorkspace({
   useEffect(() => {
     setSelectedFindings([]);
     setFindingTarget(null);
+    setRun(null);
   }, [runId, workflow.candidate?.digest]);
   useEffect(() => {
     if (!online) {
@@ -224,13 +235,39 @@ export function TaskWorkspace({
     ? [workflow.spec.coordinator, ...workflow.spec.team]
     : [];
   const meaningful = events.filter(
-    (event) => !["worker_stream", "coordinator_stream"].includes(event.kind),
+    (event) =>
+      ![
+        "worker_stream",
+        "coordinator_stream",
+        "evidence_observation",
+        "evidence_attempt_started",
+      ].includes(event.kind),
   );
   const selectedProject =
     workflow.workspace.split("/").filter(Boolean).at(-1) || "Project";
   const human = (actor?: string | null) =>
     actorLabel(actor, actorDirectory, viewerActor);
   const decision = workflow.decision || workflow.approval;
+  const currentAttempt = currentVerificationAttempt(run?.artifacts || {});
+  const currentChecks = currentFinalChecks(run?.checks || [], currentAttempt);
+  const currentReview = finalReview(
+    run?.reviews || [],
+    currentChecks,
+    currentAttempt,
+  );
+  const checkOutcomes = checkCounts(currentChecks);
+  const finalReviewState = reviewPresentation(currentReview || {});
+  const delivery = workflow.delivery;
+  const unbound = [
+    ...(run?.checks || []),
+    ...(currentReview ? [currentReview] : []),
+  ].filter((row) => !observationOf(row)).length;
+  const uncertainGates = (workflow.candidate?.gates || []).filter(
+    (gate) => gatePresentation(gate).state !== "passed",
+  );
+  const usageReports = Array.isArray(run?.usage?.reports)
+    ? run.usage.reports
+    : [];
   const relationship = relationKind(workflow);
   const locate = (finding: ReturnType<typeof normalizeFinding>) => {
     const destination = locateFinding(
@@ -371,6 +408,158 @@ export function TaskWorkspace({
           </button>
         </div>
       )}
+      <section
+        className="candidate-summary"
+        aria-labelledby="candidate-summary-title"
+      >
+        <header>
+          <h2 id="candidate-summary-title">Candidate result</h2>
+          {workflow.candidate && (
+            <code title={workflow.candidate.digest}>
+              {workflow.candidate.digest.slice(0, 12)}
+            </code>
+          )}
+        </header>
+        <p>
+          {workflow.candidate?.summary ||
+            run?.summary ||
+            "No candidate result has been recorded yet."}
+        </p>
+        <dl className="candidate-summary-facts">
+          <div>
+            <dt>Changes</dt>
+            <dd>
+              <button className="text-button" onClick={() => setTab("changes")}>
+                {workflow.candidate?.changed_files?.length ??
+                  run?.changed_files?.length ??
+                  "Unrecorded"}{" "}
+                files
+              </button>
+            </dd>
+          </div>
+          <div>
+            <dt>Current final checks</dt>
+            <dd>
+              <button className="text-button" onClick={() => setTab("checks")}>
+                {currentChecks.length
+                  ? `${checkOutcomes.passed} passed · ${checkOutcomes.failed} failed · ${checkOutcomes.unavailable} unavailable · ${checkOutcomes.skipped} skipped · ${checkOutcomes.unrecorded} unrecorded`
+                  : "No current final checks recorded"}
+              </button>
+            </dd>
+          </div>
+          <div>
+            <dt>Independent review</dt>
+            <dd>
+              <button
+                className={`text-button evidence-outcome ${finalReviewState.state}`}
+                onClick={() => setTab("findings")}
+              >
+                {finalReviewState.label}
+              </button>
+            </dd>
+          </div>
+          <div>
+            <dt>Human decision</dt>
+            <dd>
+              {decision?.action === "approve"
+                ? "Approved"
+                : decision?.action === "reject"
+                  ? "Declined"
+                  : "Awaiting a recorded decision"}
+            </dd>
+          </div>
+          <div>
+            <dt>Local delivery</dt>
+            <dd>
+              {delivery?.local === "applied" || workflow.status === "applied"
+                ? "Applied"
+                : delivery?.local === "pending"
+                  ? "Not applied"
+                  : delivery?.local
+                    ? label(delivery.local)
+                    : workflow.schema_version === "2.0"
+                      ? "Unrecorded"
+                      : "Legacy combined approval and application"}
+            </dd>
+          </div>
+          <div>
+            <dt>GitHub delivery</dt>
+            <dd>
+              {workflow.publication
+                ? "Draft PR published"
+                : delivery?.github === "pending"
+                  ? "Not published"
+                  : delivery?.github
+                    ? label(delivery.github)
+                    : "Unrecorded"}
+            </dd>
+          </div>
+          <div>
+            <dt>Execution time</dt>
+            <dd>
+              {typeof workflow.runtime_seconds === "number"
+                ? `${workflow.runtime_seconds}s recorded`
+                : "Unrecorded"}
+            </dd>
+          </div>
+          <div>
+            <dt>Provider usage</dt>
+            <dd>
+              {usageReports.length
+                ? `${usageReports.length} usage reports; total cost unknown`
+                : "Usage unreported; cost unknown"}
+            </dd>
+          </div>
+        </dl>
+        <div className="candidate-uncertainty">
+          <strong>Evidence scope &amp; remaining uncertainty</strong>
+          <p>
+            Checks establish only their recorded coverage. Review is separate
+            from human approval; approval is separate from delivery.
+          </p>
+          {!currentChecks.length && (
+            <p>
+              No current final command evidence is recorded.
+              {!!run?.checks.length &&
+                " Previous check outcomes remain in Checks; their association with this verification attempt is unrecorded or historical."}
+            </p>
+          )}
+          {finalReviewState.state !== "passed" && (
+            <p>{finalReviewState.detail}</p>
+          )}
+          {!!unbound && (
+            <p>
+              Artifact binding is unrecorded for {unbound} final observation
+              {unbound === 1 ? "" : "s"}. Older records do not establish exact
+              workspace provenance.
+            </p>
+          )}
+          {uncertainGates.map((gate) => (
+            <p key={gate.id}>
+              <strong>
+                {gate.label}: {gatePresentation(gate).label}.
+              </strong>{" "}
+              {gatePresentation(gate).detail}
+            </p>
+          ))}
+          {error && (
+            <p>
+              Evidence refresh is unavailable. Displayed results may be older
+              recorded evidence.
+            </p>
+          )}
+        </div>
+        {runId && (
+          <a
+            className="text-button"
+            href={apiUrl(`/runs/${runId}/receipt`)}
+            download
+          >
+            Download verification record{" "}
+            <span>(recorded evidence may be partial)</span>
+          </a>
+        )}
+      </section>
       <div className={`task-panels ${activityOpen ? "" : "activity-hidden"}`}>
         {activityOpen && (
           <div className="task-conversation">
@@ -847,17 +1036,18 @@ export function TaskWorkspace({
                                   )}
                               </h3>
                             </div>
-                            <strong>
-                              {review.ok === true
-                                ? "Passed"
-                                : review.ok === false
-                                  ? "Changes requested"
-                                  : text(
-                                      review.status || review.verdict,
-                                      "Reported",
-                                    )}
+                            <strong
+                              className={`evidence-outcome ${reviewPresentation(review).state}`}
+                            >
+                              {reviewPresentation(review).label}
                             </strong>
                           </header>
+                          <p className="evidence-reason">
+                            {reviewPresentation(review).detail}
+                          </p>
+                          <p className="evidence-binding">
+                            {bindingPresentation(review)}
+                          </p>
                           {!!text(
                             review.summary ||
                               review.answer ||
@@ -1040,18 +1230,12 @@ export function TaskWorkspace({
             <>
               <div className="decision-gates">
                 {workflow.candidate.gates.map((gate) => (
-                  <span
-                    key={gate.id}
-                    className={
-                      gate.status === "passed" ? "passed" : "unverified"
-                    }
-                    title={gate.detail}
-                  >
+                  <span key={gate.id} className={gatePresentation(gate).state}>
                     <WorkIcon
                       name={gate.status === "passed" ? "check" : "warning"}
                       size={13}
                     />
-                    {gate.label}
+                    {gate.label}: {gatePresentation(gate).label}
                   </span>
                 ))}
               </div>

@@ -18,6 +18,7 @@ import {
 } from "./run-inspection";
 import { ContextDetails } from "./Exploration";
 import { LABELS, type Data, type RunEvent, type RunResult } from "./types";
+import { checkPresentation, reviewPresentation } from "./evidence-presentation";
 
 const value = (input: unknown, fallback = "") =>
   typeof input === "string"
@@ -42,16 +43,7 @@ const title = (prompt: string) =>
     .split(/\n|[.!?]\s+/)[0]
     .replace(/^#+\s*/, "")
     .slice(0, 170);
-const reviewState = (review: Data) =>
-  review.ok === true
-    ? review.task_id
-      ? "approved"
-      : "completed"
-    : review.ok === false
-      ? review.task_id
-        ? "rejected"
-        : "failed"
-      : "not reported";
+export const reviewState = (review: Data) => reviewPresentation(review).label;
 const findingText = (finding: unknown) =>
   typeof finding === "object" && finding
     ? value(
@@ -118,6 +110,10 @@ function trapDrawer(
 
 export function eventSummary(event: RunEvent): string {
   const data = event.data;
+  if (event.kind === "check")
+    return `${value(data.name, "Project check")} · ${checkPresentation(data).label}`;
+  if (event.kind === "review")
+    return `${value(data.provider, "Independent reviewer")} · ${reviewPresentation(data).label}${data.summary ? `: ${value(data.summary).slice(0, 350)}` : ""}`;
   const item = object(data.item);
   const message = object(data.message);
   const tool = object(data.tool);
@@ -132,12 +128,8 @@ export function eventSummary(event: RunEvent): string {
     return "Managed process started";
   if (data.type === "parallax.process_finished")
     return `Managed process finished${data.exit_code != null ? ` · exit ${value(data.exit_code)}` : ""}`;
-  if (event.kind === "check")
-    return `${value(data.name, "Project check")} · ${data.ok === true ? "passed" : data.ok === false ? "failed" : "recorded"}`;
   if (event.kind === "environment")
     return `${value(data.name, "Private environment")} · ${data.ok === true ? "ready" : "setup reported"}`;
-  if (event.kind === "review")
-    return `${value(data.provider, "Independent reviewer")} · ${data.ok === true ? "approved" : data.ok === false ? "changes requested" : "review recorded"}`;
   const command = item.command || tool.name || data.tool_name || data.name;
   if (command) return value(command).slice(0, 300);
   const content =
@@ -1099,10 +1091,17 @@ export function RunWorkspace(props: Props) {
                               const manifest = contextManifest(
                                 [...events]
                                   .reverse()
-                                  .find((item) => item.kind === "context" && item.task_id === "coordinator"),
+                                  .find(
+                                    (item) =>
+                                      item.kind === "context" &&
+                                      item.task_id === "coordinator",
+                                  ),
                               );
                               return manifest ? (
-                                <ContextDetails manifest={manifest} label="Latest turn's context" />
+                                <ContextDetails
+                                  manifest={manifest}
+                                  label="Latest turn's context"
+                                />
                               ) : null;
                             })()}
                           {agent.latestEvent && (
