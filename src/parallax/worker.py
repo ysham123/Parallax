@@ -16,7 +16,7 @@ from .executors import encode, permitted, digest, MAX_MESSAGE, is_control
 from .server import create_app
 from .store import Store, state_directory
 
-WORKER_FEATURES = ["workflow-v2", "workflow-task-settings-v1", "worker-control-v1", "worker-byte-batches-v1"]
+WORKER_FEATURES = ["workflow-v2", "workflow-task-settings-v1", "worker-control-v1", "worker-byte-batches-v1", "pilot-evaluation-v1", "pilot-observations-v1"]
 TRANSPORT_DETAIL = "Some evidence exceeds the relay's 8 MiB message limit. Inspect the complete candidate in local Studio; team approval is unavailable for an oversized candidate."
 
 

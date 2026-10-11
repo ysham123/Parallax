@@ -28,7 +28,7 @@ from .workflows import Workflows, WorkflowStart, TemplateInput, Decision, Revisi
 from .deployment import Deployment
 from . import authority
 from .teams import TeamInput, InvitationInput, InvitationAccept, ProjectBinding, ProjectMembersInput
-from .pilot import Pilot, BenchmarkInput
+from .pilot import Pilot, BenchmarkInput, ObservationInput, PILOT_FEATURES
 from .github_delivery import GitHubDelivery, RepositoryBinding, PublicationRequest
 from .accounts import (Accounts, Principal, SignInRefused, operator_principal, SESSION_COOKIE, FLOW_COOKIE,
                        FLOW_COOKIE_PATH, OAUTH_FLOW_PATH, OWNER_WORKSPACE)
@@ -464,7 +464,7 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
     async def context():
         ctx=authority.context()
         projects=(ctx or {}).get("projects") or [workspace or os.environ.get("PARALLAX_WORKSPACE","")]
-        return {"workspace":projects[0],"authority":ctx,"desktop_runtime":app.state.desktop_runtime}
+        return {"workspace":projects[0],"authority":ctx,"desktop_runtime":app.state.desktop_runtime,"pilot_features":PILOT_FEATURES}
     @app.post("/api/session")
     async def sign_in(body:SessionInput):
         """Operator access key. Opens only the operator workspace."""
@@ -706,6 +706,8 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
         limits=limits_for(scope)
         if path.endswith(("/record-publication", "/begin-publication")): raise HTTPException(403,"Publication operations are recorded by the relay")
         descriptor = await asyncio.to_thread(hub.worker, identifier, scope)
+        if request.method == "POST" and path == "pilot/observations" and "pilot-observations-v1" not in descriptor.get("features", []):
+            raise HTTPException(409, "Update this worker to label recorded check and review evidence")
         if "workflow-v2" not in descriptor.get("features",[]) and (path.endswith(("/revise","/approve","/apply","/publication-preview")) or (request.method=="POST" and path=="workflows")):
             # Legacy personal starts remain available; versioned starts are checked below after parsing.
             if path != "workflows": raise HTTPException(409,"Update this worker for candidate revision and separate delivery")
@@ -747,6 +749,8 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
         if len(raw)>MAX_MESSAGE: raise HTTPException(413,"Worker request exceeds limit")
         try: body=json.loads(raw) if raw else None
         except ValueError: raise HTTPException(400,"Invalid JSON body")
+        if request.method == "POST" and path == "pilot/benchmark" and isinstance(body, dict) and body.get("evaluation") is not None and "pilot-evaluation-v1" not in descriptor.get("features", []):
+            raise HTTPException(409, "Update this worker for versioned pilot measurements")
         if auth and auth.get("team") and path.startswith("workflow-templates") and request.method in {"POST","PUT"}:
             identifier=path.split('/')[1] if '/' in path else None
             return teams().save_recipe(principal_of(request),TemplateInput.model_validate(body),identifier)
@@ -971,6 +975,8 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
     async def pilot_report(): return pilot.report()
     @app.post("/api/pilot/benchmark")
     async def pilot_benchmark(body:BenchmarkInput): return pilot.benchmark(body)
+    @app.post("/api/pilot/observations")
+    async def pilot_observation(body:ObservationInput): return pilot.observation(body)
     @app.get("/api/workflow-templates")
     async def workflow_templates(): return workflows.templates()
     @app.post("/api/workflow-templates")
@@ -998,7 +1004,7 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
             exceeds_limit = len(json.dumps(reply, separators=(",", ":")).encode()) > MAX_MESSAGE
             if value.get("run_id"):
                 result = await asyncio.to_thread(store.get, value["run_id"])
-                envelope = {"runs": [result], "events": [], "features": ["workflow-v2", "workflow-task-settings-v1", "worker-control-v1", "worker-byte-batches-v1"]}
+                envelope = {"runs": [result], "events": [], "features": ["workflow-v2", "workflow-task-settings-v1", "worker-control-v1", "worker-byte-batches-v1", *PILOT_FEATURES]}
                 exceeds_limit = exceeds_limit or len(json.dumps(envelope, separators=(",", ":")).encode()) > MAX_MESSAGE
             if exceeds_limit:
                 raise HTTPException(413, "Full candidate evidence exceeds the relay's 8 MiB message limit. Inspect it in local Studio; team approval through the relay is unavailable for this candidate.")

@@ -17,10 +17,11 @@ class MeasurementSemanticsTests(unittest.TestCase):
                     "artifacts":{}, "checks":[]}
         self.store.save(self.run)
         self.workflow = {"id":"workflow", "run_id":"run", "status":"rejected",
+                         "spec":{"workspace":"/fixture"},
                          "candidate":{"captured_at":"2026-10-09T12:00:00+00:00"},
                          "decision":{"action":"reject", "at":"2026-10-09T12:00:05+00:00"}}
         self.pilot = Pilot(SimpleNamespace(store=self.store,
-            listing=lambda:[{"id":"workflow"}], get=lambda _:self.workflow))
+            listing=lambda:[{"id":"workflow"}], get=lambda _:self.workflow, check_workspace=lambda _:None))
 
     def outcome(self):
         return self.pilot.report()["outcomes"][0]

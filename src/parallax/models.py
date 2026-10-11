@@ -63,7 +63,7 @@ class ProjectAssessment(Contract):
     issues: list[dict] = Field(default_factory=list)
 
 class CheckEvidence(Contract):
-    schema_version: Literal["1.1"] = "1.1"
+    schema_version: Literal["1.1", "1.2"] = "1.1"
     name: str
     argv: list[str]
     cwd: str = "."
@@ -75,6 +75,7 @@ class CheckEvidence(Contract):
     error: str | None = None
     task_id: str | None = None
     environment: dict = Field(default_factory=dict)
+    observation: dict | None = None
 
 class RunSpec(Contract):
     schema_version: Literal["1.0", "1.1"] = "1.1"

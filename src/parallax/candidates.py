@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .receipt import build_receipt, save_receipt
 from .store import now
+from .evidence import bind_current_observations
 from .workspaces import WorkspaceManager, WorkspaceError
 
 POLICY = "verified-change-v1"
@@ -37,6 +38,7 @@ class Candidates:
         gates = [gate for gate in receipt["gates"] if gate["id"] in {"current_verification", "independent_review", "project_checks"}]
         if len(gates) != 3 or any(gate["status"] != "passed" for gate in gates):
             raise ValueError("The candidate has not passed every verification gate")
+        binding=bind_current_observations(self.store,result,manager.integration_path)
         destination = manager.check_destination()
         if not destination["ok"] or destination["revalidate"]:
             raise ValueError("The project changed since verification. Prepare a new candidate before approval.")
@@ -51,6 +53,10 @@ class Candidates:
             "delivery_target": digest(artifacts.get("authority",{}).get("github_target")),
             "evidence": digest({"checks":result["checks"], "reviews":result["reviews"],
                 "validated":artifacts.get("validated_fingerprint"), "required_checks":artifacts.get("required_checks")})}
+        if binding is not None:
+            from .workspaces import fingerprint
+            if fingerprint(manager.integration_path) != binding["workspace_state_sha256"]:
+                raise ValueError("Candidate workspace changed while its approval identity was captured")
         return {"digest": digest(identity), "identity": identity, "gates": gates,
             "changed_files": result["changed_files"], "check_count": len(result["checks"]),
             "summary": result.get("summary", ""), "captured_at": now()}
@@ -142,7 +148,7 @@ class Candidates:
         result["artifacts"]["application"]["state"] = "applied"
         result["artifacts"]["application"]["applied_at"] = now()
         result["changed_files"] = changed_files
-        save_receipt(result)
+        save_receipt(result,journal_observations=self.store.observations(result["run_id"]))
         self.store.save(result)
         self.store.event(result["run_id"], "candidate_applied", {"changed_files":changed_files})
         return result
