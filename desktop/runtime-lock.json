@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "macos-arm64": {
+    "provider": "astral-sh/python-build-standalone",
+    "release": "20261009",
+    "python_version": "3.13.16",
+    "target": "aarch64-apple-darwin",
+    "archive_flavor": "install_only_stripped",
+    "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.13.16%2B20261009-aarch64-apple-darwin-install_only_stripped.tar.gz",
+    "size": 25257849,
+    "sha256": "11785155d0f70e634178219c20925d8f20be00a3da4684fc4f5019dd15602ef7",
+    "metadata_url": "https://api.github.com/repos/astral-sh/python-build-standalone/releases/tags/20261009",
+    "minimum_macos": "11.0",
+    "licensing_archive": {
+      "provider": "astral-sh/python-build-standalone",
+      "archive_flavor": "full",
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.13.16%2B20261009-aarch64-apple-darwin-pgo%2Blto-full.tar.zst",
+      "size": 59336019,
+      "sha256": "70025edd2ed4bf0a333677928ded047368726954253b6e428732e71e9c5a163e"
+    }
+  }
+}

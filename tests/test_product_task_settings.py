@@ -107,8 +107,11 @@ class TaskSettingsRelayTests(HostedFixture):
         self.hub = ExecutorHub(Store(self.store.home), accounts=self.app.state.accounts)
 
     def request_direct(self, path, body):
+        # Allow durable admission under concurrent suite load. A 10ms budget can
+        # expire before queueing, which tests of unanswered worker recovery must
+        # distinguish from a request that was actually admitted.
         return asyncio.run(self.hub.request(self.worker["id"], "POST", "/api/" + path, "", body,
-                                            workspace=self.principal.workspace, timeout=.01,
+                                            workspace=self.principal.workspace, timeout=.5,
                                             authority={"version": "2.0", "workspace": self.principal.workspace,
                                                 "actor": self.principal.account["id"], "role": "owner", "team": False,
                                                 "projects": ["/project"]},

@@ -183,7 +183,7 @@ class WorkerHeartbeat(BaseModel):
     features: list[str] = Field(default_factory=list, max_length=16)
     transport_status: WorkerTransportStatus = Field(default_factory=WorkerTransportStatus)
 
-def create_app(store:Store|None=None, registry=None, *, token:str|None=None, workspace:str|None=None, deployment:Deployment|None=None, allowed_workspaces:tuple[Path,...]|None=None, http_transport=None):
+def create_app(store:Store|None=None, registry=None, *, token:str|None=None, workspace:str|None=None, deployment:Deployment|None=None, allowed_workspaces:tuple[Path,...]|None=None, http_transport=None, desktop_runtime:bool=False):
     store=store or Store()
     engine=Engine(store,registry)
     token=token or secrets.token_urlsafe(32)
@@ -231,6 +231,7 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
             await engine.shutdown()
     app=FastAPI(title="Parallax",version=__version__,lifespan=lifespan,docs_url=None,redoc_url=None,openapi_url=None)
     app.state.engine=engine;app.state.token=token;app.state.store=store;app.state.accounts=accounts
+    app.state.desktop_runtime = bool(desktop_runtime)
     app.state.workflows = workflows
     from .executors import ExecutorHub, MAX_MESSAGE, limits_for, is_control, CONTROL_SLOTS
     hub = ExecutorHub(store, accounts=accounts) if deployment else None
@@ -463,7 +464,7 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
     async def context():
         ctx=authority.context()
         projects=(ctx or {}).get("projects") or [workspace or os.environ.get("PARALLAX_WORKSPACE","")]
-        return {"workspace":projects[0],"authority":ctx}
+        return {"workspace":projects[0],"authority":ctx,"desktop_runtime":app.state.desktop_runtime}
     @app.post("/api/session")
     async def sign_in(body:SessionInput):
         """Operator access key. Opens only the operator workspace."""
@@ -891,7 +892,10 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
     @app.get("/api/connections")
     async def connections(): return await engine.registry.connections()
     @app.put("/api/connections/{identifier}")
-    async def connection(identifier:str,body:ConnectionInput): return await engine.registry.put(identifier,body)
+    async def connection(identifier:str,body:ConnectionInput):
+        if app.state.desktop_runtime and body.api_key_env is not None:
+            raise ValueError("The desktop app does not inherit shell API keys. Enter an API key to store in macOS Keychain.")
+        return await engine.registry.put(identifier,body)
     @app.delete("/api/connections/{identifier}")
     async def remove_connection(identifier:str): return engine.registry.delete(identifier)
     @app.post("/api/connections/{identifier}/test")

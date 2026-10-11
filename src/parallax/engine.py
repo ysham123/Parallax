@@ -1407,6 +1407,11 @@ class Engine:
         for path in (requirements,pyproject,lock,workspace/"package.json"):
             if path and path.is_file(): digest.update(path.read_bytes())
         if python_needed:
+            # An app/runtime replacement must not reuse wheels or venv aliases
+            # provisioned by another Python, even at the same installation path.
+            digest.update(json.dumps({"executable":str(Path(sys.executable).resolve()),
+                "version":list(sys.version_info),"cache_tag":sys.implementation.cache_tag},
+                sort_keys=True,separators=(",", ":")).encode("utf-8"))
             from .provisioning import locked_python_input
             canonical_lock=locked_python_input(workspace,requirements if requirements.is_file() else None,dependencies)
             # Vendored wheel bytes are part of the environment identity, even

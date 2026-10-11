@@ -14,6 +14,8 @@ It runs from Claude Code, from Codex, or from the command line. Studio organizes
 
 This checkout documents the **1.4.0 development preview**. The public local tools are currently 1.3.0 and do not include the saved-candidate workflow, team approval or GitHub delivery shown here. For the preview, use the operator-supplied versioned source package and follow the [first-task guide](docs/FIRST-TASK.md). A reviewed local package is preparation for a pilot; live acceptance is still required.
 
+A **Mac desktop beta candidate** adds a native project picker and bundled runtime for Apple Silicon on macOS 15+. It opens the same local Studio without a separate Parallax Python installation. The download is not published: Developer ID signing, notarization, fresh-Mac installation and live task acceptance remain release gates. See [using the beta](docs/MAC-BETA.md), [building and signing](docs/MAC-DISTRIBUTION.md), and [the experimental Windows WSL2 path](docs/WINDOWS.md).
+
 For a bounded legacy upgrade, try [Modernize one component](examples/legacy-modernization/README.md): a runnable batch-CLI exercise with a versioned compatibility contract and 34 characterization tests. The [domain guide](docs/LEGACY-MODERNIZATION.md) explains the use case and customer comparison; [preview reliability boundaries](docs/RELIABILITY-MODERNIZATION.md) cover provisioning, recovery, evidence limits and unsupported native features.
 
 ## Install public local tools

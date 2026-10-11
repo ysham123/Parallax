@@ -203,4 +203,3 @@ class TaskSettingsContractTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             RevisionRequest.model_validate({"request_id":str(uuid4()), "candidate_digest":"a" * 64,
                 "correction":"Fix", "task_settings":{"checks":[]}})
-

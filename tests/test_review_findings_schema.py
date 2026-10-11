@@ -133,4 +133,3 @@ class ReviewFindingsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(child["revision"]["findings"], [FINDING])
         self.assertIn(json.dumps([FINDING]), child["spec"]["prompt"])
         self.assertEqual(child["revision"]["parent_digest"], parent["candidate"]["digest"])
-

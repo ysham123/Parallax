@@ -40,11 +40,13 @@ export function Connections({
   onChanged,
   onClose,
   execution,
+  desktopRuntime = false,
 }: {
   connections: Connection[];
   onChanged: () => Promise<void>;
   onClose: () => void;
   execution?: { name: string; platform?: string; paired?: boolean };
+  desktopRuntime?: boolean;
 }) {
   const paired = !!execution?.paired;
   const hosted = import.meta.env.MODE === "cloud" && !paired;
@@ -59,6 +61,7 @@ export function Connections({
   const [credential, setCredential] = useState<"key" | "env">(
     hosted ? "env" : "key",
   );
+  const credentialMode = desktopRuntime ? "key" : credential;
   const initialFocus = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -112,7 +115,9 @@ export function Connections({
       default_model: c.default_model || "",
       advanced: true,
     });
-    setCredential(hosted || c.api_key_env ? "env" : "key");
+    setCredential(
+      desktopRuntime ? "key" : hosted || c.api_key_env ? "env" : "key",
+    );
     setError("");
     setNotice("");
     setRemove(null);
@@ -164,9 +169,13 @@ export function Connections({
     }
     if (
       !connections.some((c) => c.id === draft.id) &&
-      !(credential === "key" ? draft.key.trim() : draft.env.trim())
+      !(credentialMode === "key" ? draft.key.trim() : draft.env.trim())
     ) {
-      setError("Enter an API key or an environment variable name.");
+      setError(
+        desktopRuntime
+          ? "Enter an API key to store in macOS Keychain."
+          : "Enter an API key or an environment variable name.",
+      );
       return;
     }
     setBusy("save");
@@ -176,10 +185,10 @@ export function Connections({
         name: draft.name,
         protocol: draft.protocol,
         ...(draft.endpoint.trim() ? { endpoint: draft.endpoint.trim() } : {}),
-        ...(credential === "key" && draft.key.trim()
+        ...(credentialMode === "key" && draft.key.trim()
           ? { api_key: draft.key }
           : {}),
-        ...(credential === "env" && draft.env.trim()
+        ...(credentialMode === "env" && draft.env.trim()
           ? { api_key_env: draft.env.trim() }
           : {}),
         ...(models ? { models } : {}),
@@ -530,26 +539,31 @@ export function Connections({
               </div>
               <div className="credential-choice" aria-label="Credential source">
                 <button
-                  aria-pressed={credential === "key"}
-                  className={credential === "key" ? "selected" : ""}
+                  aria-pressed={credentialMode === "key"}
+                  className={credentialMode === "key" ? "selected" : ""}
                   onClick={() => setCredential("key")}
                   disabled={hosted}
                 >
                   API key
                 </button>
                 <button
-                  aria-pressed={credential === "env"}
-                  className={credential === "env" ? "selected" : ""}
+                  aria-pressed={credentialMode === "env"}
+                  className={credentialMode === "env" ? "selected" : ""}
                   onClick={() => setCredential("env")}
+                  disabled={desktopRuntime}
                 >
                   Environment variable
                 </button>
               </div>
-              {credential === "key" ? (
+              {credentialMode === "key" ? (
                 <label>
                   API key
                   {editing && (
-                    <small>Leave blank to keep the current key.</small>
+                    <small>
+                      {desktopRuntime && editing.api_key_env
+                        ? "Leave blank to keep the existing environment reference."
+                        : "Leave blank to keep the current key."}
+                    </small>
                   )}
                   <input
                     type="password"
@@ -561,7 +575,9 @@ export function Connections({
                     }
                     placeholder={
                       editing
-                        ? "Current key is stored securely"
+                        ? desktopRuntime && editing.api_key_env
+                          ? "Paste a key to replace the environment reference"
+                          : "Current key is stored securely"
                         : "Paste your API key"
                     }
                   />
@@ -581,10 +597,20 @@ export function Connections({
                 </label>
               )}
               <p className="credential-help">
-                {hosted
-                  ? "Set your API key privately in the Railway runtime’s environment, restart the runtime, then enter the variable name here. Keys are never included in run records."
-                  : "Keys are stored in macOS Keychain on Mac. Other platforms use an environment reference. Keys are never included in profiles or run records."}
+                {desktopRuntime
+                  ? "The desktop app does not inherit shell API keys. Paste your API key here to store it in macOS Keychain. Keys are never included in profiles or run records."
+                  : hosted
+                    ? "Set your API key privately in the Railway runtime’s environment, restart the runtime, then enter the variable name here. Keys are never included in run records."
+                    : "Keys are stored in macOS Keychain on Mac. Other platforms use an environment reference. Keys are never included in profiles or run records."}
               </p>
+              {desktopRuntime && editing?.api_key_env && (
+                <p className="connection-note">
+                  This saved connection uses {editing.api_key_env}. Its
+                  environment reference remains unavailable in the desktop app
+                  until you replace it with an API key. Saving other settings
+                  with the key blank preserves the existing reference.
+                </p>
+              )}
               {draft.provider === "antigravity" && (
                 <p className="connection-note">
                   This connects to the Gemini API. Antigravity CLI uses its own

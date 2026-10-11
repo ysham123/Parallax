@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Parallax Beta · Getting started</title>
+  <style>
+    :root{color-scheme:dark;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#111217;color:#f0eefb;line-height:1.65}
+    body{margin:0}main{max-width:760px;margin:auto;padding:64px 28px 80px}.label{font:11px ui-monospace,monospace;letter-spacing:2px;color:#a59ae8}h1{font-size:clamp(32px,5vw,48px);line-height:1.15;letter-spacing:-1.6px;max-width:640px;margin:18px 0 24px}h2{font-size:21px;margin:38px 0 12px;letter-spacing:-.5px}p,li{color:#b6b3c8;font-size:15px}strong{color:#f0eefb}a{color:#aaa0f2;text-underline-offset:4px}li{padding:5px 0}ol{padding-left:24px}.note{padding:18px 22px;background:#1a1b24;border:1px solid #31323f;border-radius:12px}.example{white-space:normal;font:13px/1.8 ui-monospace,monospace;color:#d5cef5}.muted{font-size:13px}footer{border-top:1px solid #31323f;margin-top:42px;padding-top:20px}code{color:#d5cef5;overflow-wrap:anywhere}.status{color:#7cc7bd}
+  </style>
+</head>
+<body><main>
+  <div class="label">PARALLAX · MAC BETA</div>
+  <h1>Delegate a change.<br>Get back a reviewed patch.</h1>
+  <p>Choose a project in the app, then use local Studio in your browser to define a task, inspect the candidate and decide what to deliver. The app includes Parallax’s Python runtime. Your project tools and provider accounts are separate setup steps.</p>
+  <p class="note muted"><strong>Local review candidate.</strong> This build is unpublished. An official customer download still needs Developer ID signing, notarization, native and fresh-Mac acceptance, and a complete live-provider workflow. Apple Silicon · macOS 15+.</p>
+  <h2>Open your project</h2>
+  <ol>
+    <li>For an accepted download, drag <strong>Parallax Beta</strong> into Applications before starting tasks. Keep the app at that location.</li>
+    <li>Select <strong>Choose folder</strong> and choose an existing Git repository with meaningful tests. Selecting a folder does not start agents.</li>
+    <li>Select <strong>Open local Studio</strong>. Keep the app open while work runs. <strong>Open Studio</strong> reopens the same session.</li>
+  </ol>
+  <h2>Connect your agents</h2>
+  <p>Open <strong>Connections</strong> in Studio. Use your installed, signed-in coding-agent CLIs, or select <strong>API key</strong> to save a provider key in macOS Keychain. The desktop app does not inherit keys exported in a terminal; environment-variable credentials are unavailable through this launcher.</p>
+  <p>Select usable providers for implementation and independent review in the task’s team settings. Provider usage limits and charges remain yours. A detected sign-in does not establish remaining quota.</p>
+  <h2>Make your first task small</h2>
+  <p>Choose one bug whose behavior you can verify. In <strong>New task</strong>, select <strong>Verified change</strong>, open <strong>Configure team, task instructions, and checks</strong>, and set your real check commands and acceptance criteria.</p>
+  <p class="note example">Fix [observed behavior] in [file/function]. Preserve the public interface. Add regression tests for [two cases]. Run [project test command]. Return a reviewed candidate for approval.</p>
+  <p>Replace each bracketed part with your project’s details. Select <strong>Check readiness</strong> and resolve the blocked setup issues before <strong>Start task</strong>. Readiness discovers checks; the workflow runs them.</p>
+  <p>Inspect the saved candidate, check output and independent review. Use <strong>Revise candidate</strong> to request a correction. Approve the fresh candidate when satisfied, then select <strong>Apply locally</strong> separately. Team and GitHub delivery require their own setup and live acceptance.</p>
+  <h2>Stop, recover and update</h2>
+  <p>Closing a browser tab leaves Studio running. <strong>Stop local Studio</strong> stops active work and retains its evidence. Quitting a running app asks whether to stop or keep working. Use <strong>Show Parallax</strong> in the app menu to reopen the launcher window.</p>
+  <p>Saved state lives separately for each project under <code>~/Library/Application Support/Parallax/Beta/projects/</code>. Reopen the same project to inspect recovered work. Recovery does not reset its consumed execution budget.</p>
+  <p>Stop work and quit before replacing the app at the same installed path. There is no automatic updater. Moving an app with provisioned Python task environments can block startup because their saved interpreter links reference its previous location. Preserve that state for recovery; do not edit its links or identity file. A signed task-interpreter policy for native Python dependencies still needs validation.</p>
+  <h2>Your data and support</h2>
+  <p>Local Studio listens on this Mac’s loopback interface. Keep launch links and state directories private. The app does not automatically pair or share your Mac. Selected agents and model providers may receive project context during a task, according to their configuration.</p>
+  <p>Use the <a href="https://github.com/ysham123/Parallax/issues" rel="noreferrer">Parallax issue tracker</a> for a sanitized report: app version, macOS version, architecture and a description of the failure. Exclude provider keys, launch tokens and private code. No report is sent automatically.</p>
+  <footer><span class="label">PARALLAX 1.4.0</span><p class="muted">Native Windows is unsupported. WSL2 is experimental and still needs a complete task on a real Windows machine. This guide is bundled and uses no external assets or scripts.</p></footer>
+</main></body>
+</html>

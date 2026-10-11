@@ -16,6 +16,10 @@ releases
 **/*.db-shm
 **/*.pem
 **/*.key
+**/*.p12
+**/*.pfx
+**/*.keychain
+**/*.keychain-db
 **/.parallax-owned
 **/server.json
 **/connections.json

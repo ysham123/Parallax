@@ -1162,6 +1162,7 @@ export default function App({
   const [reviewTab, setReviewTab] = useState<ReviewTab>("findings");
   const [providers, setProviders] = useState<Provider[]>([]);
   const [connections, setConnections] = useState<Connection[]>([]);
+  const [desktopRuntime, setDesktopRuntime] = useState(false);
   const [connectionsOpen, setConnectionsOpen] = useState(false);
   const [workspaceOverlay, setWorkspaceOverlay] = useState(false);
   const closeConnections = useCallback(() => setConnectionsOpen(false), []);
@@ -1389,13 +1390,17 @@ export default function App({
           .finally(() => {
             if (current()) setHistoryLoading(false);
           }),
-        api<{ workspace: string }>("/context").then(({ workspace }) => {
-          if (current())
-            setSpec((previous) => ({
-              ...previous,
-              workspace: previous.workspace || workspace,
-            }));
-        }),
+        api<{ workspace: string; desktop_runtime?: boolean }>("/context").then(
+          ({ workspace, desktop_runtime }) => {
+            if (current()) {
+              setDesktopRuntime(desktop_runtime === true);
+              setSpec((previous) => ({
+                ...previous,
+                workspace: previous.workspace || workspace,
+              }));
+            }
+          },
+        ),
         api<Connection[]>("/connections").then((connections) => {
           if (current()) setConnections(connections);
         }),
@@ -1736,6 +1741,7 @@ export default function App({
       {connectionsOpen && (
         <ConnectionsPanel
           execution={execution}
+          desktopRuntime={desktopRuntime}
           connections={connections}
           onChanged={load}
           onClose={closeConnections}
@@ -1829,7 +1835,7 @@ export default function App({
               <strong title={spec.workspace}>
                 {shortPath(spec.workspace)}
               </strong>
-              <span>Linked by the plugin</span>
+              <span>Selected for this session</span>
             </div>
           </div>
           <div className="sidebar-options">

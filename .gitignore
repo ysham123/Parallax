@@ -4,7 +4,7 @@ __pycache__/
 .pytest_cache/
 .venv/
 /.venv/
-/studio/node_modules/
+/studio/node_modules
 /studio/dist/
 __pycache__/
 *.pyc
@@ -20,3 +20,9 @@ project-link.json
 # Hosted runtime and worker credentials
 worker-connection.json
 runtime.json
+
+# Signing identities remain in private machine storage.
+*.p12
+*.pfx
+*.keychain
+*.keychain-db
