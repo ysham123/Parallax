@@ -1,11 +1,19 @@
 import { useEffect, useState } from "react";
 import { api, apiUrl, messageOf } from "./api";
-import type { RunResult } from "./types";
+import type { EvidenceObservation, RunResult } from "./types";
+import { gatePresentation } from "./evidence-presentation";
 
 export type VerificationGate = {
   id: string;
   label: string;
-  status: "passed" | "failed" | "unknown" | "not_requested";
+  status:
+    | "passed"
+    | "failed"
+    | "unknown"
+    | "not_requested"
+    | "unavailable"
+    | "skipped"
+    | "unrecorded";
   detail?: string;
 };
 type Receipt = {
@@ -17,6 +25,10 @@ type Receipt = {
   gates: VerificationGate[];
   artifacts?: Record<string, unknown>;
   limitations?: string[];
+  observations?: {
+    kind: "check" | "review";
+    observation: EvidenceObservation;
+  }[];
 };
 const display = (value: unknown) =>
   typeof value === "string" ? value : JSON.stringify(value);
@@ -71,7 +83,7 @@ export function Verification({ run }: { run: RunResult }) {
               <span className="verification-record-state">
                 {receipt.record_state === "final"
                   ? "Final record"
-                  : "Evidence snapshot"}
+                  : "Partial evidence snapshot"}
               </span>
               <span>
                 {receipt.outcome === "applied"
@@ -133,7 +145,7 @@ export function Verification({ run }: { run: RunResult }) {
               {receipt.gates.map((gate) => (
                 <article
                   key={gate.id}
-                  className={`verification-gate ${gate.status}`}
+                  className={`verification-gate ${gatePresentation(gate).state}`}
                 >
                   <span className="verification-gate-icon" aria-hidden="true">
                     {gate.status === "passed"
@@ -147,13 +159,42 @@ export function Verification({ run }: { run: RunResult }) {
                   <div>
                     <h3>{gate.label}</h3>
                     <span className="verification-gate-status">
-                      {gate.status.replaceAll("_", " ")}
+                      {gatePresentation(gate).label}
                     </span>
                     {gate.detail && <p>{gate.detail}</p>}
                   </div>
                 </article>
               ))}
             </div>
+            <p className="evidence-binding">
+              {receipt.observations?.length
+                ? `${receipt.observations.length} observations with recorded artifact binding. Workspace fingerprints identify recorded workspace state, not Git tree IDs.`
+                : "Artifact binding unrecorded. Older verification records do not establish workspace provenance."}
+            </p>
+            {!!receipt.observations?.length && (
+              <details className="verification-hashes">
+                <summary>Recorded observation identities</summary>
+                <dl>
+                  {receipt.observations.map(({ kind, observation }) => (
+                    <div key={observation.id}>
+                      <dt>
+                        {kind} · {observation.phase}
+                      </dt>
+                      <dd>
+                        <code>{observation.id}</code>
+                        <br />
+                        <code>{observation.content_sha256}</code>
+                        <p>
+                          {observation.provenance?.unchanged === true
+                            ? "Workspace unchanged during observation"
+                            : "Workspace stability not established"}
+                        </p>
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </details>
+            )}
             {hashes.length > 0 && (
               <details className="verification-hashes">
                 <summary>

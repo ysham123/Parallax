@@ -10,13 +10,14 @@ import json
 import os
 from pathlib import Path
 from .store import now
+from .evidence import safe_observation
 
 
 def _digest(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
 
-def build_receipt(result: dict, *, final: bool = False) -> dict:
+def build_receipt(result: dict, *, final: bool = False, journal_observations=None) -> dict:
     spec = result["spec"]
     artifacts = result.get("artifacts", {})
     patch = result.get("diff", "")
@@ -66,9 +67,58 @@ def build_receipt(result: dict, *, final: bool = False) -> dict:
     if artifacts.get("source_snapshot_sha256"):
         hashes["source_snapshot_sha256"] = artifacts["source_snapshot_sha256"]
     def safe_check(check,index):
-        return {"id":f"check-{index+1}","ok":check.get("ok") is True,"exit_code":check.get("exit_code"),"elapsed_seconds":check.get("elapsed_seconds"),
+        out = {"id":f"check-{index+1}","ok":check.get("ok") is True,"exit_code":check.get("exit_code"),"elapsed_seconds":check.get("elapsed_seconds"),
                 "environment":{"private":check.get("environment",{}).get("private"),"python_venv":check.get("environment",{}).get("python_venv"),"sandbox":check.get("environment",{}).get("sandbox"),"manifest_sha256":check.get("environment",{}).get("manifest_sha256",{})}}
+        observation = safe_observation(check.get("observation"))
+        if observation is not None: out["observation"] = observation
+        return out
     baseline=artifacts.get("baseline_checks",[])
+    observations = []
+    seen = set()
+    def observation_entry(kind, metadata, evidence):
+        out = {"kind":kind,"observation":metadata}
+        raw = evidence.get("error")
+        code = raw.get("code") if isinstance(raw, dict) else raw
+        if not isinstance(code, str): code = "unrecorded_error" if raw is not None else None
+        known = {"cancelled","interrupted","process_termination_failed","check_unavailable",
+                 "review_unavailable","readonly_changed","invalid_review","no_verdict",
+                 "check_failed","timeout","provider_failure","provider_failed","provider_unavailable"}
+        unavailable = {"cancelled","interrupted","process_termination_failed","check_unavailable",
+                       "review_unavailable","readonly_changed","invalid_review","no_verdict",
+                       "provider_failure","provider_failed","provider_unavailable"}
+        if evidence.get("status") in {"skipped","not_requested"}:
+            out["outcome"] = "skipped"
+        elif (evidence.get("verdict") == "rejected" and isinstance(metadata.get("provenance"), dict)
+              and metadata["provenance"].get("unchanged") is True):
+            out["outcome"] = "failed"
+        elif code in unavailable or evidence.get("verdict") == "unavailable":
+            out["outcome"] = "unavailable"
+        elif code or evidence.get("ok") is False:
+            out["outcome"] = "failed" if kind == "check" or not code else "unavailable"
+        else:
+            out["outcome"] = "passed" if evidence.get("ok") is True else "unrecorded"
+        if isinstance(code, str) and code in known:
+            out["error_code"] = code
+        if evidence.get("verdict") in {"approved","rejected","unavailable"}:
+            out["verdict"] = evidence["verdict"]
+        return out
+    for kind, values in (("check", [*baseline, *checks]), ("review", reviews)):
+        for value in values:
+            observation = safe_observation(value.get("observation"))
+            if observation is not None and observation["id"] not in seen:
+                seen.add(observation["id"])
+                observations.append(observation_entry(kind,observation,value))
+    for value in journal_observations or []:
+        observation = safe_observation(value.get("observation"))
+        if value.get("kind") in {"check", "review"} and observation is not None and observation["id"] not in seen:
+            seen.add(observation["id"])
+            observations.append(observation_entry(value["kind"],observation,value.get("evidence", {})))
+    def safe_review(review):
+        out = {key: review.get(key) for key in ("provider", "task_id", "ok")}
+        observation = safe_observation(review.get("observation"))
+        if observation is not None: out["observation"] = observation
+        if review.get("verdict") in {"approved", "rejected", "unavailable"}: out["verdict"] = review["verdict"]
+        return out
     application = artifacts.get("application", {})
     provider_failures = []
     for failure in result.get("errors", []):
@@ -80,7 +130,7 @@ def build_receipt(result: dict, *, final: bool = False) -> dict:
         if isinstance(failure.get("diagnostics"), str):
             summary["diagnostics_sha256"] = _digest(failure["diagnostics"])
         provider_failures.append(summary)
-    return {"contract_version": "1.1", "run_id": result["run_id"], "generated_at": now(),
+    return {"contract_version": "1.2", "run_id": result["run_id"], "generated_at": now(),
             "record_state": "final" if final else "snapshot",
             "outcome": "applied" if applied else "verified" if verified else "partial",
             "approval": {key: application.get(key) for key in ("state", "digest", "decision_id", "approved_at", "applied_at", "policy")} if application else None,
@@ -91,16 +141,19 @@ def build_receipt(result: dict, *, final: bool = False) -> dict:
                        for index, check in enumerate(checks)],
             "baseline": {"recorded":artifacts.get("baseline_complete",False),"snapshot_sha256":artifacts.get("baseline_snapshot_sha256"),"checks":[safe_check(c,i) for i,c in enumerate(baseline)]},
             "final_checks": [safe_check(c,i) for i,c in enumerate(checks)],
-            "reviews": [{key: review.get(key) for key in ("provider", "task_id", "ok")} for review in reviews],
+            "reviews": [safe_review(review) for review in reviews],
+            "observations": observations,
+            "observation_scope":"recorded journal and saved result" if journal_observations is not None else "saved result only",
             "provider_failures": provider_failures,
             "limitations": ["Evidence covers recorded checks and reviews; it does not prove correctness.",
                             "Manifest hashes identify declared setup; unpinned dependencies may resolve differently.",
                             "This local record is not signed. Its hashes identify the patch and run specification.",
+                            "Workspace fingerprints include recorded Git state; they are not Git tree object IDs.",
                             "Export omits prompts, raw sessions, endpoints, absolute workspace paths and command output."]}
 
 
-def save_receipt(result: dict) -> dict:
-    record = build_receipt(result, final=True)
+def save_receipt(result: dict, *, journal_observations=None) -> dict:
+    record = build_receipt(result, final=True, journal_observations=journal_observations)
     target = Path(result["artifacts"]["directory"]) / "verification.json"
     temporary = target.with_suffix(".json.tmp")
     data = json.dumps(record, indent=2, sort_keys=True) + "\n"
@@ -131,4 +184,4 @@ def get_receipt(store, run_id: str) -> dict:
         if record["artifacts"]["spec_sha256"] != _digest(json.dumps(result["spec"],sort_keys=True,separators=(",", ":"))):
             raise ValueError("Verification record does not match the saved run specification")
         return record
-    return build_receipt(result)
+    return build_receipt(result, journal_observations=store.observations(run_id))

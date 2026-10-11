@@ -8,7 +8,9 @@
   <img src="https://img.shields.io/badge/python-3.10%2B-black" alt="Python 3.10+">
 </p>
 
-Parallax runs a team of coding agents from different providers on your project and integrates only what survives independent review and your project's real checks. Codex, Claude Code, Grok Build and Antigravity can each coordinate, implement or review. Every agent works in an isolated checkout, a different provider reviews each change, and the combined result must pass your checks before a single line reaches your working tree. Each integrated result comes with a verification record.
+Parallax coordinates your coding agents to prepare a reviewed patch with recorded project checks. Build and Compare isolate implementation, require review from a provider outside the implementing team, and check the combined candidate before delivery. The development-preview workflow lets you inspect, revise and approve a saved candidate, then separately apply it locally or publish a configured draft PR. Legacy CLI/plugin runs keep their existing integration behavior. Each verified result includes a verification record.
+
+Provider roles depend on the selected transport and its enforceable capabilities. Native Grok is currently unavailable in this preview; Claude Code and Antigravity use restricted file tools with shell and content-search tools disabled. Supported API connections are also available. Run diagnostics and check quota before delegating; detecting a sign-in does not establish live readiness.
 
 It runs from Claude Code, from Codex, or from the command line. Studio organizes work by project and task, with team activity beside file diffs, checks, and independent reviews. Start a task, direct the team, revise a saved candidate, and approve the exact candidate when it is ready. New Studio tasks separate approval from local application or draft GitHub PR delivery. Saved recipes preserve your team, instructions, and checks; recorded progress and evidence survive disconnects and worker restarts.
 

@@ -358,7 +358,7 @@ export default function Auth({
               </p>
               {mode === "signup" && (
                 <p className="auth-note">
-                  Parallax never sees your repositories. Agents run on machines you connect, with your own provider sign-ins.
+                  Signing in does not grant repository access. Agents run on machines you connect; connected workspaces sync task evidence that can include code.
                 </p>
               )}
             </>

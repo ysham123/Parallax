@@ -89,6 +89,8 @@ def permitted(method: str, path: str, query: str = "") -> bool:
             return not parameters
         return bool(re.fullmatch(r"/api/(pilot/report|context|deployment|providers|connections|profiles|project-profiles|runs|feedback/export|models/[a-z][a-z0-9_-]{0,47}|runs/[a-f0-9-]{36}(?:/(?:receipt|patch|recovery|event-log))?)", path))
     if method == "POST":
+        if path in {"/api/pilot/benchmark", "/api/pilot/observations"}:
+            return not parameters
         if re.fullmatch(r"/api/(?:workflow-templates|workflows(?:/[a-f0-9-]{36}/(?:decision|resume|cancel|revise|approve|apply|reviewer|comment|publish|publication-preview|begin-publication|record-publication|github-refresh))?)", path):
             return not parameters
         return bool(re.fullmatch(r"/api/(pilot/benchmark|runs|project/assess|feedback/baseline|connections/[a-z][a-z0-9_-]{0,63}/test|runs/[a-f0-9-]{36}/(?:steer|pause|stop|cancel|resume|recover|feedback))", path))
@@ -698,6 +700,12 @@ class ExecutorHub:
             requester = command.pop("requester", None)
             try:
                 ctx = command.get("authority") or {}
+                pilot_feature = "pilot-observations-v1" if command["method"] == "POST" and command["path"] == "/api/pilot/observations" else (
+                    "pilot-evaluation-v1" if command["method"] == "POST" and command["path"] == "/api/pilot/benchmark" and isinstance(command.get("body"), dict) and command["body"].get("evaluation") is not None else None)
+                if pilot_feature and pilot_feature not in self.worker(worker, workspace).get("features", []):
+                    if row["dispatched"] is not None:
+                        return None
+                    raise HTTPException(409, "Update this worker for recorded pilot evidence")
                 requires_v2 = ctx.get("team") or command["path"].endswith(("/revise","/approve","/apply","/publication-preview","/begin-publication","/record-publication")) or (
                     command["method"] == "POST" and command["path"] == "/api/workflows" and isinstance(command.get("body"),dict) and command["body"].get("schema_version") == "2.0")
                 if requires_v2 and "workflow-v2" not in self.worker(worker,workspace).get("features",[]):

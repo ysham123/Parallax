@@ -282,6 +282,7 @@
   display: flex;
   flex-direction: column;
   background: var(--background);
+  overflow: hidden;
 }
 .task-alert,
 .task-notice {
@@ -335,6 +336,127 @@
   flex: 1;
   min-height: 0;
   min-width: 0;
+  overflow-y: auto;
+}
+.candidate-summary {
+  flex-shrink: 0;
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  font-size: 12px;
+}
+.candidate-summary > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.candidate-summary h2 {
+  margin: 0;
+  font-size: 14px;
+}
+.candidate-summary > header code {
+  color: var(--muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.candidate-summary > p {
+  margin: 8px 0 12px;
+  line-height: 1.5;
+}
+.candidate-summary-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px 20px;
+  margin: 0 0 12px;
+}
+.candidate-summary-facts dt {
+  color: var(--muted);
+  font-size: 11px;
+  margin-bottom: 3px;
+}
+.candidate-summary-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.candidate-summary-facts button {
+  text-align: left;
+  line-height: 1.5;
+}
+.candidate-uncertainty {
+  border-left: 2px solid var(--line);
+  padding-left: 10px;
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+.candidate-uncertainty p {
+  margin: 4px 0;
+}
+.candidate-summary > a {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.candidate-summary > a span,
+.evidence-binding {
+  color: var(--muted);
+}
+.task-workspace > .task-panels {
+  flex: 1 0 380px;
+  min-height: 380px;
+}
+.evidence-outcome {
+  font-size: 12px;
+}
+.evidence-outcome.passed {
+  color: var(--success, #3bb68a);
+}
+.evidence-outcome.failed {
+  color: var(--danger, #df7869);
+}
+.evidence-outcome.unavailable,
+.evidence-outcome.unrecorded,
+.evidence-outcome.skipped {
+  color: var(--muted);
+}
+.evidence-reason,
+.evidence-binding {
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.task-check-phases > section {
+  margin-bottom: 24px;
+}
+.task-check-phases h2 {
+  font-size: 14px;
+}
+.task-check-phases > section > p {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.decision-gates .failed {
+  color: var(--danger, #df7869);
+}
+.decision-gates .unavailable,
+.decision-gates .skipped,
+.decision-gates .unrecorded {
+  color: var(--muted);
+}
+@media (max-width: 980px) {
+  .candidate-summary-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 700px) {
+  .candidate-summary {
+    padding: 14px 15px;
+  }
+  .candidate-summary-facts {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
 }
 .task-titlebar {
   padding: 17px 22px 14px;

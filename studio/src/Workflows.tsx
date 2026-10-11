@@ -55,6 +55,7 @@ export type Workflow = {
   required_worker_features?: string[];
   requester?: string;
   reviewer?: string;
+  delivery?: { local?: string; github?: string };
   publication_operation?: string;
   github_target?: { id: string; full_name: string; base: string };
   publication?: {
@@ -1174,10 +1175,12 @@ export function Workflows({
                 <p>
                   Full evidence is retained locally.{" "}
                   {evidenceTransport.problem_count} record
-                  {evidenceTransport.problem_count === 1 ? " exceeds" : "s exceed"} the
-                  relay limit and cannot be inspected in remote Studio. Remote
-                  approval is blocked for affected candidates. Open local Studio
-                  on the machine to inspect the saved evidence.
+                  {evidenceTransport.problem_count === 1
+                    ? " exceeds"
+                    : "s exceed"}{" "}
+                  the relay limit and cannot be inspected in remote Studio.
+                  Remote approval is blocked for affected candidates. Open local
+                  Studio on the machine to inspect the saved evidence.
                 </p>
                 {evidenceTransport.detail && <p>{evidenceTransport.detail}</p>}
               </div>

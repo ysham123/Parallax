@@ -1,12 +1,30 @@
 """Portable, disposable-only configuration and remote simulator for pilot fixtures."""
 import argparse
 import hashlib
+import ipaddress
 import json
 import re
 import subprocess
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import httpx
+
+
+def loopback_origin(value):
+    """An origin for disposable HTTP fixtures, never an external service URL."""
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+        host = parsed.hostname
+        loopback = host == "localhost" or (host is not None and ipaddress.ip_address(host).is_loopback)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("--origin must use a loopback host and valid port") from exc
+    if (parsed.scheme not in {"http", "https"} or not loopback or parsed.username is not None
+            or parsed.password is not None or port is None or not 1 <= port <= 65535
+            or parsed.path not in {"", "/"} or parsed.query or parsed.fragment):
+        raise argparse.ArgumentTypeError("--origin must be http(s)://localhost, 127.0.0.1 or [::1] with an explicit port and no credentials, path or query")
+    return value.rstrip("/")
 
 
 def fixture_options(argv=None):
@@ -29,13 +47,21 @@ def prepare_fixture_root(path):
     marker = path / ".pilot-fixture"
     if path.is_symlink() or project.is_symlink() or marker.is_symlink():
         raise ValueError("Fixture root, project and marker must not be symlinks")
+    # Resolve benign ancestor aliases such as macOS /tmp -> /private/tmp only
+    # after rejecting direct ownership/project/marker symlinks. Worker project
+    # authorization compares canonical paths, so the fixture must report those.
+    path = path.resolve()
+    project = path / "project"
+    marker = path / ".pilot-fixture"
+    if path.is_symlink() or project.is_symlink() or marker.is_symlink():
+        raise ValueError("Fixture root, project and marker must not be symlinks")
     path.mkdir(parents=True, exist_ok=True)
     if project.exists() and not marker.exists():
         # Adopt only the known earlier fixture, retaining its history and candidate state.
         def git(*args):
             return subprocess.run(["git", *args], cwd=project, check=True, capture_output=True, text=True).stdout.strip()
         try:
-            legacy = (path == Path.home() / "Parallax-adversarial-browser-fixture"
+            legacy = (path == (Path.home() / "Parallax-adversarial-browser-fixture").resolve()
                       and git("config", "user.email") == "fixture@example.invalid"
                       and not git("remote")
                       and git("log", "--format=%s", "--reverse").splitlines()[0] == "Fixture baseline"

@@ -17,6 +17,7 @@ from .models import CheckEvidence, CoordinatorAction, Participant, RunResult, Ru
 from .store import Store
 from .assessment import assess_project, execution_capability, package_directory
 from .recovery import classify, recovery_options
+from .evidence import phase_attempt, record_observation, bind_current_observations, content_digest, text_digest
 from .context import (PROMPT_LIMIT, REQUEST_LIMIT, Packet, consultant_packet, coordinator_packet, distiller_packet,
                       filter_patch, findings as context_findings, memory_scrubber, review_packet, synthesis_packet, worker_packet)
 
@@ -387,8 +388,9 @@ class Engine:
         message = "Reconcile interrupted work and inspect saved evidence before dispatching."
         if action == "repair_candidate":
             message = "Repair the candidate against the original acceptance criteria. Use independent findings and actual failed check output. Keep every required check."
-        self.steer(run_id, message)
-        self.store.event(run_id, "recovery_requested", {"action": action, "category": choices["category"]})
+        steering = self.steer(run_id, message)
+        self.store.event(run_id, "recovery_requested", {"action": action, "category": choices["category"],
+            "steering_sequence": steering["sequence"]})
         return self.control(run_id, "resume")
 
     async def start(self, spec: RunSpec, *, request_key: str | None = None, candidate_seed: dict | None = None, authorization: dict | None = None) -> dict:
@@ -562,6 +564,7 @@ class Engine:
         result["sessions"].append({"provider":participant.provider,"task_id":task_id,"transport":participant.transport,"connection_id":participant.connection_id,"mode":mode,
             "workspace":str(workspace),"session_id":outcome.get("session_id"),
             "requested_settings":outcome.get("requested_settings",{}),"effective_settings":outcome.get("effective_settings",{}),**tagged,
+            **({"boundary_evidence":_boundary_evidence(outcome["boundary_evidence"])} if "boundary_evidence" in outcome else {}),
             **({"role":role} if role else {}),
             **({"context_sha256":manifest["sha256"],"context_chars":manifest["chars"]} if manifest else {})})
         usage = outcome.get("usage") or {}
@@ -579,7 +582,7 @@ class Engine:
                 "message":_safe_error(error.get("message", "Provider invocation failed") if isinstance(error, dict) else error), **tagged}
             if outcome.get("diagnostics"):
                 failure["diagnostics"] = _safe_error(outcome["diagnostics"])
-            failure["category"] = classify(failure["message"])
+            failure["category"] = "configuration" if failure["provider_error_code"] == "unsafe_configuration" else classify(failure["message"])
             result["errors"].append(failure)
             self.store.event(run_id, "provider_diagnostics" if failure_emitted else "provider_failure", failure, task_id)
         self.store.save(result)
@@ -628,7 +631,7 @@ class Engine:
                         result["artifacts"]["preservation"]=metadata.get("preservation",{})
                         if not result["artifacts"].get("verification_record"):
                             from .receipt import save_receipt
-                            save_receipt(result)
+                            save_receipt(result,journal_observations=self.store.observations(run_id))
                         result["summary"] = result["summary"] or "Recovered an already verified integration."
                         self.store.save(result)
                         self.store.event(run_id,"completed",{"recovered":True})
@@ -696,10 +699,21 @@ class Engine:
                 (target / ".parallax-owned").write_text(run_id)
                 from .workspaces import fingerprint
                 before=fingerprint(target)
-                outcome = await self._provider(run_id,member,target,consultant_packet(spec.prompt,task_id=f"review-{index}"),task_id=f"review-{index}",role="consultant")
-                if fingerprint(target)!=before:
+                evidence_attempt=phase_attempt("consultation",f"review-{index}")
+                try:
+                    outcome = await self._provider(run_id,member,target,consultant_packet(spec.prompt,task_id=f"review-{index}"),task_id=f"review-{index}",role="consultant")
+                except (asyncio.CancelledError, Exception) as exc:
+                    value={"provider":member.provider,"ok":False,"answer":"","verdict":"unavailable",
+                        "error":{"code":"cancelled" if isinstance(exc,asyncio.CancelledError) else "review_unavailable","message":str(exc)}}
+                    record_observation(self.store,run_id,"review",value,evidence_attempt,
+                        before=before,after=fingerprint(target),requirements={"request":spec.prompt})
+                    raise
+                after=fingerprint(target)
+                if after!=before:
                     outcome={**outcome,"ok":False,"error":{"code":"readonly_changed","message":"Consultation changed its isolated workspace"}}
-                return {"provider":member.provider,"ok":outcome.get("ok",False),"answer":outcome.get("answer"),"error":outcome.get("error")}
+                value={"provider":member.provider,"ok":outcome.get("ok",False),"answer":outcome.get("answer"),"error":outcome.get("error")}
+                return record_observation(self.store,run_id,"review",value,evidence_attempt,
+                    before=before,after=after,requirements={"request":spec.prompt})
         reviews = await asyncio.gather(*(review(i,p) for i,p in enumerate(spec.team)))
         result = self.store.get(run_id)
         result["reviews"] = reviews
@@ -1298,14 +1312,16 @@ class Engine:
         reviewer=next((p for p in spec.team if p.provider!=member.provider and p.role=="reviewer"),None) or next((p for p in [spec.coordinator,*spec.team] if p.provider!=member.provider),None)
         if reviewer is None: return finish({"ok":False,"error":"No independent reviewer","workspace":str(target)})
         requirements={**task,"id":task.get("variant_of") or task["id"]}
-        review=await self._assess_patch(run_id,reviewer,target,spec.prompt,requirements,task["id"],patch=collected.get("patch") or "")
+        review=await self._assess_patch(run_id,reviewer,target,spec.prompt,requirements,task["id"],patch=collected.get("patch") or "",
+            observation_attempt=phase_attempt("task", task["id"], attempt))
         if not review["ok"]: return finish({**collected,"ok":False,"error":"Independent review rejected the change","workspace":str(target),"review":review,"provider_result":_handoff(outcome)})
         active["reviewed_fingerprint"] = manager.fingerprint(target)
         return finish({**collected,"ok":True,"workspace":str(target),"review":review,"provider_result":_handoff(outcome)}, "reviewed")
 
-    async def _assess_patch(self,run_id,reviewer,target,request,task,task_id,*,evidence=None,patch="",patch_budget=40000):
+    async def _assess_patch(self,run_id,reviewer,target,request,task,task_id,*,evidence=None,patch="",patch_budget=40000,observation_attempt=None):
         from .workspaces import fingerprint
         before=fingerprint(target)
+        evidence_attempt = observation_attempt or phase_attempt("final" if task_id == "integration" else "task", task_id)
         schema=REVIEW_VERDICT_SCHEMA
         # The evaluator sees the request, the original requirements, this candidate's patch, and this candidate's
         # evidence only: never the implementer's identity or narrative, prior reviews, or other candidates.
@@ -1316,7 +1332,15 @@ class Engine:
             "a one-based start/end line range. Otherwise set code_location to null. "
             "Never invent or guess file locations or line numbers. Legacy plain-text findings remain accepted.")
         for attempt in range(2):
-            outcome=await self._provider(run_id,reviewer,target,packet,task_id="review-"+task_id,schema=schema,role="reviewer")
+            try:
+                outcome=await self._provider(run_id,reviewer,target,packet,task_id="review-"+task_id,schema=schema,role="reviewer")
+            except (asyncio.CancelledError, Exception) as exc:
+                interrupted={"provider":reviewer.provider,"task_id":task_id,"ok":False,
+                    "findings":[],"summary":"","verdict":"unavailable",
+                    "error":{"code":"cancelled" if isinstance(exc,asyncio.CancelledError) else "review_unavailable","message":str(exc)}}
+                record_observation(self.store,run_id,"review",interrupted,{**evidence_attempt,"reviewer_attempt":attempt+1},
+                    before=before,after=fingerprint(target),patch=patch,requirements={"request":request,"task":task})
+                raise
             try:
                 structured=outcome.get("structured_output") or json.loads(outcome.get("answer") or "{}")
             except ValueError:
@@ -1332,7 +1356,17 @@ class Engine:
             # could approve the same candidate without addressing the refusal.
             if structured.get("approved") is False or verdict or not outcome.get("ok") or fingerprint(target)!=before:
                 break
-        unchanged=fingerprint(target)==before
+            # Preserve the unavailable first response before a fresh retry.
+            # It never enters reviews or contributes to acceptance gates.
+            if attempt == 0:
+                discarded={"provider":reviewer.provider,"task_id":task_id,"ok":False,"findings":[],
+                    "summary":structured.get("summary") if isinstance(structured.get("summary"),str) else "",
+                    "verdict":"unavailable","error":{"code":"invalid_review" if isinstance(structured.get("approved"),bool) else "no_verdict",
+                        "message":"The reviewer response was unavailable; a fresh retry was requested"}}
+                record_observation(self.store,run_id,"review",discarded,{**evidence_attempt,"reviewer_attempt":attempt+1},
+                    before=before,after=fingerprint(target),patch=patch,requirements={"request":request,"task":task})
+        after=fingerprint(target)
+        unchanged=after==before
         error=outcome.get("error")
         if not unchanged:
             error={"code":"readonly_changed","message":"Reviewer changed its isolated workspace"}
@@ -1344,7 +1378,10 @@ class Engine:
         if not verdict and structured.get("approved") is False:
             raw=structured.get("findings")
             review_findings=context_findings(raw if isinstance(raw,list) else [raw] if raw is not None else [], limit=50, each=4000)
-        review={"provider":reviewer.provider,"task_id":task_id,"ok":bool(unchanged and outcome.get("ok") and verdict and structured.get("approved") is True),"findings":review_findings,"summary":summary if isinstance(summary,str) else "","error":error}
+        review={"provider":reviewer.provider,"task_id":task_id,"ok":bool(unchanged and outcome.get("ok") and verdict and structured.get("approved") is True),"findings":review_findings,"summary":summary if isinstance(summary,str) else "","error":error,
+            "verdict":"approved" if unchanged and outcome.get("ok") and verdict and structured.get("approved") is True else "rejected" if unchanged and outcome.get("ok") and structured.get("approved") is False else "unavailable"}
+        review=record_observation(self.store,run_id,"review",review,{**evidence_attempt,"reviewer_attempt":attempt+1},
+            before=before,after=after,patch=patch,requirements={"request":request,"task":task})
         result=self.store.get(run_id);result["reviews"].append(review);self.store.save(result)
         self.store.event(run_id,"review",review,task_id)
         return review
@@ -1456,7 +1493,9 @@ class Engine:
         if python: (environment/"python-ready").write_text("installed")
         return ({"VIRTUAL_ENV":str(python.parent.parent),"PATH":str(python.parent)+os.pathsep+os.environ.get("PATH","")} if python else {}),python
 
-    async def _checks(self,run_id,workspace,checks,task_id=None,phase="final"):
+    async def _checks(self,run_id,workspace,checks,task_id=None,phase="final",*,observation_attempt=None):
+        from .workspaces import fingerprint
+        evidence_attempt = observation_attempt or phase_attempt(phase, task_id)
         required=self.store.get(run_id)["artifacts"].get("required_checks",[])
         if required and phase!="baseline":
             keys={(tuple(c.argv),c.cwd,c.timeout) for c in checks}
@@ -1469,7 +1508,20 @@ class Engine:
         for relative in dict.fromkeys(c.cwd for c in checks):
             root=package_directory(workspace,relative)
             group=[c.model_copy(update={"cwd":"."}) for c in checks if c.cwd==relative]
-            environments[relative]=await self._ensure_environment(run_id,root,group)
+            before=fingerprint(workspace)
+            try:
+                environments[relative]=await self._ensure_environment(run_id,root,group)
+            except (asyncio.CancelledError, Exception) as exc:
+                after=fingerprint(workspace)
+                for check in checks:
+                    if check.cwd != relative: continue
+                    item={"schema_version":"1.2","name":check.name,"argv":check.argv,"cwd":check.cwd,
+                        "phase":phase,"ok":False,"exit_code":None,"output":str(exc),"elapsed_seconds":0,
+                        "error":"cancelled" if isinstance(exc,asyncio.CancelledError) else "check_unavailable",
+                        "task_id":task_id,"environment":{"private":True}}
+                    record_observation(self.store,run_id,"check",item,evidence_attempt,
+                        before=before,after=after,check_spec=check.model_dump())
+                raise
         for check in checks:
             root=package_directory(workspace,check.cwd)
             environment,project_python=environments[check.cwd]
@@ -1483,6 +1535,7 @@ class Engine:
                 env["PYTHONPATH"]=str(root/"src")+os.pathsep+str(root)
             command=list(check.argv)
             if project_python and Path(command[0]).name.startswith("python"): command[0]=str(project_python)
+            before=fingerprint(workspace)
             try:
                 outcome=await self._command(run_id,command,root,env,check.timeout,writable=[temporary],
                     readable=[project_python.parent.parent] if project_python else [],task_id=task_id)
@@ -1492,9 +1545,18 @@ class Engine:
                 item={"name":check.name,"argv":check.argv,"ok":ok,"exit_code":outcome.exit_code,"output":output,"elapsed_seconds":round(time.monotonic()-started,2),"error":code,"task_id":task_id}
             except OSError as exc:
                 item={"name":check.name,"argv":check.argv,"ok":False,"exit_code":None,"output":str(exc),"elapsed_seconds":0,"error":"check_unavailable","task_id":task_id}
+            except asyncio.CancelledError:
+                item={"schema_version":"1.2","name":check.name,"argv":check.argv,"cwd":check.cwd,"phase":phase,
+                    "ok":False,"exit_code":None,"output":"","elapsed_seconds":round(time.monotonic()-started,2),
+                    "error":"cancelled","task_id":task_id,"environment":{"private":True}}
+                record_observation(self.store,run_id,"check",item,evidence_attempt,
+                    before=before,after=fingerprint(workspace),check_spec=check.model_dump())
+                raise
             manifests={name:hashlib.sha256((root/name).read_bytes()).hexdigest() for name in ("requirements.txt","requirements.lock","pyproject.toml","package-lock.json","npm-shrinkwrap.json","package.json") if (root/name).is_file() and not (root/name).is_symlink()}
-            item.update(schema_version="1.1",cwd=check.cwd,phase=phase,environment={"private":True,"python_venv":project_python is not None,"manifest_sha256":manifests,"sandbox":execution_capability()["backend"]})
-            item=CheckEvidence.model_validate(item).model_dump()
+            item.update(schema_version="1.2",cwd=check.cwd,phase=phase,environment={"private":True,"python_venv":project_python is not None,"manifest_sha256":manifests,"sandbox":execution_capability()["backend"]})
+            item=CheckEvidence.model_validate(item).model_dump(exclude={"observation"})
+            item=record_observation(self.store,run_id,"check",item,evidence_attempt,
+                before=before,after=fingerprint(workspace),check_spec=check.model_dump())
             evidence.append(item);self.store.event(run_id,"check",item,task_id)
             if item["error"]=="process_termination_failed": raise RunProblem("A check process survived termination; its workspace cannot be reused yet")
             if item["error"]=="cancelled": raise asyncio.CancelledError()
@@ -1528,10 +1590,19 @@ class Engine:
         if any((tuple(c.argv),c.cwd,c.timeout) not in keys for c in required):
             raise ValueError("Every configured check remains required; a coordinator cannot remove or weaken a check")
         result["artifacts"].pop("validated_fingerprint",None)
+        result["artifacts"].pop("verified_workspace_binding",None)
         self.store.save(result)
         before=manager.diff()
         source_before=manager.fingerprint(manager.integration_path)
-        evidence=await self._checks(run_id,manager.integration_path,checks)
+        evidence_attempt=phase_attempt("final", "integration")
+        evidence_attempt.update(request_sha256=text_digest(spec.prompt),
+            check_specs_sha256=content_digest([check.model_dump() for check in checks]),
+            required_checks_sha256=content_digest(result["artifacts"].get("required_checks", [])))
+        result=self.store.get(run_id)
+        result["artifacts"]["current_verification_attempt"]=evidence_attempt
+        self.store.save(result)
+        self.store.event(run_id,"evidence_attempt_started",evidence_attempt,"integration")
+        evidence=await self._checks(run_id,manager.integration_path,checks,observation_attempt=evidence_attempt)
         result=self.store.get(run_id)
         result["checks"]=evidence
         result["diff"]=manager.diff()
@@ -1548,7 +1619,7 @@ class Engine:
         reviewer=next((p for p in candidates if p.provider not in contributors),None)
         if reviewer is None: raise ValueError("Combined verification needs a provider that did not implement this candidate")
         review=await self._assess_patch(run_id,reviewer,manager.integration_path,spec.prompt,self._integration_requirements(result,spec),"integration",
-            evidence=evidence,patch=before,patch_budget=60000)
+            evidence=evidence,patch=before,patch_budget=60000,observation_attempt=evidence_attempt)
         if not review["ok"]: raise ValueError("Combined integration review failed")
         result=self.store.get(run_id)
         result["checks"]=evidence
@@ -1587,6 +1658,11 @@ class Engine:
             if not refreshed["ok"]: raise RunProblem("Destination conflict: " + refreshed.get("error","Could not refresh candidate"))
             checks=[CheckSpec.model_validate(c) for c in result["spec"]["checks"]]
             await self._verify(run_id,spec,manager,checks)
+        result=self.store.get(run_id)
+        binding=bind_current_observations(self.store,result,manager.integration_path)
+        if binding is not None:
+            result["artifacts"]["verified_workspace_binding"]=binding
+            self.store.save(result)
         self._status(run_id,"integrating")
         diff=manager.diff()
         source_fingerprint=manager.fingerprint(manager.workspace)
@@ -1609,14 +1685,39 @@ class Engine:
         patch.write_text(diff)
         result["artifacts"]["patch"]=str(patch)
         from .receipt import save_receipt
-        save_receipt(result)
+        save_receipt(result,journal_observations=self.store.observations(run_id))
         self.store.save(result)
         self.store.event(run_id,"integrated",{"applied":spec.integrate,"changed_files":result["changed_files"]})
+
+def _boundary_evidence(value):
+    """Retain audit facts, never arbitrary hook payloads or a claim of safety.
+
+    A hook observation is evidence of that callback, not proof every tool was
+    covered. Missing or malformed audits remain explicitly unrecorded. Raw
+    paths, arguments, credentials and unexpected fields are not persisted.
+    """
+    from .providers import AGY_EDIT_TOOLS
+    reported = value.get("pre_tool_gate") if isinstance(value, dict) else None
+    records = reported if isinstance(reported, list) else []
+    retained = []
+    counts = {"allow":0,"deny":0,"unknown":0}
+    for record in records[:256]:
+        record = record if isinstance(record, dict) else {}
+        tool = record.get("tool")
+        decision = record.get("decision")
+        tool = tool if isinstance(tool, str) and tool in AGY_EDIT_TOOLS else "unrecognized"
+        decision = decision if isinstance(decision, str) and decision in {"allow", "deny"} else "unknown"
+        counts[decision] += 1
+        retained.append({"tool":tool,"decision":decision})
+    status = "invalid" if counts["unknown"] or (reported is not None and not isinstance(reported, list)) else "observed" if retained else "unrecorded"
+    return {"pre_tool_gate":retained,"pre_tool_gate_status":status,
+            "pre_tool_gate_counts":{"reported":len(records),"retained":len(retained),**counts},"truncated":len(records)>len(retained)}
 
 def _handoff(outcome):
     """What a later repair may see of an attempt: its result and the tail of its own answer, nothing else."""
     return {key: outcome.get(key) for key in ("ok", "error", "exit_code", "elapsed_seconds", "effective_settings", "session_id") if key in outcome} | \
-        {"answer": str(outcome.get("answer") or "")[-4000:]}
+        {"answer": str(outcome.get("answer") or "")[-4000:]} | \
+        ({"boundary_evidence":_boundary_evidence(outcome["boundary_evidence"])} if "boundary_evidence" in outcome else {})
 
 def _owned(name,pattern):
     return name==pattern.rstrip("/") or name.startswith(pattern.rstrip("/")+"/") or fnmatch.fnmatchcase(name,pattern)

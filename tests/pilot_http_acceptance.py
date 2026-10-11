@@ -1,15 +1,20 @@
 """Real loopback HTTP acceptance against pilot_browser_fixture.py.
 
 Agents and GitHub are simulated by that fixture. This is not browser or live
-provider acceptance. Run with the fixture listening on 127.0.0.1:8766.
+provider acceptance. Run with the fixture listening on 127.0.0.1:8766, or pass
+--origin http://127.0.0.1:<fixture-port> for a separate disposable fixture.
 """
+import argparse
 import json
 import time
 from uuid import uuid4
 
 import httpx
+from pilot_fixture_support import loopback_origin
 
-ORIGIN = "http://127.0.0.1:8766"
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--origin", type=loopback_origin, default="http://127.0.0.1:8766")
+ORIGIN = parser.parse_args().origin
 checks = []
 
 

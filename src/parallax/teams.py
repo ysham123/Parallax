@@ -242,10 +242,10 @@ class Teams:
         if method == "GET" and not (path in {"/api/context","/api/deployment","/api/providers","/api/connections","/api/workflows","/api/runs","/api/workflow-templates","/api/pilot/report"} or path.startswith(("/api/models/","/api/workflows/","/api/runs/"))):
             raise HTTPException(403,"This machine-level data is not shared with the team")
         if method != "GET":
-            if path.endswith('/decision') or path.endswith('/approve') or path.endswith('/comment'):
+            if path.endswith('/decision') or path.endswith('/approve') or path.endswith('/comment') or path == '/api/pilot/observations':
                 pass
             elif role == "reviewer": raise HTTPException(403,"Reviewers may inspect, comment and approve")
-            if not (path.startswith('/api/workflows') or path == '/api/project/assess' or path.startswith('/api/workflow-templates') or path.endswith('/steer') or path == '/api/pilot/benchmark'):
+            if not (path.startswith('/api/workflows') or path == '/api/project/assess' or path.startswith('/api/workflow-templates') or path.endswith('/steer') or path in {'/api/pilot/benchmark','/api/pilot/observations'}):
                 raise HTTPException(403,"Team work must use approved workflow operations")
         with self.store.connect() as db:
             reviewers = [r[0] for r in db.execute("SELECT account FROM memberships WHERE workspace=?", (context["workspace"],))]

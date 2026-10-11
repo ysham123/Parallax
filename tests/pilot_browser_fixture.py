@@ -14,7 +14,7 @@ from fastapi.responses import RedirectResponse,FileResponse,JSONResponse
 from parallax.server import create_app
 from parallax.store import Store
 from parallax.deployment import Deployment
-from parallax.worker import WorkerRuntime
+from parallax.worker import WorkerRuntime,WORKER_FEATURES
 from parallax.models import CheckSpec,Participant
 from parallax.workflows import WorkflowStart,TemplateInput
 from parallax import authority
@@ -72,7 +72,7 @@ accounts.teams.accept(principals['reviewer'],invite['token'])
 cookies={label:accounts.create_session('team',team,p.account['id'])[0] for label,p in principals.items()}
 owner=accounts.principal(cookies['owner'])
 hub=app.state.executors
-pair=hub.pair(team,authority={'actor':owner.account['id'],'session':owner.session});worker=hub.connect(pair['code'],'Fixture Mac',{'platform':'darwin','workspaces':[str(PROJECT)],'features':['workflow-v2','workflow-task-settings-v1']})
+pair=hub.pair(team,authority={'actor':owner.account['id'],'session':owner.session});worker=hub.connect(pair['code'],'Fixture Mac',{'platform':'darwin','workspaces':[str(PROJECT)],'features':WORKER_FEATURES})
 from parallax.teams import ProjectBinding
 accounts.teams.bind(owner,ProjectBinding(worker=worker['id'],path=str(PROJECT)),hub)
 github.config={'id':'1','private_key_path':'fixture','client_id':'fixture','client_secret':'fixture','webhook_secret':'fixture','slug':'fixture'};github.app_jwt=lambda:'fixture-app-jwt'
@@ -123,7 +123,7 @@ async def lifespan(app):
     if worker_fixture_state['mode']=='offline':
      await asyncio.sleep(.05);continue
     try:
-     hub.heartbeat(worker['id'],['workflow-v2','workflow-task-settings-v1'],{'status':'local_evidence_only','problem_count':1,'limit_bytes':8388608,'detail':'Synthetic oversized evidence is retained on this worker.'} if worker_fixture_state['mode']=='oversized' else {'status':'ok','problem_count':0,'limit_bytes':8388608,'detail':''})
+     hub.heartbeat(worker['id'],WORKER_FEATURES,{'status':'local_evidence_only','problem_count':1,'limit_bytes':8388608,'detail':'Synthetic oversized evidence is retained on this worker.'} if worker_fixture_state['mode']=='oversized' else {'status':'ok','problem_count':0,'limit_bytes':8388608,'detail':''})
      for command in hub.pending(worker['id']):
       hub.complete(worker['id'],command['id'],await runtime.dispatch(command))
      runs,events=runtime.snapshot({},0);hub.sync(worker['id'],runs,events)

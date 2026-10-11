@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { relayApi, messageOf } from "./api";
 import { Mark, ThemeToggle } from "./PublicChrome";
+import { PUBLIC_RELEASE, PREVIEW_GUIDES, SOURCE_INSTALL } from "./public-release";
 import {
   platformLabel,
   workerCommands,
@@ -169,25 +170,35 @@ export default function Onboarding({
         {canManageMachines && (
           <ol className="onb-steps">
             <li>
-              <h2>Check prerequisites</h2>
+              <h2>Use your supplied pilot worker</h2>
               <p>
-                macOS or Linux with Python 3.10 or newer, Git 2.38 or newer, and
-                at least one signed-in CLI: <code>codex</code>,{" "}
-                <code>claude</code>, <code>grok</code>, or <code>agy</code>. API
-                keys work too and stay on that machine. Build and Compare also
-                need an available independent provider that did not implement
-                the candidate. A detected sign-in does not establish remaining
-                quota.
+                New Studio workflows and team tasks require the versioned
+                development preview supplied by your pilot operator. Verify its
+                archive digest, extract it into a new folder, and run the worker
+                from that folder. Follow the{" "}
+                <a href={PREVIEW_GUIDES.setup}>preview setup guide</a>.
+              </p>
+              <p className="onb-muted">
+                If you have not received the preview, ask your operator for it
+                before pairing. Public {PUBLIC_RELEASE.version} installation
+                commands do not install this worker.
               </p>
             </li>
             <li>
-              <h2>Get Parallax</h2>
-              <CopyBlock label="Install commands" text={commands.install} />
+              <h2>Check prerequisites</h2>
+              <p>
+                macOS or Linux with Python 3.10 or newer, Git 2.38 or newer, and
+                two usable independent providers for Build: one to implement
+                and another to review. Use supported signed-in CLIs or API
+                connections; credentials stay on the machine. Linux also needs
+                working bubblewrap and user namespaces. A detected sign-in does
+                not establish remaining quota.
+              </p>
               <p className="onb-muted">
-                These commands install the current public source. New Studio
-                workflows and team tasks in this development preview need the
-                reviewed pilot worker supplied by your operator; that build is
-                not yet included in the public download.
+                Native Grok is unavailable in the preview. Claude Code and
+                Antigravity use restricted file tools, with shell and
+                content-search tools disabled. Run diagnostics in the supplied
+                preview before starting a task.
               </p>
             </li>
             <li>
@@ -207,6 +218,17 @@ export default function Onboarding({
               <PairingCode />
             </li>
           </ol>
+        )}
+        {canManageMachines && (
+          <details className="onb-muted">
+            <summary>Install the public local tools separately</summary>
+            <p>
+              These pinned {PUBLIC_RELEASE.version} commands are for the public
+              local tools. For tasks in this workspace, use your supplied pilot
+              worker above.
+            </p>
+            <CopyBlock label="Public local install commands" text={SOURCE_INSTALL} />
+          </details>
         )}
         <section className="onb-status" aria-live="polite">
           {connected ? (

@@ -211,13 +211,17 @@ function check(label, assertion) { assertion(); passed++; console.log('PASS', la
   recoveryFailure.unmount();
   const { PilotMetrics } = require(path.join(src, 'PilotMetrics.tsx'));
   let measurements = 0; calls = [];
-  responder = async () => { if (++measurements === 1) throw new Error('timeout'); return {}; };
-  const metrics = renderer(PilotMetrics, { workflow: a }); metrics.render();
+  responder = async p => {
+    if (p === '/context') return {pilot_features:['pilot-evaluation-v1','pilot-observations-v1']};
+    if (p === '/pilot/report') return {};
+    if (++measurements === 1) throw new Error('timeout'); return {};
+  };
+  const metrics = renderer(PilotMetrics, { workflow: {...a,run_id:undefined} }); metrics.render(); await settle(metrics);
   nodes(metrics.tree).find(n => n.type === 'input' && n.props.type === 'number').props.onChange({ target: { value: '42' } }); metrics.render();
   nodes(metrics.tree).find(n => n.type === 'form').props.onSubmit({ preventDefault() {} }); await settle(metrics);
   nodes(metrics.tree).find(n => n.type === 'form').props.onSubmit({ preventDefault() {} }); await settle(metrics);
   check('Comparison recording retries do not duplicate a timed-out measurement', () => {
-    const requests = calls.map(c => JSON.parse(c.init.body)); assert.equal(requests[0].request_id, requests[1].request_id); assert.equal(requests[0].duration_seconds, 42);
+    const requests = calls.filter(c => c.path === '/pilot/benchmark').map(c => JSON.parse(c.init.body)); assert.equal(requests[0].request_id, requests[1].request_id); assert.equal(requests[0].duration_seconds, 42);
   }); metrics.unmount();
   const { WorkspaceControls } = require(path.join(src, 'WorkspaceControls.tsx'));
   const keyboard = new Map(); let focusedSummary = 0;

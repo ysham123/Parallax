@@ -113,6 +113,42 @@ class Store:
             rows = db.execute("SELECT * FROM events WHERE run_id=? AND sequence>? ORDER BY sequence LIMIT 250", (run_id,cursor)).fetchall()
         return [{"schema_version":"1.0", **dict(row), "data":json.loads(row["data"])} for row in rows]
 
+    def observations(self, run_id: str) -> list[dict]:
+        """Resolve evidence from the journal, including failed/interrupted runs."""
+        from .evidence import observation_from_event
+        self.get(run_id)  # Never expose events belonging to an unknown run.
+        with self.connect() as db:
+            rows = db.execute("SELECT * FROM events WHERE run_id=? AND kind IN ('evidence_observation','check','review') ORDER BY sequence", (run_id,)).fetchall()
+        values = []
+        seen = set()
+        for row in rows:
+            event = {**dict(row), "data": json.loads(row["data"])}
+            value = observation_from_event(run_id, event)
+            if value is None:
+                continue
+            identifier = value["observation"]["id"]
+            if identifier in seen:
+                raise ValueError("Duplicate evidence observation identity")
+            seen.add(identifier)
+            values.append(value)
+        return values
+
+    def observation(self, run_id: str, observation_id: str, expected_digest: str | None = None) -> dict:
+        from uuid import UUID
+        from .evidence import SHA256
+        try:
+            identifier = str(UUID(observation_id))
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise ValueError("Malformed evidence observation identity") from exc
+        if expected_digest is not None and (not isinstance(expected_digest, str) or not SHA256.fullmatch(expected_digest)):
+            raise ValueError("Malformed evidence observation digest")
+        for value in self.observations(run_id):
+            if value["observation"]["id"] == identifier:
+                if expected_digest is not None and value["observation"]["content_sha256"] != expected_digest:
+                    raise ValueError("Evidence observation digest does not match")
+                return value
+        raise KeyError(observation_id)
+
     def claim(self, workspace: str, run_id: str):
         # SQLite protects one state directory; a process lock also protects the
         # same project when two runtimes use different PARALLAX_HOME values.

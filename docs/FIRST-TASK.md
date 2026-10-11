@@ -44,13 +44,15 @@ In **New task**, choose the exercise project and describe the outcome:
 
 Choose **Verified change**. Confirm the two providers, instructions and checks. Use a check with argv `python3`, `-m`, `unittest`, `discover`, `-s`, `tests`, `-v` and a suitable timeout. **Check readiness** should identify setup issues before starting. Per-task checks and instructions are captured on this task; saving a reusable recipe is optional.
 
-For your first task, choose local delivery. The team prepares a separate candidate; your exercise files remain at the captured baseline while it runs. Inspect **Changes**, **Checks** and **Reviews**, including failed baseline evidence and fresh final results. Independently read the change before approving it.
+For your first task, choose local delivery. The team prepares a separate candidate; your exercise files remain at the captured baseline while it runs. Read **Candidate result** for the change, recorded final checks, independent review, remaining uncertainty and human/delivery status. Then inspect **Changes**, **Checks** and **Reviews**, including failed baseline evidence and fresh final results. Unavailable or unrecorded evidence is not a passed check. You can download the verification record before application; a partial record is not acceptance. Independently read the change before approving it.
 
 To practice correction, request one concrete improvement using **Revise candidate**. A revision starts from the saved candidate and original baseline with a new explicit budget. It gets fresh checks, review and approval. **New task from current project** captures your current files instead. If you changed the exercise project, preserve the old candidate and start that fresh task.
 
 **Approve candidate** records a decision. **Apply locally** is a separate action. After application, run the checks yourself and inspect Git status/diff. A personal workspace permits self-approval. In a team, another authorized human must approve; the requester and Owner cannot bypass that rule.
 
 The hosted worker, invitation and GitHub App setup are optional later steps for this local exercise. Team evidence currently needs the paired worker online; an always-on team machine makes that requirement explicit. Draft PR delivery requires the configured App and a clean captured remote baseline. No merge or deployment happens automatically.
+
+Pilot measurements are optional manual records. Record unknown time or usage as unknown, include failures and corrections, and compare the complete task with your usual workflow. Human labels annotate recorded evidence and cannot approve a candidate or waive a check. Follow [the evaluation protocol](PILOT-EVALUATION.md) for a real comparison; completing this small exercise does not establish productivity value.
 
 ## If setup stops
 

@@ -16,6 +16,13 @@ import { Baseline } from "./Baseline";
 import { AlphaFeedback } from "./AlphaFeedback";
 import { Verification } from "./Verification";
 import {
+  bindingPresentation,
+  checkPresentation,
+  currentFinalChecks,
+  currentVerificationAttempt,
+  reviewPresentation,
+} from "./evidence-presentation";
+import {
   ContextDetails,
   ExplorationDetail,
   VariantDetail,
@@ -682,7 +689,7 @@ function CheckEditor({
   );
 }
 
-function TaskDetail({
+export function TaskDetail({
   task,
   tasks = [],
   events = [],
@@ -818,20 +825,19 @@ function TaskDetail({
           {resolution && (
             <>
               <div className="task-resolution-review">
-                <Status
-                  value={
-                    resolution.ok === true
-                      ? "approved"
-                      : resolution.ok === false
-                        ? "rejected"
-                        : "unknown"
-                  }
-                />
+                <span
+                  className={`evidence-outcome ${reviewPresentation(resolution).state}`}
+                >
+                  {reviewPresentation(resolution).label}
+                </span>
                 <span>
                   {LABELS[text(resolution.provider)] ||
                     text(resolution.provider)}
                 </span>
               </div>
+              <p className="evidence-reason">
+                {reviewPresentation(resolution).detail}
+              </p>
               {text(resolution.summary) && <p>{text(resolution.summary)}</p>}
               {Array.isArray(resolution.findings) &&
                 resolution.findings.length > 0 && (
@@ -858,7 +864,13 @@ function TaskDetail({
   );
 }
 
-function ReviewContent({ run, tab }: { run: RunResult; tab: ReviewTab }) {
+export function ReviewContent({
+  run,
+  tab,
+}: {
+  run: RunResult;
+  tab: ReviewTab;
+}) {
   if (tab === "changes")
     return (
       <>
@@ -915,67 +927,105 @@ function ReviewContent({ run, tab }: { run: RunResult; tab: ReviewTab }) {
         )}
       </>
     );
-  if (tab === "checks")
-    return run.checks.length ? (
-      <div className="check-results">
-        {run.checks.map((check, i) => (
-          <article key={text(check.name, String(i))} className="result-check">
-            <div>
-              <Icon name="command" size={20} />
-              <h3>{text(check.name, `Check ${i + 1}`)}</h3>
-              <Status
-                value={text(
-                  check.status,
-                  check.ok === true
-                    ? "passed"
-                    : check.ok === false
-                      ? "failed"
-                      : check.returncode === 0 || check.exit_code === 0
-                        ? "passed"
-                        : check.returncode !== undefined ||
-                            check.exit_code !== undefined
-                          ? "failed"
-                          : "reported",
-                )}
-              />
-            </div>
-            <code>
-              {Array.isArray(check.argv)
-                ? check.argv.map((v) => text(v)).join(" ")
-                : text(check.command)}
-            </code>
-            <div className="check-facts">
-              {check.returncode !== undefined && (
-                <span>Exit {text(check.returncode)}</span>
-              )}
-              {check.exit_code !== undefined && (
-                <span>Exit {text(check.exit_code)}</span>
-              )}
-              {(check.duration_seconds ?? check.elapsed_seconds) !==
-                undefined && (
-                <span>
-                  {text(check.duration_seconds ?? check.elapsed_seconds)}{" "}
-                  seconds
-                </span>
-              )}
-            </div>
-            {check.stdout || check.stderr || check.output ? (
-              <pre>
-                {text(check.stdout || check.output)}
-                {check.stderr ? `\n${text(check.stderr)}` : ""}
-              </pre>
-            ) : (
-              <p>No command output was reported.</p>
-            )}
-          </article>
-        ))}
-      </div>
-    ) : (
-      <Empty icon="check" title="No checks reported">
-        Add explicit commands in Team settings to make validation part of the
-        run.
-      </Empty>
+  if (tab === "checks") {
+    const baseline = Array.isArray(run.artifacts.baseline_checks)
+      ? (run.artifacts.baseline_checks as Data[])
+      : [];
+    const current = currentFinalChecks(
+      run.checks,
+      currentVerificationAttempt(run.artifacts),
     );
+    const previous = run.checks.filter((row) => !current.includes(row));
+    const renderChecks = (checks: Data[]) =>
+      checks.length ? (
+        <div className="check-results">
+          {checks.map((check, i) => (
+            <article key={text(check.name, String(i))} className="result-check">
+              <div>
+                <Icon name="command" size={20} />
+                <h3>{text(check.name, `Check ${i + 1}`)}</h3>
+                <span
+                  className={`evidence-outcome ${checkPresentation(check).state}`}
+                >
+                  {checkPresentation(check).label}
+                </span>
+              </div>
+              <code>
+                {Array.isArray(check.argv)
+                  ? check.argv.map((v) => text(v)).join(" ")
+                  : text(check.command)}
+              </code>
+              <p className="evidence-reason">
+                {checkPresentation(check).detail}
+              </p>
+              <p className="evidence-binding">{bindingPresentation(check)}</p>
+              <div className="check-facts">
+                {check.returncode !== undefined && (
+                  <span>Exit {text(check.returncode)}</span>
+                )}
+                {check.exit_code !== undefined && (
+                  <span>Exit {text(check.exit_code)}</span>
+                )}
+                {(check.duration_seconds ?? check.elapsed_seconds) !==
+                  undefined && (
+                  <span>
+                    {text(check.duration_seconds ?? check.elapsed_seconds)}{" "}
+                    seconds
+                  </span>
+                )}
+              </div>
+              {check.stdout || check.stderr || check.output ? (
+                <pre>
+                  {text(check.stdout || check.output)}
+                  {check.stderr ? `\n${text(check.stderr)}` : ""}
+                </pre>
+              ) : (
+                <p>No command output was reported.</p>
+              )}
+            </article>
+          ))}
+        </div>
+      ) : (
+        <Empty icon="check" title="No checks recorded">
+          This section has no recorded command evidence. No coverage is
+          inferred.
+        </Empty>
+      );
+    return (
+      <div className="task-check-phases">
+        <section aria-labelledby="baseline-checks-title">
+          <h2 id="baseline-checks-title">Baseline checks</h2>
+          <p>
+            Recorded on the original project snapshot. A baseline failure does
+            not establish the final outcome.
+          </p>
+          {renderChecks(baseline)}
+        </section>
+        <section aria-labelledby="final-checks-title">
+          <h2 id="final-checks-title">Current final candidate checks</h2>
+          <p>
+            Recorded commands bound to the current final verification attempt.
+            Browser coverage is established only by an explicit recorded browser
+            check.
+          </p>
+          {renderChecks(current)}
+        </section>
+        {!!previous.length && (
+          <section aria-labelledby="previous-checks-title">
+            <h2 id="previous-checks-title">
+              Previous or unbound candidate checks
+            </h2>
+            <p>
+              These outcomes are recorded, but their association with the
+              current verification attempt is unrecorded or historical.
+            </p>
+            {renderChecks(previous)}
+          </section>
+        )}
+        <Verification run={run} />
+      </div>
+    );
+  }
   if (tab === "settings")
     return (
       <div className="settings-results">
@@ -1047,16 +1097,15 @@ function ReviewContent({ run, tab }: { run: RunResult; tab: ReviewTab }) {
                       )}
                     </div>
                   </div>
-                  <Status
-                    value={
-                      review.ok === true
-                        ? "approved"
-                        : review.ok === false
-                          ? "changes requested"
-                          : text(review.status || review.verdict, "reported")
-                    }
-                  />
+                  <span
+                    className={`evidence-outcome ${reviewPresentation(review).state}`}
+                  >
+                    {reviewPresentation(review).label}
+                  </span>
                 </div>
+                <p className="evidence-reason">
+                  {reviewPresentation(review).detail}
+                </p>
                 {text(
                   review.summary ||
                     review.answer ||
