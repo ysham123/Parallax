@@ -1,3 +1,4 @@
+import { checkPresentation, reviewPresentation } from "./evidence-presentation";
 import {
   LABELS,
   type Data,
@@ -533,3 +534,53 @@ export function eventsForSelection(
 
 export const agentLabel = (agent: RunAgent): string =>
   LABELS[agent.participant.provider] || agent.participant.provider;
+
+const summaryValue = (input: unknown, fallback = "") =>
+  typeof input === "string"
+    ? input
+    : input == null
+      ? fallback
+      : typeof input === "object"
+        ? JSON.stringify(input)
+        : String(input);
+const summaryObject = (input: unknown): Record<string, unknown> =>
+  input && typeof input === "object" && !Array.isArray(input)
+    ? (input as Record<string, unknown>)
+    : {};
+
+/** One readable line for an execution event, shared by task activity and run inspection. */
+export function eventSummary(event: RunEvent): string {
+  const data = event.data;
+  if (event.kind === "check")
+    return `${summaryValue(data.name, "Project check")} · ${checkPresentation(data).label}`;
+  if (event.kind === "review")
+    return `${summaryValue(data.provider, "Independent reviewer")} · ${reviewPresentation(data).label}${data.summary ? `: ${summaryValue(data.summary).slice(0, 350)}` : ""}`;
+  const item = summaryObject(data.item);
+  const message = summaryObject(data.message);
+  const tool = summaryObject(data.tool);
+  const explicit =
+    data.summary ||
+    data.reason ||
+    data.title ||
+    (typeof data.message === "string" ? data.message : undefined) ||
+    data.status;
+  if (explicit) return summaryValue(explicit).slice(0, 450);
+  if (data.type === "parallax.process_started")
+    return "Managed process started";
+  if (data.type === "parallax.process_finished")
+    return `Managed process finished${data.exit_code != null ? ` · exit ${summaryValue(data.exit_code)}` : ""}`;
+  if (event.kind === "environment")
+    return `${summaryValue(data.name, "Private environment")} · ${data.ok === true ? "ready" : "setup reported"}`;
+  const command = item.command || tool.name || data.tool_name || data.name;
+  if (command) return summaryValue(command).slice(0, 300);
+  const content =
+    typeof item.text === "string"
+      ? item.text
+      : typeof message.content === "string"
+        ? message.content
+        : typeof data.content === "string"
+          ? data.content
+          : undefined;
+  return content ? content.slice(0, 350) : describeRunEvent(event);
+}
+

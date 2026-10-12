@@ -3,7 +3,7 @@ import { api, apiUrl, messageOf, viaMachine } from "./api";
 import { PublicationPanel } from "./PublicationPanel";
 import "./task.css";
 import { ProviderMark } from "./Brand";
-import { eventSummary } from "./RunWorkspace";
+import { eventSummary } from "./run-inspection";
 import { parseDiff, type DiffFile } from "./diff-model";
 import {
   actorLabel,

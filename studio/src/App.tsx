@@ -8,7 +8,7 @@ import {
 import { api, apiUrl, messageOf, viaMachine } from "./api";
 import { ProviderMark } from "./Brand";
 import { Mark } from "./PublicChrome";
-import { RunWorkspace } from "./RunWorkspace";
+import type { RunWorkspace as RunWorkspaceView } from "./RunWorkspace";
 import { Connections as ConnectionsPanel } from "./Connections";
 import { ProjectReadiness } from "./ProjectReadiness";
 import { ProjectMemory } from "./ProjectMemory";
@@ -86,6 +86,39 @@ type IconName =
   | "clock"
   | "warning"
   | "command";
+
+type RunWorkspaceProps = Parameters<typeof RunWorkspaceView>[0];
+/** The agent graph and its graph libraries load only when an advanced view opens. */
+function RunWorkspace(props: RunWorkspaceProps) {
+  const [view, setView] = useState<{ RunWorkspace: typeof RunWorkspaceView } | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let live = true;
+    import("./RunWorkspace")
+      .then((module) => {
+        if (live) setView(module);
+      })
+      .catch(() => {
+        if (live) setFailed(true);
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
+  if (view) {
+    const Loaded = view.RunWorkspace;
+    return <Loaded {...props} />;
+  }
+  return (
+    <div className="task-loading" role="status">
+      <p>
+        {failed
+          ? "The agent graph could not load. Refresh Studio to try again."
+          : "Loading the agent graph…"}
+      </p>
+    </div>
+  );
+}
 
 function Icon({
   name,

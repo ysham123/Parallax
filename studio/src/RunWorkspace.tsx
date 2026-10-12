@@ -15,7 +15,9 @@ import {
   reviewLabel,
   describeRunEvent,
   contextManifest,
+  eventSummary,
 } from "./run-inspection";
+export { eventSummary };
 import { ContextDetails } from "./Exploration";
 import { LABELS, type Data, type RunEvent, type RunResult } from "./types";
 import { checkPresentation, reviewPresentation } from "./evidence-presentation";
@@ -106,41 +108,6 @@ function trapDrawer(
     event.preventDefault();
     first.focus();
   }
-}
-
-export function eventSummary(event: RunEvent): string {
-  const data = event.data;
-  if (event.kind === "check")
-    return `${value(data.name, "Project check")} · ${checkPresentation(data).label}`;
-  if (event.kind === "review")
-    return `${value(data.provider, "Independent reviewer")} · ${reviewPresentation(data).label}${data.summary ? `: ${value(data.summary).slice(0, 350)}` : ""}`;
-  const item = object(data.item);
-  const message = object(data.message);
-  const tool = object(data.tool);
-  const explicit =
-    data.summary ||
-    data.reason ||
-    data.title ||
-    (typeof data.message === "string" ? data.message : undefined) ||
-    data.status;
-  if (explicit) return value(explicit).slice(0, 450);
-  if (data.type === "parallax.process_started")
-    return "Managed process started";
-  if (data.type === "parallax.process_finished")
-    return `Managed process finished${data.exit_code != null ? ` · exit ${value(data.exit_code)}` : ""}`;
-  if (event.kind === "environment")
-    return `${value(data.name, "Private environment")} · ${data.ok === true ? "ready" : "setup reported"}`;
-  const command = item.command || tool.name || data.tool_name || data.name;
-  if (command) return value(command).slice(0, 300);
-  const content =
-    typeof item.text === "string"
-      ? item.text
-      : typeof message.content === "string"
-        ? message.content
-        : typeof data.content === "string"
-          ? data.content
-          : undefined;
-  return content ? content.slice(0, 350) : describeRunEvent(event);
 }
 
 function State({ state }: { state: string }) {
