@@ -69,6 +69,15 @@ class NativeBoundariesTest(unittest.TestCase):
         self.assertEqual(env['HOME'], str(self.home))
         self.assertEqual(env['CODEX_HOME'], str(self.registry.codex_home))
 
+    @unittest.skipUnless(os.name == 'posix', 'login names are passed through on POSIX only')
+    def test_plain_login_name_passes_through_for_native_sign_in_lookup(self):
+        with patch.dict(os.environ, {'USER': 'synthetic.user', 'LOGNAME': 'synthetic.user'}):
+            self.assertEqual(self.registry._environment()['USER'], 'synthetic.user')
+            self.assertEqual(self.codex_command()[2]['LOGNAME'], 'synthetic.user')
+        with patch.dict(os.environ, {'USER': 'x; rm -rf /', 'LOGNAME': 'a\nb'}):
+            self.assertNotIn('USER', self.registry._environment())
+            self.assertNotIn('LOGNAME', self.registry._environment())
+
     def test_generated_profile_denies_root_and_retains_narrow_candidate(self):
         argv, _, _, _ = self.codex_command()
         settings = [argv[i + 1] for i, arg in enumerate(argv[:-1]) if arg == '-c']
