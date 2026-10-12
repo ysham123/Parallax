@@ -1068,7 +1068,7 @@ export function TaskWorkspace({
                   </p>
                 )}
                 {recovery?.value?.message && (
-                  <pre className="task-recovery-message">
+                  <pre className="task-recovery-message" tabIndex={0}>
                     {recovery.value.message}
                   </pre>
                 )}
@@ -1454,7 +1454,7 @@ export function TaskWorkspace({
                             )}
                             <details>
                               <summary>Task data</summary>
-                              <pre>{JSON.stringify(task, null, 2)}</pre>
+                              <pre tabIndex={0}>{JSON.stringify(task, null, 2)}</pre>
                             </details>
                           </div>
                         </details>
@@ -1511,7 +1511,7 @@ export function TaskWorkspace({
                               </time>
                               <span>{eventSummary(event)}</span>
                             </summary>
-                            <pre>{JSON.stringify(event.data, null, 2)}</pre>
+                            <pre tabIndex={0}>{JSON.stringify(event.data, null, 2)}</pre>
                           </details>
                         </li>
                       ))}
@@ -1941,7 +1941,7 @@ export function TaskWorkspace({
                               })}
                               <details>
                                 <summary>Review data</summary>
-                                <pre className="raw-data">
+                                <pre className="raw-data" tabIndex={0}>
                                   {JSON.stringify(review, null, 2)}
                                 </pre>
                               </details>
@@ -1962,7 +1962,7 @@ export function TaskWorkspace({
                             <summary>
                               Runtime diagnostics ({run.errors.length})
                             </summary>
-                            <pre className="raw-data">
+                            <pre className="raw-data" tabIndex={0}>
                               {JSON.stringify(run.errors, null, 2)}
                             </pre>
                           </details>

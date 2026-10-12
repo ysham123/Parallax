@@ -141,7 +141,7 @@
   white-space: nowrap;
   font-family: var(--font-sans);
   font-size: 12px;
-  color: var(--ink-4);
+  color: var(--ink-3);
 }
 .queue-views {
   display: flex;

@@ -19,7 +19,7 @@ export function CopyBlock({ label, text }: { label: string; text: string }) {
   const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
   return (
     <div className="onb-code">
-      <pre aria-label={label}>
+      <pre aria-label={label} tabIndex={0}>
         <code>{text}</code>
       </pre>
       <button

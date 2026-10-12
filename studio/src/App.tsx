@@ -895,14 +895,14 @@ export function TaskDetail({
           )}
           <details>
             <summary>Original failed outcome</summary>
-            <pre className="raw-data">{json(result)}</pre>
+            <pre className="raw-data" tabIndex={0}>{json(result)}</pre>
           </details>
         </div>
       )}
-      {text(output) && <pre className="task-output">{text(output)}</pre>}
+      {text(output) && <pre className="task-output" tabIndex={0}>{text(output)}</pre>}
       <details>
         <summary>Task data</summary>
-        <pre className="raw-data">{json(task)}</pre>
+        <pre className="raw-data" tabIndex={0}>{json(task)}</pre>
       </details>
     </div>
   );
@@ -939,7 +939,7 @@ export function ReviewContent({
           </div>
         )}
         {run.diff ? (
-          <pre className="diff" aria-label="Run diff">
+          <pre className="diff" aria-label="Run diff" tabIndex={0}>
             {run.diff.split("\n").map((line, i) => (
               <span
                 key={i}
@@ -1019,7 +1019,7 @@ export function ReviewContent({
                 )}
               </div>
               {check.stdout || check.stderr || check.output ? (
-                <pre>
+                <pre tabIndex={0}>
                   {text(check.stdout || check.output)}
                   {check.stderr ? `\n${text(check.stderr)}` : ""}
                 </pre>
@@ -1079,7 +1079,7 @@ export function ReviewContent({
             <p>The configuration recorded by the runtime for this run.</p>
           </div>
         </div>
-        <pre className="raw-data">{json(run.spec)}</pre>
+        <pre className="raw-data" tabIndex={0}>{json(run.spec)}</pre>
         <div className="section-heading">
           <div>
             <h3>Provider sessions</h3>
@@ -1096,7 +1096,7 @@ export function ReviewContent({
                 </span>
                 <Status value={text(session.status, "reported")} />
               </summary>
-              <pre className="raw-data">{json(session)}</pre>
+              <pre className="raw-data" tabIndex={0}>{json(session)}</pre>
             </details>
           ))
         ) : (
@@ -1104,11 +1104,11 @@ export function ReviewContent({
         )}
         <details className="session-detail">
           <summary>Usage data</summary>
-          <pre className="raw-data">{json(run.usage)}</pre>
+          <pre className="raw-data" tabIndex={0}>{json(run.usage)}</pre>
         </details>
         <details className="session-detail">
           <summary>Artifacts</summary>
-          <pre className="raw-data">{json(run.artifacts)}</pre>
+          <pre className="raw-data" tabIndex={0}>{json(run.artifacts)}</pre>
         </details>
       </div>
     );
@@ -1193,7 +1193,7 @@ export function ReviewContent({
                 })}
                 <details>
                   <summary>Review data</summary>
-                  <pre className="raw-data">{json(review)}</pre>
+                  <pre className="raw-data" tabIndex={0}>{json(review)}</pre>
                 </details>
               </article>
             );
@@ -1218,7 +1218,7 @@ export function ReviewContent({
                 <p>{text(error.message || error.error || error)}</p>
                 <details>
                   <summary>Details</summary>
-                  <pre>{json(error)}</pre>
+                  <pre tabIndex={0}>{json(error)}</pre>
                 </details>
               </div>
             </div>

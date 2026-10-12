@@ -712,7 +712,7 @@
   min-width: 44px;
   padding: 0 10px !important;
   text-align: right;
-  color: var(--ink-4);
+  color: var(--ink-3);
   user-select: none;
   white-space: nowrap;
 }
