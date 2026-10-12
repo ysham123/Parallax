@@ -29,6 +29,7 @@ import {
   VariantDetail,
 } from "./Exploration";
 import { Workflows } from "./Workflows";
+import "./shell.css";
 import { Repositories } from "./Repositories";
 import type { GitHubProject } from "./github-connection-state";
 import type { EvidenceTransport } from "./session";
@@ -1246,6 +1247,17 @@ export default function App({
   const [desktopRuntime, setDesktopRuntime] = useState(false);
   const [connectionsOpen, setConnectionsOpen] = useState(false);
   const [workspaceOverlay, setWorkspaceOverlay] = useState(false);
+  const [navOpen, setNavOpen] = useState(false);
+  const navWasOpen = useRef(false);
+  useEffect(() => {
+    if (navOpen)
+      document
+        .querySelector<HTMLElement>("#studio-sidebar .studio-nav .nav-item")
+        ?.focus();
+    else if (navWasOpen.current)
+      document.querySelector<HTMLElement>(".studio-menu-button")?.focus();
+    navWasOpen.current = navOpen;
+  }, [navOpen]);
   const closeConnections = useCallback(() => setConnectionsOpen(false), []);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [runs, setRuns] = useState<RunResult[]>([]);
@@ -1846,50 +1858,59 @@ export default function App({
         />
       )}
       <aside
-        className="sidebar"
+        id="studio-sidebar"
+        className={`sidebar studio-sidebar ${navOpen ? "open" : ""}`}
         inert={connectionsOpen || workspaceOverlay || undefined}
+        onKeyDown={(event) => {
+          if (event.key === "Escape" && navOpen) setNavOpen(false);
+        }}
       >
-        <a
-          href="#workflows"
-          className="brand"
-          onClick={(e) => {
-            e.preventDefault();
-            setTab("workflows");
-          }}
-          aria-label="Parallax Studio home"
-        >
-          <span className="brand-mark">
-            <Mark size={28} />
-          </span>
-          <span>Parallax</span>
-        </a>
-        <div className="sidebar-group-label">Workspace</div>
-        <nav aria-label="Studio navigation">
+        <div className="studio-identity">
+          {accountControl ? (
+            <div className="studio-account">{accountControl}</div>
+          ) : (
+            <a
+              href="#workflows"
+              className="brand"
+              onClick={(e) => {
+                e.preventDefault();
+                setTab("workflows");
+              }}
+              aria-label="Parallax Studio home"
+            >
+              <Mark size={20} />
+              <span>Parallax</span>
+              <small>Local</small>
+            </a>
+          )}
+        </div>
+        <nav aria-label="Studio navigation" className="studio-nav">
           {(
             [
               { id: "workflows", name: "Tasks", icon: "review" },
-              { id: "repositories", name: "Repositories", icon: "folder" },
               { id: "inbox", name: "Review inbox", icon: "check" },
+              { id: "repositories", name: "Repositories", icon: "folder" },
               { id: "settings", name: "Settings", icon: "settings" },
             ] as { id: Tab; name: string; icon: IconName }[]
           ).map((item) => (
             <button
               key={item.id}
               className={`nav-item ${tab === item.id ? "selected" : ""}`}
-              onClick={() => setTab(item.id)}
+              onClick={() => {
+                setTab(item.id);
+                setNavOpen(false);
+              }}
               aria-current={tab === item.id ? "page" : undefined}
-              title={item.name}
-              aria-label={item.name}
               aria-keyshortcuts={item.id === "workflows" ? "Alt+4" : undefined}
             >
-              <Icon name={item.icon} size={19} />
+              <Icon name={item.icon} size={17} />
               <span>{item.name}</span>
             </button>
           ))}
         </nav>
         <details className="advanced-tools">
-          <summary>Advanced tools</summary>
-          <nav aria-label="Advanced tools">
+          <summary>Advanced</summary>
+          <nav aria-label="Advanced tools" className="studio-nav">
             {(
               [
                 { id: "run", name: "Agent graph", icon: "run", key: "2" },
@@ -1905,116 +1926,155 @@ export default function App({
               <button
                 key={item.id}
                 className={`nav-item ${tab === item.id ? "selected" : ""}`}
-                onClick={() => setTab(item.id)}
+                onClick={() => {
+                  setTab(item.id);
+                  setNavOpen(false);
+                }}
                 aria-current={tab === item.id ? "page" : undefined}
                 aria-keyshortcuts={`Alt+${item.key}`}
               >
-                <Icon name={item.icon} size={18} />
+                <Icon name={item.icon} size={17} />
                 <span>{item.name}</span>
-                <kbd>{item.key}</kbd>
                 {item.id === "run" && activeRun && (
-                  <i className="nav-run-dot" />
+                  <i className="nav-run-dot" aria-label="Run active" />
                 )}
+                <kbd>{item.key}</kbd>
               </button>
             ))}
           </nav>
         </details>
-        <div className="sidebar-provider-list">
-          <div className="sidebar-group-label">
-            Providers{" "}
-            <span>
-              {readyCount}/{providers.length || 4}
-            </span>
-          </div>
-          {PROVIDERS.map((id) => {
-            const provider = providers.find((p) => providerId(p) === id);
-            return (
-              <div key={id} className="sidebar-provider">
-                <ProviderMark provider={id} size={24} />
-                <span>{LABELS[id]}</span>
-                <i
-                  className={available(provider) ? "online-dot" : "offline-dot"}
-                  title={provider?.status || "Not checked"}
-                />
-              </div>
-            );
-          })}
-          <button
-            className="text-button refresh-providers"
-            onClick={() => void load(true)}
-            disabled={loading || catalogLoading}
-          >
-            <Icon name="refresh" size={13} className={loading ? "spin" : ""} />
-            {loading ? "Checking providers…" : "Refresh connections"}
-          </button>
-          <button
-            className="text-button manage-connections"
-            onClick={() => setConnectionsOpen(true)}
-          >
-            <Icon name="settings" size={13} /> Manage connections
-          </button>
-        </div>
-        <div className="sidebar-bottom">
-          <div className="workspace-chip">
-            <Icon name="folder" size={19} />
-            <div>
-              <strong title={spec.workspace}>
-                {shortPath(spec.workspace)}
-              </strong>
-              <span>Selected for this session</span>
+        <div className="studio-sidebar-foot">
+          <section className="studio-foot-group" aria-label="Execution">
+            <div className="studio-foot-label">
+              <span>Machine</span>
+              <span
+                className={`studio-connection ${connected ? "connected" : historyLoading ? "" : "offline"}`}
+              >
+                <i aria-hidden="true" />
+                {historyLoading
+                  ? "Connecting"
+                  : connected
+                    ? "Connected"
+                    : "Unavailable"}
+              </span>
             </div>
-          </div>
+            {executionControls ? (
+              <div className="studio-machine-controls">{executionControls}</div>
+            ) : (
+              <div className="studio-machine-name">
+                {hostedWorkspace ? "Railway" : "This computer"}
+              </div>
+            )}
+            <div className="workspace-chip" title={spec.workspace}>
+              <Icon name="folder" size={15} />
+              <span>
+                <strong>{shortPath(spec.workspace) || "No project"}</strong>
+                <small>Selected for this session</small>
+              </span>
+            </div>
+          </section>
+          <section className="studio-foot-group" aria-label="Agents">
+            <button
+              className="studio-agents manage-connections"
+              onClick={() => setConnectionsOpen(true)}
+            >
+              <span className="studio-foot-label">
+                <span>Agents</span>
+                <span>
+                  {readyCount} of {providers.length || PROVIDERS.length} ready
+                </span>
+              </span>
+              <span className="studio-agent-marks" aria-hidden="true">
+                {PROVIDERS.map((id) => {
+                  const provider = providers.find((p) => providerId(p) === id);
+                  return (
+                    <span
+                      key={id}
+                      className={available(provider) ? "ready" : "unready"}
+                      title={`${LABELS[id]}: ${provider?.status || "not checked"}`}
+                    >
+                      <ProviderMark provider={id} size={18} />
+                    </span>
+                  );
+                })}
+              </span>
+              <span className="sr-only">Manage connections</span>
+            </button>
+            <button
+              className="text-button refresh-providers"
+              onClick={() => void load(true)}
+              disabled={loading || catalogLoading}
+            >
+              {loading ? "Checking agents…" : "Recheck agents"}
+            </button>
+          </section>
           <div className="sidebar-options">
             <button
               className="icon-button"
               aria-label={
-                theme === "dark"
-                  ? "Switch to light mode"
-                  : "Switch to dark mode"
+                theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
               }
-              title={
-                theme === "dark"
-                  ? "Switch to light mode"
-                  : "Switch to dark mode"
-              }
+              title={theme === "dark" ? "Light mode" : "Dark mode"}
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
             >
-              <Icon name={theme === "dark" ? "sun" : "moon"} size={17} />
+              <Icon name={theme === "dark" ? "sun" : "moon"} size={16} />
             </button>
             <button
               className={`icon-button motion-button ${motion === "reduce" ? "enabled" : ""}`}
               aria-pressed={motion === "reduce"}
               title="Reduce motion"
               aria-label="Reduce motion"
-              onClick={() =>
-                setMotion(motion === "reduce" ? "system" : "reduce")
-              }
+              onClick={() => setMotion(motion === "reduce" ? "system" : "reduce")}
             >
-              <Icon name="pause" size={17} />
+              <Icon name="pause" size={16} />
             </button>
             <span>v{__PARALLAX_VERSION__}</span>
           </div>
         </div>
       </aside>
-      <div className="main-shell" inert={connectionsOpen || undefined}>
+      {navOpen && (
+        <div
+          className="studio-scrim"
+          aria-hidden="true"
+          onClick={() => setNavOpen(false)}
+        />
+      )}
+      <div
+        className="main-shell"
+        inert={connectionsOpen || navOpen || undefined}
+      >
         <header className="topbar" inert={workspaceOverlay || undefined}>
+          <button
+            type="button"
+            className="studio-menu-button icon-button"
+            aria-label="Open navigation"
+            aria-expanded={navOpen}
+            aria-controls="studio-sidebar"
+            onClick={() => setNavOpen(true)}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+              <path d="M4 7h16M4 12h16M4 17h16" />
+            </svg>
+          </button>
           <div className="breadcrumb">
             {workspaceName && (
               <span className="scope-workspace">{workspaceName}</span>
             )}
-            <span>
+            <span className="breadcrumb-project">
               {shortPath(
                 (tab === "run" || tab === "review") && run
                   ? run.spec.workspace
                   : spec.workspace,
               )}
             </span>
-            <Icon name="chevron" size={13} />
+            <span className="breadcrumb-separator" aria-hidden="true">
+              /
+            </span>
             <strong>
               {tab === "run"
-                ? "Runs"
+                ? "Agent graph"
                 : tab === "team"
-                  ? "New run"
+                  ? "Advanced run"
                   : tab === "workflows"
                     ? "Tasks"
                     : tab === "repositories"
@@ -2023,37 +2083,16 @@ export default function App({
                         ? "Review inbox"
                         : tab === "settings"
                           ? "Settings"
-                          : "Review"}
+                          : "Run evidence"}
             </strong>
           </div>
-          <div className="topbar-right">
-            {executionControls}
-            <button
-              className="work-button"
-              onClick={() => setConnectionsOpen(true)}
-            >
-              Connections
-            </button>
-            <span className={`connection ${connected ? "connected" : ""}`}>
-              <i />
-              {historyLoading
-                ? "Connecting"
-                : connected
-                  ? hostedWorkspace
-                    ? "Hosted connection"
-                    : "Local connection"
-                  : "Connection unavailable"}
-            </span>
-            <span className="local-only">
-              <Icon name="command" size={13} />{" "}
+          {!connected && !historyLoading && (
+            <span className="topbar-status" role="status">
               {execution?.paired
-                ? `On ${execution.name}`
-                : hostedWorkspace
-                  ? "On Railway"
-                  : "On your machine"}
+                ? `${execution.name} is not connected`
+                : "Studio cannot reach its runtime"}
             </span>
-            {accountControl}
-          </div>
+          )}
         </header>
         <main id="main" className="main-content" ref={mainRef} tabIndex={-1}>
           {error && !(tab === "workflows" && execution?.online === false) && (

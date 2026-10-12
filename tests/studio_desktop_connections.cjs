@@ -187,7 +187,7 @@ const props = { connections: [], onChanged: async () => {}, onClose() {} };
   shell.render(); await settle(shell);
   check('Studio has one labeled primary navigation and retains explicitly named advanced tools', () => {
     const primary=nodes(shell.tree).find(n=>n.type==='nav' && n.props['aria-label']==='Studio navigation');
-    assert.deepEqual(nodes(primary).filter(n=>n.type==='button').map(text),['Tasks','Repositories','Review inbox','Settings']);
+    assert.deepEqual(nodes(primary).filter(n=>n.type==='button').map(text),['Tasks','Review inbox','Repositories','Settings']);
     const advanced=nodes(shell.tree).find(n=>n.type==='nav' && n.props['aria-label']==='Advanced tools');
     assert.equal(nodes(advanced).filter(n=>n.type==='button').length,3);
     assert.ok(nodes(advanced).some(n=>n.props['aria-keyshortcuts']==='Alt+2'));

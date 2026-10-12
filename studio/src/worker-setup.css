@@ -124,7 +124,7 @@
   font-size: 14px;
 }
 .worker-setup .onb-code pre {
-  font-family: "IBM Plex Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.65;
 }
@@ -137,7 +137,7 @@
 }
 .worker-setup p code {
   display: inline;
-  font-family: "IBM Plex Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
   color: var(--text);
 }

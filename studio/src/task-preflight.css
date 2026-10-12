@@ -183,7 +183,7 @@
   overflow-wrap: anywhere;
 }
 .task-preflight code {
-  font-family: "IBM Plex Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
   overflow-wrap: anywhere;
   white-space: pre-wrap;

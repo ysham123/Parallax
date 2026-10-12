@@ -275,7 +275,7 @@
   list-style: none;
 }
 .pub-steps span {
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   color: var(--faint);
 }
@@ -335,7 +335,7 @@
   color: var(--muted);
 }
 .pub-install p code {
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 12.5px;
   color: var(--text);
 }
@@ -383,7 +383,7 @@
   position: absolute;
   top: 29px;
   left: 0;
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   color: var(--faint);
 }

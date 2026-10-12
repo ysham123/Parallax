@@ -238,6 +238,9 @@ export function WorkspaceControls({
       onToggle={(e) => setPanelOpen(e.currentTarget.open)}
     >
       <summary>
+        <span className="workspace-control-mark" aria-hidden="true">
+          {session.workspace.name.trim().charAt(0).toUpperCase() || "P"}
+        </span>
         <span className="workspace-control-name">{session.workspace.name}</span>
         <span className="workspace-control-separator"> · </span>
         <span className="workspace-control-role">
