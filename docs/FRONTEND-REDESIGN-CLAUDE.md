@@ -61,7 +61,7 @@ The fixture uses deterministic providers and simulated GitHub. None of this prov
 ## Remaining work
 
 - **Reviewer handoff link.** Still unimplemented. It needs the read-only review-target endpoint described in `output/redesign/round8/backend-plan.md` plus an explicit entry flow. The ledger and decision bar are ready to receive it.
-- **Advanced views.** The run workspace, agent graph and advanced run composer inherit the tokens and readability fixes but keep their older layouts. `style.css` (about 3,800 lines) and `workspace.css` (about 1,300 lines) still hold those rules.
+- **Advanced views.** The run workspace, agent graph and advanced run composer inherit the tokens and readability fixes but keep their older layouts. `style.css` (about 3,100 lines) and `workspace.css` (about 1,300 lines) still hold those rules.
 - **Accounts-enabled sign-in.** The fixture has no Supabase configuration, so the email and OAuth sign-in forms were not inspected in their enabled state.
 - **People.** No usability study, accessibility audit or conversion test has been done. Contrast was chosen against WCAG 2.2 AA targets but not formally measured.
 - **Release gates.** Everything listed in `docs/PILOT.md` and `docs/STAGING-ACCEPTANCE.md` remains open.
