@@ -482,6 +482,10 @@ function CloudWorkspace() {
         teamWorkspace={active.workspace.kind === "team"}
         workspaceName={active.workspace.name}
         workspaceRole={active.workspace.role}
+        accountIdentity={{
+          actor: active.account?.id,
+          workspace: active.workspace.id,
+        }}
         onManageWorkspace={(section) =>
           setWorkspaceSettingsRequest((previous) => ({
             scope,

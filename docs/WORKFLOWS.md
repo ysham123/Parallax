@@ -72,3 +72,11 @@ The workflow tests use real LangGraph checkpoints, SQLite, Git worktrees, file a
 This is a coding workflow product feature, not an arbitrary graph editor. It does not add scheduling, managed cloud execution, automatic merge, uploaded executable templates or remote MCP approval tools. Team shared recipe versions are included in the invited pilot. Actual model quality, provider cost and real GitHub App delivery still need live acceptance; deterministic tests and mock browser flows do not establish pilot readiness. See the [implementation evidence and remaining gaps](PILOT-IMPLEMENTATION.md) and [launch checklist](PILOT.md#launch-checklist).
 
 The runtime decision is recorded in [the LangGraph proposal](LANGGRAPH-PROPOSAL.md). The application direction and competitor sources are recorded in [the Studio product design](STUDIO-PRODUCT-DESIGN.md).
+
+### Studio project and setup handoff
+
+For paired machines, the task composer offers only projects in the worker's current permission response. Historical task folders remain available for filtering history; they do not grant permission to start another task. Local Studio retains its project-path field. A missing grant or unavailable permission lookup requires refreshing access or asking the workspace Owner.
+
+**Check readiness** explicitly inspects the selected project's environment, provider configuration and check plan. The result describes setup; it does not run the checks, establish successful inference or verify quota. Issues stay visible above the task, with exact commands and package discovery below it. **Use detected checks** applies those commands to this task and invalidates the previous observation. No saved recipe is required for one-off task settings.
+
+Studio refreshes authorization before setup inspection and task creation. A reconnect, provider-settings visit, worker/project change or edited configuration invalidates earlier setup evidence; reconnecting preserves the unsent task and its settings. Manual inspection is optional, while current blockers remain visible and the execution engine performs its own validation on Start task. Team Reviewers go directly to permitted task evidence and their review inbox.

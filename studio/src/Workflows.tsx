@@ -101,6 +101,9 @@ export type Workflow = {
   timeline?: { stage: string; at: string }[];
 };
 
+const recipeKey = (recipe: Pick<Recipe, "id" | "version">) =>
+  `${recipe.id}:${recipe.version}`;
+
 const shortProject = (path: string) =>
   path.replace(/\/$/, "").split("/").pop() || "Choose a project";
 const when = (value: string) =>
@@ -114,6 +117,7 @@ const when = (value: string) =>
 export function Workflows({
   teamWorkspace = false,
   executionWorker,
+  accountIdentity,
   active,
   workspace,
   onWorkspace,
@@ -133,6 +137,7 @@ export function Workflows({
   newTaskRequest?: { sequence: number; workspace: string };
   teamWorkspace?: boolean;
   executionWorker?: string;
+  accountIdentity?: { actor?: string; workspace: string };
   active: boolean;
   knownProjects: string[];
   renderEvidence: (
@@ -177,8 +182,44 @@ export function Workflows({
   const [instructions, setInstructions] = useState("");
   const [checks, setChecks] = useState<CheckSpec[]>([]);
   const [invalidChecks, setInvalidChecks] = useState<Set<number>>(new Set());
-  const [caller, setCaller] = useState<WorkflowAuthority | null>(null);
-  const [authorityLoaded, setAuthorityLoaded] = useState(false);
+  const paired = viaMachine();
+  const authorityScope = JSON.stringify([
+    executionWorker,
+    online,
+    teamWorkspace,
+    paired,
+    accountIdentity?.actor,
+    accountIdentity?.workspace,
+  ]);
+  type SetupContext = {
+    authority?:
+      | (WorkflowAuthority & { projects?: string[]; workspace?: string })
+      | null;
+  };
+  const [contextSnapshot, setContextSnapshot] = useState<{
+    scope: string;
+    value: SetupContext;
+  } | null>(null);
+  const [contextError, setContextError] = useState("");
+  const [contextNeedsReload, setContextNeedsReload] = useState(false);
+  const contextIdentity = useRef<{ scope: string; value: string } | null>(null);
+  const [contextRevision, setContextRevision] = useState(0);
+  const authorityRequest = useRef(0);
+  const authorityScopeRef = useRef(authorityScope);
+  authorityScopeRef.current = authorityScope;
+  const authorityLoaded = online && contextSnapshot?.scope === authorityScope;
+  const caller = authorityLoaded
+    ? contextSnapshot.value.authority || null
+    : null;
+  const approvedProjects = Array.isArray(caller?.projects)
+    ? [
+        ...new Set(
+          caller.projects.filter(
+            (path) => typeof path === "string" && !!path.trim(),
+          ),
+        ),
+      ]
+    : [];
   const access = workflowAccess(caller, viaMachine());
   const reviewAccess = workflowReviewAccess(
     caller,
@@ -201,12 +242,15 @@ export function Workflows({
   const [githubBinding, setGithubBinding] = useState("");
   const [filter, setFilter] = useState("all");
   const [busy, setBusy] = useState("");
+  const setupAction = useRef("");
   const [error, setError] = useState("");
   const [setupError, setSetupError] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
   const [readiness, setReadiness] = useState<TaskAssessment | null>(null);
   const readinessKey = useRef<string | null>(null);
+  const assessmentSequence = useRef(0);
+  const recipeLoaded = useRef(false);
   const [search, setSearch] = useState("");
   const [projectFilter, setProjectFilter] = useState("");
   const [composing, setComposing] = useState(false);
@@ -221,6 +265,14 @@ export function Workflows({
   );
   const firstLoad = useRef(true);
   const searchRef = useRef<HTMLInputElement>(null);
+  const taskMainRef = useRef<HTMLDivElement>(null);
+  const connectionReturn = useRef<{
+    opener: HTMLButtonElement;
+    scope: string;
+    project: string;
+    identity: string;
+    requiresDelivery: boolean;
+  } | null>(null);
   const pendingStart = useRef<{ signature: string; id: string } | null>(null);
   const composedRequest = useRef<number | undefined>(undefined);
   const pendingComments = useRef(
@@ -233,6 +285,14 @@ export function Workflows({
   onlineRef.current = online;
   const historyRequest = useRef(0);
   const assessmentKey = JSON.stringify([
+    authorityScope,
+    caller?.actor,
+    caller?.workspace,
+    caller?.team,
+    caller?.role,
+    approvedProjects,
+    recipe?.id,
+    recipe?.version,
     taskWorkspace,
     executionWorker,
     minutes,
@@ -245,13 +305,29 @@ export function Workflows({
   assessmentKeyRef.current = assessmentKey;
   // Hide and ignore a result immediately when its inputs change, before effects
   // clear state. An older in-flight response cannot gate a different task.
+  const projectAllowed =
+    online &&
+    (!paired || (authorityLoaded && approvedProjects.includes(taskWorkspace)));
+  const setupGuard = useRef({
+    scope: authorityScope,
+    project: taskWorkspace,
+    allowed: false,
+    key: assessmentKey,
+  });
+  setupGuard.current = {
+    scope: authorityScope,
+    project: taskWorkspace,
+    allowed: projectAllowed && access.deliver,
+    key: assessmentKey,
+  };
   const currentReadiness =
-    readinessKey.current === assessmentKey ? readiness : null;
+    projectAllowed && readinessKey.current === assessmentKey ? readiness : null;
   const readinessBlocked =
     currentReadiness?.status === "blocked" ||
     currentReadiness?.issues?.some((issue) => issue.severity === "blocker");
 
   const chooseRecipe = useCallback((value: Recipe) => {
+    recipeLoaded.current = true;
     setRecipe(value);
     setCoordinator(structuredClone(value.coordinator));
     setTeam(structuredClone(value.team));
@@ -335,26 +411,198 @@ export function Workflows({
     [online, teamWorkspace],
   );
 
+  const loadSetupContext = useCallback(
+    async (signal?: AbortSignal) => {
+      const request = ++authorityRequest.current;
+      try {
+        const context = await api<SetupContext>("/context", { signal });
+        if (
+          signal?.aborted ||
+          !onlineRef.current ||
+          authorityScopeRef.current !== authorityScope ||
+          request !== authorityRequest.current
+        )
+          throw new Error(
+            "Project permissions changed. Inspect the current setup again.",
+          );
+        if (paired && !context.authority)
+          throw new Error(
+            "Workspace permissions are unavailable. Update or reconnect this worker.",
+          );
+        if (
+          paired &&
+          accountIdentity &&
+          (context.authority?.workspace !== accountIdentity.workspace ||
+            (accountIdentity.actor &&
+              context.authority?.actor !== accountIdentity.actor))
+        ) {
+          setContextNeedsReload(true);
+          throw new Error(
+            "The signed-in account or workspace changed. Reload Studio before continuing.",
+          );
+        }
+        const identity = JSON.stringify([
+          context.authority?.actor,
+          context.authority?.workspace,
+          context.authority?.team,
+        ]);
+        if (
+          paired &&
+          contextIdentity.current?.scope === authorityScope &&
+          contextIdentity.current.value !== identity
+        ) {
+          setContextNeedsReload(true);
+          throw new Error(
+            "The signed-in account or workspace changed. Reload Studio before continuing.",
+          );
+        }
+        contextIdentity.current = { scope: authorityScope, value: identity };
+        setContextSnapshot({ scope: authorityScope, value: context });
+        setContextNeedsReload(false);
+        setContextError("");
+        return context;
+      } catch (failure) {
+        if (
+          !signal?.aborted &&
+          authorityScopeRef.current === authorityScope &&
+          request === authorityRequest.current
+        ) {
+          setContextSnapshot(null);
+          setContextError(messageOf(failure));
+        }
+        throw failure;
+      }
+    },
+    [
+      authorityScope,
+      paired,
+      accountIdentity?.actor,
+      accountIdentity?.workspace,
+    ],
+  );
+
+  useEffect(() => {
+    const abort = new AbortController();
+    // Re-entering tasks after changing provider connections or workspace access
+    // invalidates a previous observation. No provider work runs on navigation.
+    assessmentSequence.current++;
+    setReadiness(null);
+    // Clear on leaving as well, so a repository handoff waits for refreshed
+    // permissions before consuming its request and focusing the visible form.
+    setContextSnapshot(null);
+    if (active && online) {
+      void loadSetupContext(abort.signal).catch(() => undefined);
+    }
+    return () => {
+      assessmentSequence.current++;
+      abort.abort();
+    };
+  }, [active, online, loadSetupContext, contextRevision]);
+
+  function openConnections(
+    opener: HTMLButtonElement,
+    requiresDelivery = false,
+  ) {
+    connectionReturn.current = {
+      opener,
+      scope: authorityScope,
+      project: taskWorkspace,
+      identity: JSON.stringify([
+        caller?.actor,
+        caller?.workspace,
+        caller?.team,
+      ]),
+      requiresDelivery,
+    };
+    onConnections();
+  }
+
+  useEffect(() => {
+    const pending = connectionReturn.current;
+    if (!pending || !active || (online && !authorityLoaded && !contextError))
+      return;
+    const frame = requestAnimationFrame(() => {
+      connectionReturn.current = null;
+      // Permission refresh can temporarily hide the dialog's original opener.
+      // Restore it only once the same permitted draft is visible again. Keep
+      // deliberate keyboard navigation elsewhere while the refresh was pending.
+      if (document.activeElement && document.activeElement !== document.body)
+        return;
+      const sameDraft =
+        pending.scope === authorityScope &&
+        pending.project === taskWorkspace &&
+        pending.identity ===
+          JSON.stringify([caller?.actor, caller?.workspace, caller?.team]);
+      const visible =
+        pending.opener.isConnected &&
+        pending.opener.getClientRects().length > 0 &&
+        !pending.opener.closest("[hidden], [inert]");
+      if (
+        sameDraft &&
+        visible &&
+        (!pending.requiresDelivery || (access.deliver && projectAllowed))
+      )
+        pending.opener.focus();
+      else taskMainRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [
+    active,
+    online,
+    authorityLoaded,
+    contextError,
+    authorityScope,
+    taskWorkspace,
+    caller?.actor,
+    caller?.workspace,
+    caller?.team,
+    access.deliver,
+    projectAllowed,
+  ]);
+
+  async function authorizeSetupAction() {
+    const expected = setupGuard.current;
+    if (
+      !activeRef.current ||
+      !expected.allowed ||
+      expected.scope !== authorityScope ||
+      expected.project !== taskWorkspace ||
+      expected.key !== assessmentKey
+    )
+      throw new Error(
+        "Choose a currently authorized project on the connected worker.",
+      );
+    const context = await loadSetupContext();
+    if (
+      !alive.current ||
+      !activeRef.current ||
+      !onlineRef.current ||
+      authorityScopeRef.current !== authorityScope ||
+      setupGuard.current.key !== assessmentKey
+    )
+      throw new Error("Task setup changed. Inspect the current setup again.");
+    if (
+      paired &&
+      (context.authority?.actor !== caller?.actor ||
+        context.authority?.workspace !== caller?.workspace ||
+        context.authority?.team !== caller?.team)
+    )
+      throw new Error(
+        "The signed-in account or workspace changed. Reload Studio before continuing.",
+      );
+    if (
+      !workflowAccess(context.authority || null, paired).deliver ||
+      (paired && !context.authority?.projects?.includes(taskWorkspace))
+    )
+      throw new Error(
+        "Your current permissions do not allow starting tasks in this project.",
+      );
+  }
+
   useEffect(() => {
     alive.current = true;
     const abort = new AbortController();
     setSetupError("");
-    if (online)
-      void api<{ authority: typeof caller }>("/context", {
-        signal: abort.signal,
-      })
-        .then((c) => {
-          if (!abort.signal.aborted) {
-            setCaller(c.authority);
-            setAuthorityLoaded(true);
-          }
-        })
-        .catch((e) => {
-          if (!abort.signal.aborted && viaMachine())
-            setSetupError(
-              `Workspace permissions could not be loaded: ${messageOf(e)}`,
-            );
-        });
     if (viaMachine()) {
       void relayApi<typeof githubBindings>("/github/bindings", {
         signal: abort.signal,
@@ -378,7 +626,7 @@ export function Workflows({
       ).then((rows) => {
         if (abort.signal.aborted) return;
         setRecipes(rows);
-        if (rows[0]) chooseRecipe(rows[0]);
+        if (rows[0] && !recipeLoaded.current) chooseRecipe(rows[0]);
       }),
       refresh(abort.signal),
     ])
@@ -416,8 +664,9 @@ export function Workflows({
   }, [chooseRecipe, refresh, online]);
 
   useEffect(() => {
+    assessmentSequence.current++;
     setReadiness(null);
-  }, [assessmentKey, minutes]);
+  }, [assessmentKey]);
   useEffect(() => {
     setGithubBinding((current) =>
       githubBindingsForProject(
@@ -471,7 +720,15 @@ export function Workflows({
     }
   }
   async function start() {
-    if (!recipe || !coordinator || busy || !access.deliver) return;
+    if (
+      !recipe ||
+      !coordinator ||
+      busy ||
+      setupAction.current ||
+      !access.deliver ||
+      !projectAllowed
+    )
+      return;
     if (
       loading ||
       !online ||
@@ -486,6 +743,7 @@ export function Workflows({
       );
       return;
     }
+    setupAction.current = "start";
     setBusy("start");
     setError("");
     setNotice("");
@@ -507,7 +765,10 @@ export function Workflows({
     const signature = JSON.stringify(body);
     if (pendingStart.current?.signature !== signature)
       pendingStart.current = { signature, id: crypto.randomUUID() };
+    let dispatched = false;
     try {
+      await authorizeSetupAction();
+      dispatched = true;
       const value = await api<Workflow>("/workflows", {
         method: "POST",
         body: JSON.stringify({ ...body, request_id: pendingStart.current.id }),
@@ -547,19 +808,35 @@ export function Workflows({
       );
     } catch (failure) {
       setError(
-        `${messageOf(failure)} Check recent tasks before retrying if the connection timed out.`,
+        dispatched
+          ? `${messageOf(failure)} Check recent tasks before retrying if the connection timed out.`
+          : messageOf(failure),
       );
-      await refresh().catch(() => undefined);
+      if (dispatched) await refresh().catch(() => undefined);
     } finally {
+      setupAction.current = "";
       setBusy("");
     }
   }
   async function assess() {
-    if (!recipe || !coordinator || busy || !access.deliver) return;
+    if (
+      !recipe ||
+      !coordinator ||
+      busy ||
+      setupAction.current ||
+      !access.deliver ||
+      !projectAllowed ||
+      invalidSettings
+    )
+      return;
     const assessedKey = assessmentKey;
+    const assessedSequence = ++assessmentSequence.current;
+    setupAction.current = "assess";
+    setReadiness(null);
     setBusy("assess");
     setError("");
     try {
+      await authorizeSetupAction();
       const result = await api<TaskAssessment>("/project/assess", {
         method: "POST",
         body: JSON.stringify({
@@ -569,14 +846,24 @@ export function Workflows({
           participants: [coordinator, ...team],
         }),
       });
-      if (assessmentKeyRef.current === assessedKey) {
+      if (
+        alive.current &&
+        onlineRef.current &&
+        assessmentKeyRef.current === assessedKey &&
+        assessmentSequence.current === assessedSequence
+      ) {
         readinessKey.current = assessedKey;
         setReadiness({ ...result, assessed_at: new Date().toISOString() });
       }
     } catch (failure) {
-      if (assessmentKeyRef.current === assessedKey)
+      if (
+        alive.current &&
+        assessmentKeyRef.current === assessedKey &&
+        assessmentSequence.current === assessedSequence
+      )
         setError(messageOf(failure));
     } finally {
+      setupAction.current = "";
       setBusy("");
     }
   }
@@ -904,7 +1191,14 @@ export function Workflows({
     setArchiveView(false);
     setQueueOpen(false);
     setNotice("");
-    if (projectFilter && !parentTask) onWorkspace(projectFilter);
+    if (parentTask) {
+      setParentTask(null);
+      setPrompt("");
+      const current =
+        recipes.find((item) => item.id === recipe?.id) || recipes[0];
+      if (current) chooseRecipe(current);
+    }
+    if (projectFilter) onWorkspace(projectFilter);
     requestAnimationFrame(() =>
       document.getElementById("workflow-prompt")?.focus(),
     );
@@ -920,6 +1214,12 @@ export function Workflows({
       return;
     composedRequest.current = newTaskRequest.sequence;
     firstLoad.current = false;
+    if (parentTask) {
+      setPrompt("");
+      const current =
+        recipes.find((item) => item.id === recipe?.id) || recipes[0];
+      if (current) chooseRecipe(current);
+    }
     setParentTask(null);
     setComposing(true);
     setArchiveView(false);
@@ -969,7 +1269,7 @@ export function Workflows({
             <WorkIcon name="close" />
           </button>
         </div>
-        {view === "tasks" && (
+        {view === "tasks" && access.deliver && (
           <button
             className="new-task-button"
             disabled={!access.deliver}
@@ -1135,13 +1435,13 @@ export function Workflows({
           <button
             className="icon-button"
             aria-label="Provider connections"
-            onClick={onConnections}
+            onClick={(event) => openConnections(event.currentTarget)}
           >
             <WorkIcon name="settings" size={16} />
           </button>
         </div>
       </aside>
-      <div className="task-main">
+      <div className="task-main" ref={taskMainRef} tabIndex={-1}>
         <div className="mobile-task-bar">
           <button
             className="text-button"
@@ -1153,7 +1453,7 @@ export function Workflows({
               {historyState === "ready" && online ? history.length : "—"}
             </span>
           </button>
-          {view === "tasks" && (
+          {view === "tasks" && access.deliver && (
             <button
               className="text-button"
               disabled={!access.deliver}
@@ -1169,6 +1469,36 @@ export function Workflows({
             delivery. Existing personal task approval remains available.
           </div>
         )}
+        {contextError && online && (
+          <div className="task-alert" role="alert">
+            <p>{contextError}</p>
+            <button
+              type="button"
+              className="text-button"
+              onClick={() =>
+                contextNeedsReload
+                  ? location.reload()
+                  : setContextRevision((value) => value + 1)
+              }
+            >
+              {contextNeedsReload ? "Reload Studio" : "Refresh project access"}
+            </button>
+          </div>
+        )}
+        {view === "tasks" &&
+          authorityLoaded &&
+          !access.deliver &&
+          !selected &&
+          online &&
+          historyState === "ready" && (
+            <div className="task-loading" role="status">
+              <h2>No tasks to inspect</h2>
+              <p>
+                Tasks shared with your role appear here. Open Review inbox for
+                work awaiting your decision.
+              </p>
+            </div>
+          )}
         {setupError && online && historyState !== "unavailable" && (
           <div className="task-alert" role="alert">
             <WorkIcon name="warning" />
@@ -1251,6 +1581,7 @@ export function Workflows({
           className="task-compose-scroll"
           hidden={
             view === "inbox" ||
+            !access.deliver ||
             archiveView ||
             (!composing &&
               (!!selected ||
@@ -1259,7 +1590,10 @@ export function Workflows({
                 historyState === "unavailable"))
           }
         >
-          <fieldset disabled={!!busy} className="composer-fieldset">
+          <fieldset
+            disabled={!!busy && busy !== "assess"}
+            className="composer-fieldset"
+          >
             <section
               className="workflow-compose"
               aria-labelledby="workflow-compose-title"
@@ -1324,20 +1658,122 @@ export function Workflows({
               )}
               <label className="workflow-field">
                 <span>Project</span>
-                <input
-                  list="task-projects"
-                  aria-label="Workflow project"
-                  readOnly={!!parentTask}
-                  value={taskWorkspace}
-                  onChange={(e) => onWorkspace(e.target.value)}
-                  placeholder="Absolute path to an approved project"
-                />
-                <datalist id="task-projects">
-                  {projects.map((path) => (
-                    <option key={path} value={path} />
-                  ))}
-                </datalist>
+                {paired ? (
+                  <select
+                    aria-label="Workflow project"
+                    value={
+                      approvedProjects.includes(taskWorkspace)
+                        ? taskWorkspace
+                        : ""
+                    }
+                    disabled={!!parentTask || !authorityLoaded || !online}
+                    onChange={(e) => onWorkspace(e.target.value)}
+                  >
+                    <option value="">Choose an approved project</option>
+                    {approvedProjects.map((path) => (
+                      <option key={path} value={path}>
+                        {path}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    list="task-projects"
+                    aria-label="Workflow project"
+                    readOnly={!!parentTask}
+                    value={taskWorkspace}
+                    onChange={(e) => onWorkspace(e.target.value)}
+                    placeholder="Absolute path to an approved project"
+                  />
+                )}
+                {!paired && (
+                  <datalist id="task-projects">
+                    {projects.map((path) => (
+                      <option key={path} value={path} />
+                    ))}
+                  </datalist>
+                )}
               </label>
+              <div className="composer-setup" aria-label="Project setup">
+                <div>
+                  <h2 role="status">
+                    {busy === "assess"
+                      ? "Inspecting project setup…"
+                      : !currentReadiness
+                        ? "Setup not inspected"
+                        : readinessBlocked ||
+                            currentReadiness.status === "needs_configuration"
+                          ? "Setup needs attention"
+                          : currentReadiness.status === "ready"
+                            ? "Setup inspected"
+                            : "Assessment received"}
+                  </h2>
+                  <p>
+                    {currentReadiness
+                      ? "Checks have not run. Provider inference and quota remain unverified."
+                      : "Inspect the environment, selected providers and check plan. This does not start a task."}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={
+                    !online ||
+                    !taskWorkspace ||
+                    !recipe ||
+                    invalidSettings ||
+                    !access.deliver ||
+                    !projectAllowed
+                  }
+                  aria-disabled={!!busy}
+                  onClick={() => void assess()}
+                >
+                  {busy === "assess" ? "Checking…" : "Check readiness"}
+                </button>
+              </div>
+              {paired &&
+                !contextError &&
+                (!authorityLoaded || !projectAllowed) && (
+                  <div className="composer-project-notice" role="status">
+                    <p>
+                      {!online
+                        ? "Reconnect this worker to refresh project access."
+                        : !authorityLoaded
+                          ? "Checking current project permissions…"
+                          : "Choose an approved project. Workspace Owners manage project access on this worker."}
+                    </p>
+                    {online && authorityLoaded && (
+                      <button
+                        type="button"
+                        className="text-button"
+                        onClick={() => setContextRevision((value) => value + 1)}
+                      >
+                        Refresh project access
+                      </button>
+                    )}
+                  </div>
+                )}
+              {!!currentReadiness?.issues?.length && (
+                <ul className="composer-setup-issues" aria-label="Setup issues">
+                  {currentReadiness.issues.map((issue, index) => (
+                    <li
+                      key={index}
+                      className={issue.severity === "blocker" ? "blocker" : ""}
+                    >
+                      <strong>
+                        {issue.severity === "blocker"
+                          ? "Blocked: "
+                          : "Attention: "}
+                      </strong>
+                      {issue.message}
+                      {issue.provider && (
+                        <code>Provider: {issue.provider}</code>
+                      )}
+                      {issue.root && <code>{issue.root}</code>}
+                    </li>
+                  ))}
+                </ul>
+              )}
               <label className="workflow-field">
                 <span>Task</span>
                 <textarea
@@ -1349,41 +1785,49 @@ export function Workflows({
                   placeholder="Describe the change, relevant context, and what done looks like…"
                 />
               </label>
+              {currentReadiness && (
+                <TaskPreflight
+                  assessment={currentReadiness}
+                  showIssues={false}
+                  configuredChecks={checks}
+                  disabled={!!busy || !!parentTask}
+                  onUseChecks={(value) => {
+                    setChecks(value);
+                    setInvalidChecks(new Set());
+                    setNotice(
+                      "Detected checks added to this task. Inspect setup again to refresh the observation.",
+                    );
+                  }}
+                />
+              )}
               <div className="compose-options">
                 <label>
                   Workflow
                   <select
                     aria-label="Task workflow"
                     disabled={!!parentTask}
-                    value={recipe?.id || ""}
+                    value={recipe ? recipeKey(recipe) : ""}
                     onChange={(e) => {
-                      const next = recipes.find((r) => r.id === e.target.value);
+                      const next = recipes.find(
+                        (r) => recipeKey(r) === e.target.value,
+                      );
                       if (next) chooseRecipe(next);
                     }}
                   >
-                    {parentTask &&
-                      recipe &&
+                    {recipe &&
                       !recipes.some(
-                        (r) =>
-                          r.id === recipe.id && r.version === recipe.version,
+                        (r) => recipeKey(r) === recipeKey(recipe),
                       ) && (
-                        <option value={recipe.id}>
-                          {recipe.name} · v{recipe.version}
+                        <option value={recipeKey(recipe)}>
+                          {recipe.name} · v{recipe.version} (
+                          {parentTask ? "saved task" : "draft selection"})
                         </option>
                       )}
-                    {recipes
-                      .filter(
-                        (r) =>
-                          !parentTask ||
-                          r.id !== recipe?.id ||
-                          r.version === recipe?.version,
-                      )
-                      .map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {r.name}
-                          {r.builtin ? "" : ` · v${r.version}`}
-                        </option>
-                      ))}
+                    {recipes.map((r) => (
+                      <option key={recipeKey(r)} value={recipeKey(r)}>
+                        {r.name} · v{r.version}
+                      </option>
+                    ))}
                   </select>
                 </label>
                 <span className="workflow-pill">
@@ -1392,16 +1836,19 @@ export function Workflows({
               </div>
               <div className="workflow-team-summary">
                 <span>
+                  Team:{" "}
                   {team
-                    .map((p) => LABELS[p.provider] || p.provider)
-                    .join(" + ")}{" "}
-                  builds
+                    .map(
+                      (p) =>
+                        `${LABELS[p.provider] || p.provider} (${p.role || "generalist"})`,
+                    )
+                    .join(", ")}
                 </span>
                 <span>
+                  Coordinator:{" "}
                   {coordinator
                     ? LABELS[coordinator.provider] || coordinator.provider
-                    : "Coordinator"}{" "}
-                  coordinates and checks
+                    : "Not selected"}
                 </span>
                 <span>{minutes} min limit</span>
               </div>
@@ -1411,7 +1858,12 @@ export function Workflows({
                   Use different providers for implementation and independent
                   review. Provider usage is charged to your configured accounts.
                 </p>
-                <button className="text-button" onClick={onConnections}>
+                <button
+                  className="text-button"
+                  onClick={(event) =>
+                    openConnections(event.currentTarget, true)
+                  }
+                >
                   Manage provider connections
                 </button>
                 {coordinator &&
@@ -1587,17 +2039,6 @@ export function Workflows({
                 </div>
               </details>
 
-              {currentReadiness && (
-                <TaskPreflight
-                  assessment={currentReadiness}
-                  configuredChecks={checks}
-                  disabled={!!busy || !!parentTask}
-                  onUseChecks={(value) => {
-                    setChecks(value);
-                    setInvalidChecks(new Set());
-                  }}
-                />
-              )}
               {viaMachine() && (
                 <label>
                   Delivery
@@ -1631,26 +2072,13 @@ export function Workflows({
               </p>
               <div className="compose-submit">
                 <button
-                  className="secondary-button"
-                  disabled={
-                    !!busy ||
-                    !online ||
-                    !taskWorkspace ||
-                    !recipe ||
-                    invalidSettings ||
-                    !access.deliver
-                  }
-                  onClick={() => void assess()}
-                >
-                  {busy === "assess" ? "Checking…" : "Check readiness"}
-                </button>
-                <button
                   className="primary-button"
                   disabled={
                     loading ||
                     !!busy ||
                     !online ||
                     !taskWorkspace ||
+                    !projectAllowed ||
                     !prompt.trim() ||
                     !coordinator ||
                     readinessBlocked ||

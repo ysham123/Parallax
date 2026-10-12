@@ -1202,6 +1202,7 @@ export default function App({
   onReconnect,
   workspaceName,
   workspaceRole,
+  accountIdentity,
   onManageWorkspace,
 }: {
   execution?: {
@@ -1219,6 +1220,7 @@ export default function App({
   onReconnect?: () => void;
   workspaceName?: string;
   workspaceRole?: string;
+  accountIdentity?: { actor?: string; workspace: string };
   onManageWorkspace?: (section: "workspace" | "projects" | "github") => void;
 } = {}) {
   const hostedWorkspace = import.meta.env.MODE === "cloud";
@@ -2066,6 +2068,7 @@ export default function App({
               newTaskRequest={newTaskRequest}
               teamWorkspace={teamWorkspace}
               executionWorker={execution?.id}
+              accountIdentity={accountIdentity}
               active={
                 (tab === "workflows" || tab === "inbox") &&
                 !connectionsOpen &&

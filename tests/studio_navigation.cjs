@@ -261,13 +261,14 @@ const taskProps = {
     const list=nodes(queue.tree).find(n=>n.props.className==='task-list');
     assert.match(text(list),/Delivery pending|Retry delivery/); assert.doesNotMatch(text(list),/Published task|Applied task|Task A/);
   }); queue.unmount();
+  authority={...authority,projects:['/project','/new-authorized-folder']};
   const composing=renderer(Workflows,workflowProps); composing.render(); await settle(composing);
   nodes(composing.tree).find(n=>n.type==='select' && n.props['aria-label']==='Filter by project').props.onChange({target:{value:'/project'}}); composing.render();
   composing.props={...workflowProps,workspace:'/new-authorized-folder',newTaskRequest:{sequence:1,workspace:'/new-authorized-folder'}};
   composing.render(); await settle(composing);
   check('Repository composer request overrides a historical queue filter without inheriting a saved-candidate parent', () => {
-    const field=nodes(composing.tree).find(n=>n.type==='input' && n.props['aria-label']==='Workflow project');
-    assert.equal(field.props.value,'/new-authorized-folder'); assert.equal(field.props.readOnly,false);
+    const field=nodes(composing.tree).find(n=>n.type==='select' && n.props['aria-label']==='Workflow project');
+    assert.equal(field.props.value,'/new-authorized-folder'); assert.equal(field.props.disabled,false);
     const composer=nodes(composing.tree).find(n=>n.props.className==='task-compose-scroll'); assert.equal(composer.props.hidden,false);
   });
   let returnFocus=0, nextFrame;

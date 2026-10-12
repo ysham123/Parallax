@@ -1933,3 +1933,61 @@
  .task-workspace .task-conversation { min-height: 260px; }
  .mobile-task-bar { min-height: 44px; }
 }
+
+/* Keep setup attached to the selected project, before the task request. */
+.workflow-field select {
+  min-width: 0;
+  width: 100%;
+  padding: 12px;
+  border-radius: 6px;
+  font-size: 14px;
+  text-overflow: ellipsis;
+}
+.composer-setup {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 14px 0 20px;
+}
+.composer-setup h2 {
+  font-size: 14px;
+  margin: 0 0 5px;
+  font-weight: 600;
+}
+.composer-setup p,
+.composer-project-notice {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 0;
+}
+.composer-setup button {
+  flex-shrink: 0;
+}
+.composer-project-notice {
+  margin: 12px 0;
+}
+.composer-project-notice[role="alert"] {
+  color: var(--danger);
+}
+@media (max-width: 540px) {
+  .composer-setup {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+}
+
+.composer-setup-issues {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.composer-setup-issues li { color: var(--amber); overflow-wrap: anywhere; }
+.composer-setup-issues li.blocker { color: var(--danger); }
+.composer-setup-issues code { display: block; font-size: 12px; }

@@ -21,6 +21,7 @@ export type TaskAssessment = {
     severity?: string;
     category?: string;
     root?: string;
+    provider?: string;
     message: string;
   }[];
 };
@@ -36,11 +37,14 @@ export function TaskPreflight({
   configuredChecks,
   onUseChecks,
   disabled,
+  showIssues = true,
 }: {
   assessment: TaskAssessment;
   configuredChecks?: CheckSpec[];
   onUseChecks: (checks: CheckSpec[]) => void;
   disabled: boolean;
+  /** The composer can render all issues beside its setup summary instead. */
+  showIssues?: boolean;
 }) {
   const titleId = useId();
   const checksNoteId = useId();
@@ -56,6 +60,14 @@ export function TaskPreflight({
     issues.some((issue) => issue.severity === "blocker");
   const ready = assessment.status === "ready" && !blocked;
   const setupNeeded = blocked || assessment.status === "needs_configuration";
+  const checksReported = assessment.proposed_checks !== undefined;
+  const checkSummary = configured
+    ? `${checks.length} configured check${checks.length === 1 ? "" : "s"} for this task`
+    : checks.length
+      ? `${checks.length} detected check${checks.length === 1 ? "" : "s"} proposed`
+      : checksReported
+        ? "No checks detected"
+        : "Check discovery not reported";
   const assessedAt = assessment.assessed_at
     ? new Date(assessment.assessed_at)
     : null;
@@ -64,21 +76,26 @@ export function TaskPreflight({
     <section className="task-preflight" aria-labelledby={titleId}>
       <header className="preflight-heading">
         <h2 id={titleId}>
-          <WorkIcon name="review" size={15} /> Project preflight
+          <WorkIcon name="review" size={16} /> Project setup
         </h2>
         <span
-          className={`preflight-status ${ready ? "ready" : setupNeeded ? "blocked" : ""}`}
+          className={`preflight-status ${ready ? "inspected" : setupNeeded ? "blocked" : ""}`}
           role="status"
         >
           {ready
-            ? "Ready to start"
+            ? "Setup inspected"
             : setupNeeded
               ? "Setup needs attention"
-              : "Assessment received"}
+              : "Inspection status unknown"}
         </span>
       </header>
 
-      {issues.length > 0 && (
+      <p className="preflight-scope">
+        This inspection does not run project checks or model inference and does
+        not verify provider quota.
+      </p>
+
+      {showIssues && issues.length > 0 && (
         <ul className="preflight-issues" aria-label="Setup issues">
           {issues.map((issue, index) => (
             <li
@@ -88,14 +105,32 @@ export function TaskPreflight({
               <WorkIcon name="warning" size={14} />
               <div>
                 <strong>
-                  {issue.severity === "blocker" ? "Blocked" : "Attention"}
+                  {issue.severity === "blocker"
+                    ? "Blocker"
+                    : issue.severity === "warning"
+                      ? "Warning"
+                      : "Attention"}
                 </strong>
                 {issue.root && <code>{issue.root}</code>}
+                {issue.provider && (
+                  <span className="preflight-issue-provider">
+                    Provider: {issue.provider}
+                  </span>
+                )}
                 <p>{issue.message}</p>
               </div>
             </li>
           ))}
         </ul>
+      )}
+      {!issues.length && (
+        <p className="preflight-note">
+          {assessment.issues === undefined
+            ? "Setup issues were not reported by this worker."
+            : setupNeeded
+              ? "This report needs setup attention but did not provide issue details."
+              : "No setup issues reported."}
+        </p>
       )}
 
       <dl className="preflight-facts">
@@ -110,10 +145,10 @@ export function TaskPreflight({
           </dd>
         </div>
         <div>
-          <dt>Project command isolation</dt>
+          <dt>Command isolation</dt>
           <dd>
             {assessment.execution?.enforced === true
-              ? `Available${assessment.execution.backend ? ` · ${assessment.execution.backend}` : ""}`
+              ? `Available${assessment.execution.backend ? ` (${assessment.execution.backend})` : ""}`
               : assessment.execution?.enforced === false
                 ? "Unavailable"
                 : "Not reported"}
@@ -121,9 +156,64 @@ export function TaskPreflight({
         </div>
       </dl>
 
+      <div className="preflight-check-plan">
+        <h3>Check plan</h3>
+        <p className="preflight-check-summary">
+          {checkSummary}. <span>Not run by this inspection.</span>
+        </p>
+        {checks.length > 0 ? (
+          <>
+            <details className="preflight-command-details">
+              <summary>Inspect commands, directories and time limits</summary>
+              <ul className="preflight-checks">
+                {checks.map((check, index) => (
+                  <li key={`${check.name}-${index}`}>
+                    <div className="preflight-check-heading">
+                      <strong>{check.name}</strong>
+                      <span>{check.timeout}s limit</span>
+                    </div>
+                    <code className="preflight-command">
+                      {check.argv.map(argument).join(" ")}
+                    </code>
+                    <small>
+                      Working directory: <code>{check.cwd || "."}</code>
+                    </small>
+                  </li>
+                ))}
+              </ul>
+            </details>
+            {!configured && (
+              <div className="preflight-check-action">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={disabled}
+                  aria-describedby={checksNoteId}
+                  onClick={() => {
+                    if (!disabled) onUseChecks(structuredClone(checks));
+                  }}
+                >
+                  Use detected checks
+                </button>
+                <p id={checksNoteId} className="preflight-note">
+                  Uses these checks for this task. Your saved recipe stays
+                  unchanged.
+                </p>
+              </div>
+            )}
+          </>
+        ) : (
+          <p className="preflight-note">
+            {!checksReported
+              ? "This worker did not report detected checks."
+              : "No checks detected. Add explicit check commands in task settings."}
+          </p>
+        )}
+      </div>
+
       <details className="preflight-discovery">
         <summary>
-          Packages & instruction files
+          Packages and instruction files
           <small>
             {assessment.packages === undefined
               ? "Not reported"
@@ -137,7 +227,7 @@ export function TaskPreflight({
                 <code>{item.root || "."}</code>
                 <span>
                   {item.kind || "Type not reported"}
-                  {item.manager ? ` · ${item.manager}` : ""}
+                  {item.manager ? ` (${item.manager})` : ""}
                 </span>
                 <small>Setup: {item.setup || "not reported"}</small>
               </li>
@@ -168,62 +258,10 @@ export function TaskPreflight({
         )}
       </details>
 
-      <div className="preflight-check-plan">
-        <h3>
-          {configured ? "Configured checks" : "Detected checks"}{" "}
-          <span>{checks.length}</span>
-        </h3>
-        {checks.length > 0 ? (
-          <>
-            <ul className="preflight-checks">
-              {checks.map((check, index) => (
-                <li key={`${check.name}-${index}`}>
-                  <div className="preflight-check-heading">
-                    <strong>{check.name}</strong>
-                    <span>{check.timeout}s limit</span>
-                  </div>
-                  <code className="preflight-command">
-                    {check.argv.map(argument).join(" ")}
-                  </code>
-                  <small>
-                    Working directory: <code>{check.cwd || "."}</code>
-                  </small>
-                </li>
-              ))}
-            </ul>
-            {!configured && (
-              <div className="preflight-check-action">
-                <button
-                  type="button"
-                  className="secondary-button"
-                  disabled={disabled}
-                  aria-describedby={checksNoteId}
-                  onClick={() => onUseChecks(structuredClone(checks))}
-                >
-                  Use detected checks
-                </button>
-                <p id={checksNoteId} className="preflight-note">
-                  Uses these checks for this task. Your saved recipe stays
-                  unchanged.
-                </p>
-              </div>
-            )}
-          </>
-        ) : (
-          <p className="preflight-note">
-            {assessment.proposed_checks === undefined
-              ? "This worker did not report detected checks."
-              : "No checks detected. Add explicit check commands in task settings."}
-          </p>
-        )}
-      </div>
-
       <p className="preflight-footnote">
-        Discovery does not run these checks.
-        {assessedAt && !Number.isNaN(assessedAt.getTime()) && (
+        {assessedAt && !Number.isNaN(assessedAt.getTime()) ? (
           <>
-            {" "}
-            Assessed{" "}
+            Report time:{" "}
             <time dateTime={assessment.assessed_at}>
               {assessedAt.toLocaleString([], {
                 month: "short",
@@ -234,6 +272,8 @@ export function TaskPreflight({
             </time>
             .
           </>
+        ) : (
+          "Inspection time not reported."
         )}
       </p>
     </section>

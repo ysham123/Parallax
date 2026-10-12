@@ -50,7 +50,7 @@ Both share the existing original type, palette and offset-plane identity. The co
 | Deliver | Explicit local application or a previewed draft PR publication. | Only the approved candidate is delivered. No automatic merge, force-push, rebase or deployment. |
 | Follow up | Inspect CI/review feedback and explicitly request further work. | Feedback never starts agents automatically. Recovery reconciles durable operations and preserves consumed budget. |
 
-The first implementation slice improves the existing pre-pairing instructions and machine connection entry. It adds explicit platform choice and progressive setup while retaining current roles, commands, privacy and reconnect behavior. Post-pair project/provider/check guidance must lead into existing authoritative assessment and composer controls. It must not invent a green completed-setup record.
+The first implementation slice improves the existing pre-pairing instructions and machine connection entry. It adds explicit platform choice and progressive setup while retaining current roles, commands, privacy and reconnect behavior. The next slice continues into the existing task composer: paired project choices come from current worker permission, explicit setup inspection sits beside that choice, and actual issues appear above the task request. The detailed check plan stays below the request. Setup inspection does not run checks, verify inference or prove quota. It remains optional; execution still validates the task server-side. Returning from provider configuration or reconnecting preserves draft settings and invalidates an older inspection. Reviewer entry bypasses task setup.
 
 ## Platform and connection policy
 
