@@ -18,6 +18,7 @@ import {
   recordedTime,
   relationKind,
   requestLabel,
+  taskTitle,
   type ActorDirectory,
   type FindingDestination,
 } from "./task-review";
@@ -792,7 +793,7 @@ export function TaskWorkspace({
           </span>
         </div>
         <h1 id="selected-task-title" tabIndex={-1}>
-          {workflow.title}
+          {taskTitle(workflow.title)}
         </h1>
         <p className="task-byline">
           <span>
@@ -822,7 +823,7 @@ export function TaskWorkspace({
                   : relationship === "fresh"
                     ? "New task from current project after"
                     : "Related task"}
-                : {parentTitle || workflow.parent_workflow_id.slice(0, 8)}
+                : {parentTitle ? taskTitle(parentTitle) : workflow.parent_workflow_id.slice(0, 8)}
               </button>
             )}
             {followups.map((child) => (
@@ -836,7 +837,7 @@ export function TaskWorkspace({
                   : relationKind(child) === "fresh"
                     ? "New task from current project"
                     : "Related task"}
-                : {child.title}
+                : {taskTitle(child.title)}
               </button>
             ))}
           </nav>
@@ -2006,7 +2007,7 @@ export function TaskWorkspace({
                       <summary>
                         Pilot measurements and human assessments
                         <span className="measurement-task-context">
-                          {workflow.title}
+                          {taskTitle(workflow.title)}
                         </span>
                       </summary>
                       {measurementsStarted && measurements}

@@ -31,6 +31,7 @@ import { ArchivedHistory } from "./ArchivedHistory";
 import type { EvidenceTransport } from "./session";
 import "./workflows.css";
 import { reviewLink } from "./review-link";
+import { taskTitle } from "./task-review";
 
 type Recipe = Pick<RunSpec, "coordinator" | "team" | "limits" | "checks"> & {
   id: string;
@@ -1558,7 +1559,7 @@ export function Workflows({
                       className={`task-dot ${workflowGroup(w.status, w.decision?.action)}`}
                     />
                     <span className="task-list-content">
-                      <strong>{w.title}</strong>
+                      <strong>{taskTitle(w.title)}</strong>
                       <span>
                         {shortProject(w.workspace)}
                         <time
@@ -1772,7 +1773,7 @@ export function Workflows({
                   <span>
                     <WorkIcon name="branch" size={14} /> Linked follow-up
                   </span>
-                  <strong>{parentTask.title}</strong>
+                  <strong>{taskTitle(parentTask.title)}</strong>
                   <p>
                     A new candidate from the current project. This task keeps
                     the original workflow version, checks, and limits. Unapplied
@@ -2263,7 +2264,8 @@ export function Workflows({
             visible={active}
             key={`task:${selected.id}`}
             workflow={selected}
-            viewerActor={caller?.actor}
+            // Without team authority, Studio is the local owner, recorded as "local".
+            viewerActor={caller ? caller.actor : authorityLoaded ? "local" : undefined}
             actorDirectory={members}
             feedback={feedbackDrafts[selected.id] || ""}
             sending={sendingTasks.has(selected.id)}

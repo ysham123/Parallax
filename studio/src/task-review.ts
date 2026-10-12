@@ -21,6 +21,23 @@ export function actorLabel(
   );
 }
 
+/** A readable task title: the first meaningful line of the request, without Markdown markers. */
+export function taskTitle(title?: string | null, limit = 120): string {
+  const line =
+    (title || "")
+      .split(/\r?\n/)
+      .map((row) =>
+        row
+          .replace(/^\s*(?:#{1,6}\s+|>\s*|[-*+]\s+|\d+[.)]\s+)/, "")
+          .replace(/^(\*\*|__|`)(.*)\1$/, "$2")
+          .replace(/\s+/g, " ")
+          .trim(),
+      )
+      .find(Boolean) || "";
+  if (!line) return "Untitled task";
+  return line.length > limit ? `${line.slice(0, limit - 1).trimEnd()}…` : line;
+}
+
 export function requestLabel(requester?: string, viewer?: string): string {
   return requester && viewer && requester === viewer
     ? "Your request"
