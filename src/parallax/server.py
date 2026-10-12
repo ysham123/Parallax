@@ -797,7 +797,7 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
                 if not db.execute("SELECT 1 FROM accounts WHERE id=? AND workspace=? AND disabled=0",(actor,workspace)).fetchone():
                     raise HTTPException(403,"Ownership was removed")
     @app.get("/api/github/config")
-    async def github_config(): return {"configured":github.configured() and (not deployment or deployment.pilot_enabled),"installation_url":"https://github.com/apps/"+github.config.get("slug","")+"/installations/new","permissions":["Contents write","Pull requests write","Checks read","Statuses read","Actions read"]}
+    async def github_config(): return {"configured":github.configured() and (not deployment or deployment.pilot_enabled),"installation_url":"https://github.com/apps/"+github.config.get("slug","")+"/installations/new","permissions":["Contents write","Pull requests write","Checks read","Statuses read","Actions read"],"features":["github-binding-idempotency-v1"]}
     @app.post("/api/github/connect/start")
     async def github_connect(request:Request):
         require_pilot()
@@ -830,12 +830,17 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
     @app.post("/api/github/bindings")
     async def github_bind(body:RepositoryBinding, request:Request):
         require_pilot()
-        principal=principal_of(request); github_owner(principal)
-        machine=hub.worker(body.worker,principal.workspace)
-        if body.project not in machine["workspaces"]: raise HTTPException(403,"Project is not approved by this worker")
-        if teams().is_team(principal.workspace) and not any(p["worker"]==body.worker and p["path"]==body.project for p in teams().projects(principal)):
-            raise HTTPException(403,"Bind this team project first")
-        return await github.bind(principal.workspace,body)
+        principal=principal_of(request); actor=github_owner(principal)
+        def authorize_binding():
+            current=accounts.principal_from_hash(principal.session) if accounts and principal.session else None
+            if not current or current.workspace!=principal.workspace or (current.account or {}).get("id")!=actor:
+                raise HTTPException(403,"Current owner session is required for repository binding")
+            github_owner(current)
+            machine=hub.worker(body.worker,current.workspace)
+            if body.project not in machine["workspaces"]: raise HTTPException(403,"Project is not approved by this worker")
+            if teams().is_team(current.workspace) and not any(p["worker"]==body.worker and p["path"]==body.project for p in teams().projects(current)):
+                raise HTTPException(403,"Bind this team project first")
+        return await github.bind(principal.workspace,body,actor=actor,authorize=authorize_binding)
     @app.post("/api/github/publish")
     async def github_publish(body:PublicationRequest, request:Request):
         require_pilot()

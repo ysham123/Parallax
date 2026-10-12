@@ -558,7 +558,7 @@ class Accounts:
         if personal: hub.purge_workspace(personal)
         with self.store.connect() as db:
             db.execute("DELETE FROM sessions WHERE account=?", (principal.account["id"],))
-            for table in ("github_flows", "github_installations", "github_bindings", "github_publications"):
+            for table in ("github_flows", "github_installations", "github_bindings", "github_binding_operations", "github_publications"):
                 if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
                     db.execute(f"DELETE FROM {table} WHERE workspace=?", (personal,))
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='mcp_grants'").fetchone():

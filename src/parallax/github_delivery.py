@@ -21,6 +21,7 @@ PERMISSIONS = {"contents":"write","pull_requests":"write","checks":"read","statu
 
 class RepositoryBinding(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    request_id: UUID | None = None
     installation: int = Field(gt=0)
     repository: int = Field(gt=0)
     worker: str = Field(pattern=r"^[a-f0-9-]{36}$")
@@ -47,6 +48,8 @@ class GitHubDelivery:
                 CREATE TABLE IF NOT EXISTS github_flows(state TEXT PRIMARY KEY, binding TEXT NOT NULL, workspace TEXT NOT NULL, actor TEXT NOT NULL, expires REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS github_installations(workspace TEXT NOT NULL, installation INTEGER NOT NULL, actor TEXT NOT NULL, PRIMARY KEY(workspace,installation));
                 CREATE TABLE IF NOT EXISTS github_bindings(id TEXT PRIMARY KEY, workspace TEXT NOT NULL, body TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS github_binding_operations(id TEXT PRIMARY KEY, workspace TEXT NOT NULL,
+                    actor TEXT NOT NULL, signature TEXT NOT NULL, binding TEXT NOT NULL, created REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS github_publications(id TEXT PRIMARY KEY, workspace TEXT NOT NULL, workflow TEXT NOT NULL, actor TEXT NOT NULL, fingerprint TEXT NOT NULL, body TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS github_deliveries(id TEXT PRIMARY KEY, hash TEXT NOT NULL, received REAL NOT NULL);
             ''')
@@ -115,17 +118,48 @@ class GitHubDelivery:
             page+=1
         return [{k:r[k] for k in ("id","full_name","default_branch")} for r in result]
 
-    async def bind(self, workspace, body):
+    async def bind(self, workspace, body, *, actor=None, authorize=lambda: None):
+        """Record delivery configuration atomically; every replay rechecks access."""
+        authorize()
         if '..' in body.base or body.base.endswith('/') or '@{' in body.base: raise ValueError("Choose a valid remote base branch")
+        payload=body.model_dump(exclude={"request_id"})
+        operation=str(body.request_id) if body.request_id else None
+        if operation and not actor:
+            raise ValueError("An authenticated actor is required for binding request identity")
+        signature=hashlib.sha256(json.dumps({"scheme":"repository-binding-request-v1","workspace":workspace,
+            "actor":actor,"binding":payload},sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest()
+        def recorded(db):
+            if not operation: return None
+            row=db.execute("SELECT * FROM github_binding_operations WHERE id=?",(operation,)).fetchone()
+            if not row: return None
+            if row["workspace"]!=workspace or row["actor"]!=actor or row["signature"]!=signature:
+                raise HTTPException(409,"Repository binding request identity was reused with different content")
+            binding=db.execute("SELECT body FROM github_bindings WHERE id=? AND workspace=?",(row["binding"],workspace)).fetchone()
+            if not binding:
+                raise HTTPException(409,"Saved repository binding is unavailable. Inspect current bindings before starting a new request")
+            return {"id":row["binding"],**json.loads(binding["body"])}
+        # Reject conflicting IDs before issuing external reads, but never let a
+        # saved operation substitute for current repository or owner access.
+        with self.store.connect() as db:
+            recorded(db)
         repositories=await self.repositories(workspace,body.installation)
+        authorize()
         repo=next((r for r in repositories if r["id"]==body.repository),None)
         if not repo: raise HTTPException(403,"Repository not selected for this installation")
-        value = {**body.model_dump(),"full_name":repo["full_name"]}
+        value = {**payload,"full_name":repo["full_name"]}
         identifier=secrets.token_hex(16)
         from uuid import UUID
         identifier=str(UUID(identifier))
         with self.store.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            authorize()
+            if not db.execute("SELECT 1 FROM github_installations WHERE workspace=? AND installation=?",(workspace,body.installation)).fetchone():
+                raise HTTPException(404,"Installation not connected to this workspace")
+            previous=recorded(db)
+            if previous: return previous
             db.execute("INSERT INTO github_bindings VALUES(?,?,?)",(identifier,workspace,json.dumps(value)))
+            if operation:
+                db.execute("INSERT INTO github_binding_operations VALUES(?,?,?,?,?,?)",(operation,workspace,actor,signature,identifier,time.time()))
         return {"id":identifier,**value}
 
     def bindings(self, workspace):
