@@ -936,3 +936,29 @@
   border-bottom: 1.5px solid var(--ink-3);
   transform: rotate(45deg) translateY(-2px);
 }
+
+/* Review link entry */
+.review-entry {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 96px 24px;
+  display: grid;
+  gap: 14px;
+}
+.review-entry h1 {
+  font-size: 30px;
+  letter-spacing: -0.02em;
+}
+.review-entry p {
+  font-size: 15.5px;
+  color: var(--ink-2);
+}
+.review-entry [role="alert"] {
+  color: var(--fail-ink);
+}
+.review-entry-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+}

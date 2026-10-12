@@ -38,6 +38,12 @@ import {
 import "./hosted.css";
 import "./public.css";
 import {
+  parseReviewTarget,
+  resolveReviewEntry,
+  type ReviewSpace,
+  type ReviewTarget,
+} from "./review-link";
+import {
   githubReturn,
   clearGitHubReturn,
   type GitHubProject,
@@ -317,6 +323,103 @@ function CloudWorkspace() {
     setSelected(id);
   }
 
+  // A review link is held until the person explicitly enters its workspace and machine.
+  const [reviewTarget, setReviewTarget] = useState<ReviewTarget | null>(() =>
+    parseReviewTarget(location.hash),
+  );
+  const [reviewSpaces, setReviewSpaces] = useState<{
+    scope: string;
+    spaces: ReviewSpace[] | null;
+    error: string;
+  } | null>(null);
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const [reviewOpened, setReviewOpened] = useState(0);
+  useEffect(() => {
+    // A link pasted into an open Studio tab changes only the hash.
+    const follow = () => {
+      const next = parseReviewTarget(location.hash);
+      if (next) {
+        setReviewSpaces(null);
+        setReviewTarget(next);
+      }
+    };
+    window.addEventListener("hashchange", follow);
+    return () => window.removeEventListener("hashchange", follow);
+  }, []);
+  const reviewEntry =
+    reviewTarget && session
+      ? resolveReviewEntry(
+          reviewTarget,
+          session.workspace.id,
+          reviewSpaces?.scope === scope ? reviewSpaces.spaces : null,
+          machinesLoaded ? machines : null,
+        )
+      : null;
+  const leaveReview = useCallback(() => {
+    setReviewTarget(null);
+    window.history.replaceState(null, "", "/studio");
+  }, []);
+  useEffect(() => {
+    if (!reviewTarget || !session || !scope) return;
+    if (session.workspace.id.toLowerCase() === reviewTarget.workspace) return;
+    if (
+      reviewSpaces?.scope === scope &&
+      (reviewSpaces.spaces || reviewSpaces.error)
+    )
+      return;
+    const requested = scope;
+    fetch("/api/workspaces", { credentials: "same-origin" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(String(response.status));
+        const rows = (await response.json()) as ReviewSpace[];
+        if (scopeRef.current === requested)
+          setReviewSpaces({
+            scope: requested,
+            spaces: Array.isArray(rows) ? rows : [],
+            error: "",
+          });
+      })
+      .catch(() => {
+        if (scopeRef.current === requested)
+          setReviewSpaces({
+            scope: requested,
+            spaces: null,
+            error: "Your workspaces could not be loaded.",
+          });
+      });
+  }, [reviewTarget, session, scope, reviewSpaces]);
+  useEffect(() => {
+    if (reviewEntry?.kind !== "open") return;
+    select(reviewEntry.worker);
+    // Workflows opens an exact #task on its first history load, including tasks beyond the latest page.
+    window.history.replaceState(null, "", `/studio#task=${reviewEntry.task}`);
+    // A fresh Studio mount reads the exact task even when this machine was already open.
+    setReviewOpened((value) => value + 1);
+    setReviewTarget(null);
+  }, [
+    reviewEntry?.kind,
+    reviewEntry?.kind === "open" ? reviewEntry.worker : "",
+  ]);
+  async function enterReviewWorkspace(space: ReviewSpace) {
+    setReviewBusy(true);
+    try {
+      const response = await fetch(
+        `/api/workspaces/${encodeURIComponent(space.id)}/switch`,
+        { method: "POST", credentials: "same-origin" },
+      );
+      if (!response.ok) throw new Error(String(response.status));
+      await checkSession();
+    } catch {
+      setReviewSpaces({
+        scope,
+        spaces: null,
+        error: `Studio could not switch to ${space.name}. Try again.`,
+      });
+    } finally {
+      setReviewBusy(false);
+    }
+  }
+
   useEffect(() => {
     if (
       returnedGitHub.current ||
@@ -477,6 +580,111 @@ function CloudWorkspace() {
     />
   );
 
+  if (reviewTarget && reviewEntry?.kind === "open")
+    return (
+      <div className="pub-splash" role="status" aria-label="Opening the review">
+        <Mark size={30} />
+      </div>
+    );
+  if (reviewTarget && reviewEntry && reviewEntry.kind !== "open")
+    return (
+      <div className="pub-page review-entry-page">
+        <header className="pub-header">
+          <a className="pub-brand" href="/" aria-label="Parallax home">
+            <Mark size={22} />
+            Parallax
+          </a>
+        </header>
+        <main className="review-entry" aria-labelledby="review-entry-title">
+          {reviewEntry.kind === "checking" ? (
+            <>
+              <h1 id="review-entry-title">Opening a review</h1>
+              {reviewSpaces?.scope === scope && reviewSpaces.error ? (
+                <>
+                  <p role="alert">{reviewSpaces.error}</p>
+                  <div className="review-entry-actions">
+                    <button
+                      type="button"
+                      className="pub-primary"
+                      onClick={() => setReviewSpaces(null)}
+                    >
+                      Try again
+                    </button>
+                    <button
+                      type="button"
+                      className="pub-secondary"
+                      onClick={leaveReview}
+                    >
+                      Open Studio instead
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <p role="status">
+                  Checking which workspace this review belongs to…
+                </p>
+              )}
+            </>
+          ) : reviewEntry.kind === "switch" ? (
+            <>
+              <h1 id="review-entry-title">
+                Review in {reviewEntry.space.name}
+              </h1>
+              <p>
+                You are in{" "}
+                {active.workspace.kind === "team"
+                  ? active.workspace.name
+                  : "your personal workspace"}
+                . This review belongs to {reviewEntry.space.name}, where your
+                role is {reviewEntry.space.role || "member"}. Switching changes
+                the workspace for this browser. Nothing is approved or run.
+              </p>
+              <div className="review-entry-actions">
+                <button
+                  type="button"
+                  className="pub-primary"
+                  disabled={reviewBusy}
+                  onClick={() => void enterReviewWorkspace(reviewEntry.space)}
+                >
+                  {reviewBusy
+                    ? "Switching…"
+                    : `Switch to ${reviewEntry.space.name}`}
+                </button>
+                <button
+                  type="button"
+                  className="pub-secondary"
+                  disabled={reviewBusy}
+                  onClick={leaveReview}
+                >
+                  {active.workspace.kind === "team"
+                    ? `Stay in ${active.workspace.name}`
+                    : "Stay in my workspace"}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <h1 id="review-entry-title">This review link is unavailable</h1>
+              <p>
+                {reviewEntry.reason === "workspace"
+                  ? "It belongs to a workspace your account is not a member of, or your membership was removed. Ask the person who shared it to check your access."
+                  : "The machine that holds this task is not available to you. It may have been disconnected, or your project access changed."}
+              </p>
+              <div className="review-entry-actions">
+                <button
+                  type="button"
+                  className="pub-primary"
+                  onClick={leaveReview}
+                >
+                  Open Studio
+                </button>
+              </div>
+            </>
+          )}
+        </main>
+      </div>
+    );
+
   if (!machinesLoaded)
     return (
       <div
@@ -553,7 +761,11 @@ function CloudWorkspace() {
           }))
         }
         onReconnect={() => setMachineDialogRequest((value) => value + 1)}
-        key={`${scope}:${resolved}`}
+        key={
+          reviewOpened
+            ? `${scope}:${resolved}:${reviewOpened}`
+            : `${scope}:${resolved}`
+        }
         execution={
           resolved === HOSTED_EXECUTOR
             ? undefined

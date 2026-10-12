@@ -151,6 +151,7 @@ export function TaskWorkspace({
   onInspect,
   renderEvidence,
   measurements,
+  reviewLink,
 }: {
   visible: boolean;
   feedback: string;
@@ -184,6 +185,7 @@ export function TaskWorkspace({
     tab: "checks" | "findings" | "settings",
   ) => ReactNode;
   measurements?: ReactNode;
+  reviewLink?: string;
 }) {
   const [selectedFindings, setSelectedFindings] = useState<
     { review: number; finding: number }[]
@@ -224,6 +226,9 @@ export function TaskWorkspace({
     }
   });
   const [correctionOpen, setCorrectionOpen] = useState(false);
+  const [linkCopy, setLinkCopy] = useState<"idle" | "copied" | "failed">(
+    "idle",
+  );
   const [recoverySnapshot, setRecoverySnapshot] = useState<{
     identity: string;
     value?: RecoveryRead;
@@ -1035,7 +1040,10 @@ export function TaskWorkspace({
         </div>
       </div>
       {stopped && (
-        <section className="task-recovery" aria-labelledby="task-recovery-title">
+        <section
+          className="task-recovery"
+          aria-labelledby="task-recovery-title"
+        >
           {(() => {
             const guidance = recoveryGuidance(
               recoveryCategory(recovery?.value?.category),
@@ -1287,6 +1295,41 @@ export function TaskWorkspace({
               </button>
             )}
           </div>
+          {workflow.status === "awaiting_approval" && reviewLink && (
+            <div className="review-handoff">
+              <button
+                type="button"
+                className="secondary-button small"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(reviewLink);
+                    setLinkCopy("copied");
+                  } catch {
+                    setLinkCopy("failed");
+                  }
+                }}
+              >
+                {linkCopy === "copied"
+                  ? "Review link copied"
+                  : "Copy review link"}
+              </button>
+              <p>
+                Opens this task for a teammate who can review it. The link holds
+                no access token; their own permissions still apply.
+              </p>
+              {linkCopy === "failed" && (
+                <input
+                  aria-label="Review link"
+                  readOnly
+                  value={reviewLink}
+                  onFocus={(event) => event.currentTarget.select()}
+                />
+              )}
+              <span className="sr-only" role="status">
+                {linkCopy === "copied" ? "Review link copied" : ""}
+              </span>
+            </div>
+          )}
           {workflow.status === "awaiting_approval" &&
             members.length > 0 &&
             canDeliver && (

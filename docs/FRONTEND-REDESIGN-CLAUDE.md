@@ -33,6 +33,7 @@ Two Studio compositions were compared on a private concept canvas before impleme
 | Studio shell (`App.tsx`, `shell.css`) | Labeled sidebar: workspace switcher and account at the top; Tasks, Review inbox, Repositories, Settings; Advanced tools collapsed; machine, project and agent readiness at the bottom. The seven-item top bar became a slim breadcrumb that only adds a status when the runtime is unreachable. Below 860px the sidebar is a focus-managed drawer. |
 | Task view (`TaskWorkspace.tsx`, `task.css`) | Header with project, status, title and byline; one decision bar; the ledger in a sticky right rail that reflows above the diff through a container query; Changes, Checks, Reviews and Details tabs with Activity as a toggle; correction and delivery as calm disclosures. Reading order stays decision, evidence, change. |
 | Recovery guidance (`task-recovery.ts`) | Stopped tasks read the runtime's existing `/runs/{id}/recovery` classification and say what happened, what was kept, how much budget was used and which existing action applies. Read-only: no new operation, never implies a budget reset, offers resume only when the task can resume, and points viewers without delivery permission to a developer. |
+| Reviewer handoff (`review-link.ts`) | A team task awaiting approval offers **Copy review link**. The link is `/studio#review=<workspace>.<machine>.<task>`: three UUIDs, no token, path or source, kept in the hash so servers never log it. Opening it checks the signed-in account's own workspace list; another workspace asks before switching, naming the role; a workspace or machine the person cannot reach gets a uniform unavailable message. After an explicit switch it selects the machine from the current authorized machine list and opens the exact task, including tasks beyond the latest 100. Opening never approves, runs or publishes. Links pasted into an open tab work too. |
 | Browser and composer (`workflows.css`) | On-demand task browser that sits beside the task at 1280px and up and takes the surface below it. Focused composer with readiness, task, workflow, team and delivery. |
 | Evidence content | Checks, verification record, reviews and run settings restyled as quiet cards. |
 | Settings, dialogs, connections | Workspace settings open as a right-hand sheet with inline forms and member rows. Machines and account deletion share `dialogs.css`. Worker platform choice is a segmented control. Connections drawer rewritten in `connections.css`. The account menu now names team workspaces correctly instead of calling them personal. |
@@ -42,25 +43,26 @@ Removed: `WorkflowPreview.tsx`, `workflow-preview.css`, `perspective.css`, the A
 
 ## Contracts preserved
 
-No backend file changed. Request routing (`api()` versus `relayApi()`), executor scoping, stale-response guards, request IDs, expected digests, role checks and the separation of approval, local application and publication are untouched. Labels the tests rely on are preserved. Two assertions changed on purpose: the primary navigation order (Review inbox now follows Tasks) and the new recovery tests.
+No backend file changed. Request routing (`api()` versus `relayApi()`), executor scoping, stale-response guards, request IDs, expected digests, role checks and the separation of approval, local application and publication are untouched. Labels the tests rely on are preserved. One existing assertion changed on purpose: the primary navigation order (Review inbox now follows Tasks). Studio's isolation key stays `scope:machine`; it gains a suffix only after a review link opens, to force a fresh mount.
 
 ## Verification
 
-At `ec059c0`:
+At the head of `claude/frontend-redesign`:
 
-- `npm --prefix studio test`: all 16 suites pass, including the new `studio_task_recovery.cjs` (6 checks).
+- `npm --prefix studio test`: all 17 suites pass, including the new `studio_task_recovery.cjs` (6 checks) and `studio_review_link.cjs` (7 checks).
 - `npm --prefix studio run test:hosted`: passes.
 - TypeScript, local, hosted and cloud builds succeed. Packaged assets in `src/parallax/static` are rebuilt.
 - `scripts/validate_release.py` passes. `scripts/build_claude_plugin.py --check` passes.
 - Python `test_release`, `test_deployment`, `test_desktop_runtime` and `test_pilot_fixture_support` pass.
 - Browser inspection on a fresh fixture with frozen cloud assets (port 8847): website, owner and reviewer task, checks, reviews, task browser, composer, repositories, settings, machines, workspace sheet, 390px task and navigation, dark theme, keyboard focus. Screenshots are in `output/redesign/claude/` (ignored). The recovery screenshot uses intercepted responses to show a stopped state; nothing was written.
+- Review link, end to end on a fresh fixture (port 8850): the reviewer copied the link, moved to their personal workspace, opened the link, saw the switch prompt, switched once and landed on the exact task. Forged workspace and machine identifiers showed the unavailable states. The only writes were the two workspace switches.
 - Local mode was inspected on a disposable server (`PARALLAX_HOME` under `/private/tmp`) against a copy of the fixture project, with consequential requests blocked.
 
 The fixture uses deterministic providers and simulated GitHub. None of this proves live provider, account, GitHub, platform or customer acceptance.
 
 ## Remaining work
 
-- **Reviewer handoff link.** Still unimplemented. It needs the read-only review-target endpoint described in `output/redesign/round8/backend-plan.md` plus an explicit entry flow. The ledger and decision bar are ready to receive it.
+- **Reviewer handoff, server preview.** The link works without backend changes because every read already goes through the relay's current authorization. It does not implement the proposed `/api/workspaces/{id}/review-target/...` preview from `output/redesign/round8/backend-plan.md`, so the task title is not shown before the person switches workspace, and a team worker without `workflow-v2` shows the existing update message after entry rather than a refusal before it.
 - **Advanced views.** The run workspace, agent graph and advanced run composer inherit the tokens and readability fixes but keep their older layouts. `style.css` (about 3,100 lines) and `workspace.css` (about 1,300 lines) still hold those rules.
 - **Accounts-enabled sign-in.** The fixture has no Supabase configuration, so the email and OAuth sign-in forms were not inspected in their enabled state.
 - **People.** No usability study, accessibility audit or conversion test has been done. Contrast was chosen against WCAG 2.2 AA targets but not formally measured.
