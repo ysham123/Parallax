@@ -45,4 +45,10 @@ Run `aaffee71`: 12 of 12 behavior checks passed (`browser/aaffee71/results.json`
 
 Screenshots show two presentation defects the code-only review did not catch: the Replace and Replace all controls use icon-button styling, so they lack button chrome, "Replace all" wraps and "Replace" overruns the panel padding; and status copy does not pluralize ("1 protected results"). These were not fixed by hand. They were handed to a focused follow-up Parallax run on the committed candidate, with every configured check still required.
 
-Browser acceptance and delivery are not complete. Provider cost is unknown.
+5. Follow-up run `38bdd816-d27d-4a8f-83f1-41d5f48d6fdd` (October 12, 2026, 15 minutes). Workspace: a disposable repository at the baseline commit plus the verified `aaffee71` patch as one commit. Codex implementer, Claude `sonnet` reviewer, 10 coordinator turns allowed, 5 used. The request named only the two browser findings and forbade changes to replacement, history, delta or store logic.
+   - Codex changed `SearchMenu.tsx`, `SearchMenu.scss` and `en.json` only (text buttons with Excalidraw's filled-button styling, singular and plural strings). Claude approved the task and the combined review.
+   - Final result `completed`, verified and not applied: independent acceptance, monorepo typecheck and upstream regression suite all passed. Patch SHA-256 `1167d9f1…84fa0`.
+
+Final browser acceptance on the baseline plus both verified patches: 14 of 14 checks passed (`browser/final/results.json`), adding single-line, in-panel button layout and singular and plural wording to the earlier checks. Screenshots in `browser/final/` cover the scene, search and replacement, Replace all, undo, dark mode with keyboard focus, and view mode. A paced 28-second recording of the same run is kept locally at `output/demo/browser/final/walkthrough.mp4` (not committed). The combined candidate is `output/demo/combined-candidate.patch`, 10 files, SHA-256 `46da2c52…71f76`.
+
+The candidate is verified and browser-accepted but not applied: delivery into a real checkout needs explicit human approval. Provider cost is unknown. Provider cost is unknown.

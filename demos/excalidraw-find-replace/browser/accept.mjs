@@ -8,7 +8,7 @@ fs.mkdirSync(out, { recursive: true });
 const results = [];
 const check = (name, ok, detail) => { results.push({ name, ok, detail }); console.log((ok ? "PASS " : "FAIL ") + name + (detail ? "  " + JSON.stringify(detail) : "")); };
 
-const browser = await chromium.launch();
+const browser = await chromium.launch({ slowMo: Number(process.env.SLOWMO || 0) });
 const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, recordVideo: { dir: out, size: { width: 1280, height: 800 } } });
 const page = await context.newPage();
 const errors = [];
@@ -21,7 +21,8 @@ await page.waitForTimeout(800);
 const texts = () => page.evaluate(() => window.h.elements.filter((e) => e.type === "text" && !e.isDeleted)
   .map((e) => ({ id: e.id, text: e.text, original: e.originalText, locked: e.locked, width: Math.round(e.width) }))
   .sort((a, b) => a.id.localeCompare(b.id)));
-const shot = (name) => page.screenshot({ path: `${out}/${name}.png` });
+// Paced recordings hold each checkpoint so a viewer can read it.
+const shot = async (name) => { if (process.env.SLOWMO) await page.waitForTimeout(1500); await page.screenshot({ path: `${out}/${name}.png` }); };
 
 async function addText(x, y, value) {
   await page.keyboard.press("t");
@@ -50,11 +51,16 @@ await page.waitForTimeout(700);
 const count = await page.locator(".layer-ui__search-count").innerText();
 check("case-insensitive search finds every occurrence including the locked one", /^1 \/ 4 results$/.test(count.trim()), count);
 const status = await page.locator(".replacement-status").innerText();
-check("protected results are announced before acting", /1/.test(status) && status.length > 0, status);
+check("protected results are announced before acting, in the singular", /^1 protected result will be skipped/.test(status.trim()), status);
 const field = page.getByLabel("Replace with");
 check("Replace with field is visible and accessibly named", await field.isVisible());
 await field.fill("bird $& $1");
 await shot("02-search-and-replacement");
+const box = async (locator) => locator.boundingBox();
+const fieldBox = await box(field);
+const buttons = [await box(page.getByRole("button", { name: "Replace", exact: true })), await box(page.getByRole("button", { name: "Replace all" }))];
+const lineHeight = await page.getByRole("button", { name: "Replace all" }).evaluate((el) => parseFloat(getComputedStyle(el).lineHeight) || 20);
+check("Replace buttons are single-line and aligned within the panel", buttons.every((b) => b.x >= fieldBox.x - 0.5 && b.x + b.width <= fieldBox.x + fieldBox.width + 0.5 && b.height < lineHeight * 2 + 4 && b.height >= 24), { fieldBox, buttons, lineHeight });
 
 await page.getByRole("button", { name: "Replace all" }).click();
 await page.waitForTimeout(500);
@@ -64,7 +70,7 @@ const expected = { "the cat sat": "the bird $& $1 sat", "black cat, white cat": 
 const allOk = before.every((t) => byId[t.id] && byId[t.id].text === expected[t.text] && byId[t.id].original === expected[t.text]);
 check("Replace all is literal, keeps element ids, skips the locked text", allOk, after.map((t) => t.text));
 check("text geometry was recomputed for grown labels", before.filter((t) => t.text.includes("cat") && !t.locked).every((t) => byId[t.id].width > t.width), after.map((t) => t.width));
-check("result is reported", /Replaced 3 occurrences\. Skipped 1/.test(await page.locator(".replacement-status").innerText()), await page.locator(".replacement-status").innerText());
+check("result is reported with correct plurals", /Replaced 3 occurrences\. Skipped 1 protected result\./.test(await page.locator(".replacement-status").innerText()), await page.locator(".replacement-status").innerText());
 await shot("03-after-replace-all");
 
 await page.keyboard.press("Escape");
@@ -87,6 +93,7 @@ await field.fill("white tiger");
 await page.getByRole("button", { name: "Replace", exact: true }).click();
 await page.waitForTimeout(400);
 const single = await texts();
+check("single replacement is reported in the singular", /^Replaced 1 occurrence\./.test((await page.locator(".replacement-status").innerText()).trim()), await page.locator(".replacement-status").innerText());
 check("Replace changes only the focused occurrence", single.filter((t) => t.text === "black cat, white tiger").length === 1 && single.filter((t) => t.text === "the cat sat").length === 1, single.map((t) => t.text));
 
 // Dark mode presentation and view mode refusal.
