@@ -3,17 +3,9 @@ import { REPOSITORY, accountName, initials, type Session } from "./session";
 
 export function Mark({ size = 26 }: { size?: number }) {
   return (
-    <svg
-      viewBox="0 0 32 32"
-      width={size}
-      height={size}
-      aria-hidden="true"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.65"
-      strokeLinejoin="round"
-    >
-      <path d="M4 20V7l12-4v13zM11 28V15l16-5v13z" />
+    <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true" fill="none">
+      <rect x="2.75" y="2.75" width="12.5" height="12.5" rx="3" stroke="currentColor" strokeWidth="1.5" />
+      <rect x="8.75" y="8.75" width="12.5" height="12.5" rx="3" fill="currentColor" />
     </svg>
   );
 }
