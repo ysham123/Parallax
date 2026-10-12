@@ -691,58 +691,6 @@
 .account-popover button.danger {
   color: var(--danger);
 }
-.account-dialog {
-  max-width: 480px;
-}
-.account-dialog form {
-  display: grid;
-  gap: 8px;
-  margin-top: 20px;
-}
-.account-dialog label {
-  display: block;
-  font-size: 12px;
-}
-.dialog-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 12px;
-}
-.machine-dialog .machine-command {
-  margin: 12px 0;
-  padding: 12px 14px;
-  overflow-x: auto;
-  background: var(--input);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-}
-.machine-dialog .machine-command code {
-  display: block;
-  margin: 0;
-  white-space: pre;
-  overflow-wrap: normal;
-}
-.machine-confirm {
-  margin-top: 10px;
-  font-size: 12px !important;
-  color: var(--danger) !important;
-}
-.machine-confirm-actions {
-  display: inline-flex;
-  flex-shrink: 0;
-  gap: 8px;
-  align-items: center;
-}
-
-@media (max-width: 1240px) {
-  .topbar-right .account-label {
-    display: none;
-  }
-  .topbar-right .account-trigger {
-    padding-right: 3px;
-  }
-}
 @media (max-width: 900px) {
   .pub-hero {
     grid-template-columns: 1fr;
@@ -750,8 +698,8 @@
     padding: 56px 0;
   }
   .pub-steps,
-  .pub-columns,
-  .pub-install {
+.pub-columns,
+.pub-install {
     grid-template-columns: 1fr;
     gap: 28px;
   }
@@ -768,8 +716,8 @@
     padding-block: 12px;
   }
   .pub-page input,
-  .pub-page select,
-  .pub-page textarea {
+.pub-page select,
+.pub-page textarea {
     font-size: 16px;
   }
   .pub-footer nav a {
@@ -809,14 +757,14 @@
     gap: 10px 14px;
   }
   .onb-main,
-  .operator-main {
+.operator-main {
     padding: 48px 0 72px;
   }
   .onb-steps > li {
     padding-left: 36px;
   }
   .account-label,
-  .pub-crumb {
+.pub-crumb {
     display: none;
   }
 }

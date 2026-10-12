@@ -255,8 +255,11 @@ export function WorkspaceControls({
         <h2 tabIndex={-1} data-workspace-section="workspace">
           Workspace
         </h2>
-        <button className="secondary-button" onClick={() => closePanel()}>
-          Close workspace settings
+        <button className="icon-button ws-close" onClick={() => closePanel()}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+            <path d="M6 6l12 12M18 6 6 18" />
+          </svg>
+          <span className="sr-only">Close workspace settings</span>
         </button>
         {error && <p role="alert">{error}</p>}
         {notice && <p role="status">{notice}</p>}

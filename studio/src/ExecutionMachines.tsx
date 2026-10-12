@@ -1,3 +1,4 @@
+import "./dialogs.css";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { relayApi, messageOf } from "./api";
 import { CopyBlock, PairingCode } from "./Onboarding";

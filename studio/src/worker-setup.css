@@ -1,16 +1,17 @@
+/* Progressive machine setup: choose a platform, then connect. */
 .worker-setup {
-  margin: 30px 0 24px;
-  color: var(--text);
+  margin: 8px 0 0;
+  color: var(--ink);
 }
 .worker-setup-steps {
   display: flex;
-  gap: 28px;
-  margin: 0 0 24px;
-  padding: 0 0 15px;
+  gap: 24px;
+  margin: 0 0 22px;
+  padding: 0 0 14px;
   list-style: none;
   border-bottom: 1px solid var(--line);
   font-size: 14px;
-  color: var(--muted);
+  color: var(--ink-3);
 }
 .worker-setup-steps li {
   display: flex;
@@ -18,168 +19,140 @@
   gap: 8px;
 }
 .worker-setup-steps li[aria-current="step"] {
-  color: var(--accent);
-  font-weight: 650;
+  color: var(--ink);
+  font-weight: 500;
 }
 .worker-setup-steps span {
-  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
 }
 .worker-setup .worker-setup-content > h2,
 .worker-setup .worker-setup-content > h3 {
-  margin: 0 0 18px;
-  font-size: 22px;
-  line-height: 1.3;
-  letter-spacing: -0.03em;
+  margin: 0 0 16px;
+  font-size: 18px;
+  outline: none;
 }
 .worker-setup-content > p,
 .worker-setup-content details p,
 .worker-preview-note p,
 .worker-platform-limit p {
   max-width: 68ch;
-  margin: 10px 0;
-  font-size: 15px;
+  margin: 8px 0;
+  font-size: 14px;
   line-height: 1.6;
-  color: var(--muted);
+  color: var(--ink-2);
 }
-.worker-setup a {
-  color: var(--accent);
-  text-underline-offset: 3px;
+.worker-setup-content code {
+  font-size: 12.5px;
 }
 .worker-platforms {
   min-width: 0;
-  margin: 0 0 22px;
+  margin: 0 0 18px;
   padding: 0;
   border: 0;
 }
 .worker-platforms legend {
   margin-bottom: 10px;
   padding: 0;
-  font-size: 15px;
-  font-weight: 550;
+  font-size: 14px;
+  font-weight: 500;
 }
 .worker-platform-options {
-  display: flex;
+  display: inline-flex;
   flex-wrap: wrap;
-  gap: 8px 20px;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--bg-muted);
 }
 .worker-platform-options label {
-  display: flex;
+  position: relative;
+  flex-direction: row;
   align-items: center;
-  gap: 8px;
-  min-height: 40px;
-  font-size: 15px;
+  min-height: 34px;
+  padding: 0 16px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink-2);
   cursor: pointer;
 }
 .worker-platform-options input {
-  margin: 0;
-  width: 17px;
-  height: 17px;
-  accent-color: var(--accent);
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
 }
-.worker-preview-note {
-  padding-left: 16px;
-  border-left: 2px solid var(--accent);
-  margin-bottom: 20px;
+.worker-platform-options label:has(input:checked) {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-sm), 0 0 0 1px var(--line);
+}
+.worker-platform-options label:has(input:focus-visible) {
+  outline: 2px solid var(--signal);
+  outline-offset: 1px;
+}
+.worker-preview-note,
+.worker-platform-limit {
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-subtle);
+}
+.worker-platform-limit {
+  background: var(--warn-soft);
 }
 .worker-preview-note strong,
 .worker-platform-limit strong {
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 600;
 }
 .worker-preview-note a,
 .worker-platform-limit a {
   font-size: 14px;
+  font-weight: 500;
 }
 .worker-setup-details {
-  margin: 18px 0;
+  margin: 0 0 18px;
+}
+.worker-setup-details > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
   font-size: 14px;
+  font-weight: 500;
 }
-.worker-setup-details summary {
-  width: fit-content;
-  max-width: 100%;
-  padding: 6px 0;
-  color: var(--text);
-  cursor: pointer;
-  font-weight: 550;
+.worker-setup-details > summary::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid var(--ink-3);
+  border-bottom: 1.5px solid var(--ink-3);
+  transform: rotate(45deg) translateY(-2px);
 }
-.worker-platform-limit {
-  padding: 14px 16px;
-  background: var(--danger-tint);
-  border-left: 2px solid var(--danger);
-  margin: 18px 0;
+.worker-setup-details[open] > summary::after {
+  transform: rotate(225deg) translateY(-2px);
 }
 .worker-setup-actions {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
-  margin-top: 22px;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 18px 0 0;
 }
 .worker-setup-actions span {
   font-size: 14px;
-  color: var(--muted);
+  color: var(--ink-3);
 }
-.worker-setup .worker-public-tools {
-  margin-top: 22px;
-  font-size: 14px;
+.worker-public-tools {
+  margin-top: 18px !important;
+  font-size: 13.5px !important;
+  color: var(--ink-3) !important;
 }
-.worker-setup .onb-code pre {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1.65;
-}
-.worker-setup .onb-code code {
-  display: inline;
-  font: inherit;
-  white-space: pre;
-  overflow-wrap: normal;
-  margin: 0;
-}
-.worker-setup p code {
-  display: inline;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  color: var(--text);
-}
-.worker-setup .worker-pair-instruction {
-  margin-top: 22px;
-  color: var(--text);
-}
-.worker-setup .onb-pair button[aria-disabled="true"] {
-  opacity: 0.65;
-  cursor: wait;
-}
-.worker-setup :is(button, input, summary, a):focus-visible,
-.worker-setup :is(h2, h3)[tabindex="-1"]:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 4px;
+.worker-pair-instruction {
+  font-weight: 500;
+  color: var(--ink) !important;
 }
 .machine-dialog .worker-setup {
-  margin-top: 18px;
-}
-@media (max-width: 600px) {
-  .worker-setup-steps {
-    gap: 18px;
-    font-size: 14px;
-  }
-  .worker-setup-steps li {
-    gap: 6px;
-  }
-  .worker-setup .worker-setup-content > h2,
-  .worker-setup .worker-setup-content > h3 {
-    font-size: 20px;
-  }
-  .worker-platform-options {
-    column-gap: 18px;
-  }
-  .worker-setup .onb-code pre {
-    padding: 14px 14px 50px;
-    font-size: 13px;
-  }
-  .worker-setup .onb-copy {
-    top: auto;
-    bottom: 9px;
-    right: 9px;
-    font-size: 14px;
-  }
+  margin-top: 8px;
 }

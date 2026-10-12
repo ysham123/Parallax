@@ -151,15 +151,58 @@
 .studio-account .account-popover {
   position: absolute;
   top: calc(100% + 6px);
-  right: 0;
-  left: auto;
+  left: 0;
+  right: auto;
   z-index: 50;
-  width: 240px;
+  width: 260px;
+  display: grid;
+  gap: 2px;
   padding: 6px;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--surface);
   box-shadow: var(--shadow-md);
+}
+.studio-account .account-summary {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px 10px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.studio-account .account-summary strong {
+  font-weight: 500;
+}
+.studio-account .account-summary small {
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.studio-account .account-popover [role="menuitem"] {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  font-size: 14px;
+  color: var(--ink);
+  text-align: left;
+  text-decoration: none;
+}
+.studio-account .account-popover [role="menuitem"]:hover,
+.studio-account .account-popover [role="menuitem"]:focus-visible {
+  background: var(--bg-muted);
+  outline: none;
+}
+.studio-account .account-popover .danger {
+  color: var(--fail-ink);
+}
+.studio-account .account-problem {
+  padding: 4px 10px;
+  font-size: 13px;
+  color: var(--fail-ink);
 }
 
 /* Navigation */
@@ -509,16 +552,21 @@
 
 @media (max-width: 860px) {
   .studio-sidebar {
-    transform: translateX(-100%);
-    transition: transform 0.2s ease;
-    box-shadow: none;
+    left: max(-320px, -90vw);
     width: min(300px, 86vw);
+    transition: left 0.2s ease, visibility 0.2s;
     visibility: hidden;
   }
   .studio-sidebar.open {
-    transform: none;
+    left: 0;
     visibility: visible;
     box-shadow: var(--shadow-lg);
+  }
+  /* Dialogs and sheets opened from sidebar controls stay usable while it is closed. */
+  .studio-sidebar .workspace-panel,
+  .studio-sidebar .machine-backdrop,
+  .studio-sidebar .account-popover {
+    visibility: visible;
   }
   .studio-scrim {
     display: block;

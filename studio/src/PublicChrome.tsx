@@ -1,3 +1,4 @@
+import "./dialogs.css";
 import { useEffect, useRef, useState } from "react";
 import { REPOSITORY, accountName, initials, type Session } from "./session";
 
@@ -168,7 +169,11 @@ export function AccountMenu({
           <div className="account-summary">
             <strong>{session.account?.name || label}</strong>
             <small>
-              {operatorWorkspace ? "Operator workspace" : "Personal workspace"}
+              {operatorWorkspace
+                ? "Operator workspace"
+                : session.workspace.kind === "team"
+                  ? "Team workspace"
+                  : "Personal workspace"}
               {member ? ` · ${label}` : " · access key"}
             </small>
           </div>
