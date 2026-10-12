@@ -159,6 +159,29 @@ class YarnEngineTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse((self.project / "node_modules").exists())
         self.assertEqual((self.project / ".git" / "index").read_bytes(), original)
 
+    async def test_validations_of_unchanged_locks_share_one_download_cache(self):
+        run_id, manager, engine = self.seed(self.checks)
+        second = Path(tempfile.mkdtemp(dir=self.root)) / "copy"
+        shutil.copytree(manager.integration_path, second, ignore=shutil.ignore_patterns("node_modules"))
+        calls = []
+        command = engine._command
+        async def counted(*args, **kwargs):
+            calls.append(args[1]); return await command(*args, **kwargs)
+        with patch.object(engine, "_command", new=counted):
+            for workspace in (manager.integration_path, second):
+                evidence = await asyncio.wait_for(engine._checks(run_id, workspace, self.checks), 120)
+                self.assertTrue(all(item["ok"] for item in evidence), evidence)
+        # Each copy gets its own install, from one shared private cache.
+        self.assertEqual(len([argv for argv in calls if "install" in argv]), 2)
+        environments = list((Path(self.store.get(run_id)["artifacts"]["directory"]) / "environments").iterdir())
+        self.assertEqual(len(environments), 1, environments)
+        self.assertTrue((second / "node_modules").is_dir())
+        # A changed lock input gets its own environment.
+        write(second / "packages/util/package.json", {"name": "@fx/util", "version": "1.0.0", "main": "index.js", "description": "changed",
+              "scripts": {"test": "node -e \"require('./index.js')\""}})
+        await asyncio.wait_for(engine._checks(run_id, second, self.checks), 120)
+        self.assertEqual(len(list((Path(self.store.get(run_id)["artifacts"]["directory"]) / "environments").iterdir())), 2)
+
     async def test_lifecycle_scripts_and_rc_redirection_do_not_run(self):
         canary = self.root / "canary"
         write(self.project / "package.json", {"name": "root", "private": True, "workspaces": ["packages/*"],

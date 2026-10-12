@@ -86,6 +86,7 @@ class Engine:
         self._clocks: dict[str, tuple[float, float]] = {}
         # Reviewers that reported exhausted provider quota during this execution; a resume clears it.
         self._exhausted_reviewers: dict[str, set[str]] = {}
+        self._environment_locks: dict[str, asyncio.Lock] = {}
         from .budget import ExecutionBudget
         self.budget = ExecutionBudget(store)
         self._start_lock = asyncio.Lock()
@@ -1478,7 +1479,12 @@ class Engine:
         python_needed=bool(wants_python and (requirements.is_file() or dependencies))
         if not node_needed and not python_needed: return {},None
         run_dir=Path(self.store.get(run_id)["artifacts"]["directory"]).resolve()
-        digest=hashlib.sha256(str(workspace.resolve()).encode())
+        # A Yarn-only environment holds just the download cache, which install
+        # writes with scripts disabled and checks cannot write. Keyed on the
+        # locked inputs, each validation of an unchanged lock reuses it instead
+        # of downloading the full dependency set again.
+        yarn_only=bool(yarn_inputs) and not python_needed
+        digest=hashlib.sha256(b"yarn-classic-cache" if yarn_only else str(workspace.resolve()).encode())
         for path in (requirements,pyproject,lock,workspace/"package.json"):
             if path and path.is_file(): digest.update(path.read_bytes())
         if yarn_inputs:
@@ -1499,7 +1505,8 @@ class Engine:
         private_home=environment/"home";private_home.mkdir(exist_ok=True)
         env={"PATH":os.environ.get("PATH","/usr/bin:/bin"),"HOME":str(private_home),"TMPDIR":str(environment),"TMP":str(environment),"TEMP":str(environment),"CI":"true","PYTHONDONTWRITEBYTECODE":"1"}
         env["PIP_CONFIG_FILE"] = os.devnull
-        steps=[];python=None
+        install_lock=self._environment_locks.setdefault(str(environment),asyncio.Lock())
+        steps=[];python=None;stage=None
         if node_needed:
             if yarn_inputs:
                 env.update(YARN_IGNORE_PATH="1",YARN_DISABLE_SELF_UPDATE_CHECK="1")
@@ -1532,6 +1539,15 @@ class Engine:
                 # bytes, no repository grant, and uses the trusted interpreter.
                 steps.append(("Python wheel download",[sys.executable,"-m","pip","--isolated","download","--disable-pip-version-check","--no-cache-dir","--no-input","--only-binary=:all:","--require-hashes","--no-deps","--index-url","https://pypi.org/simple","--dest",str(wheelhouse),"-r",str(lock_input)]))
                 steps.append(("Python dependencies",[str(python),"-m","pip","--isolated","install","--disable-pip-version-check","--no-cache-dir","--no-input","--only-binary=:all:","--require-hashes","--no-index","--find-links",str(wheelhouse),"-r",str(lock_input)]))
+        async with install_lock:
+            await self._provision(run_id,steps,workspace,env,environment,stage)
+        if yarn_inputs:
+            if yarn_classic_inputs(workspace)!=yarn_inputs:
+                raise ValueError("Yarn lock or workspace manifests changed during provisioning")
+        if python: (environment/"python-ready").write_text("installed")
+        return ({"VIRTUAL_ENV":str(python.parent.parent),"PATH":str(python.parent)+os.pathsep+os.environ.get("PATH","")} if python else {}),python
+
+    async def _provision(self,run_id,steps,workspace,env,environment,stage):
         for name,argv in steps:
             await self.checkpoint(run_id)
             download = name == "Python wheel download"
@@ -1543,11 +1559,6 @@ class Engine:
             if outcome.failure=="process_termination_failed": raise RunProblem(name+" process survived termination; private environment preserved for inspection")
             if outcome.failure=="cancelled": raise asyncio.CancelledError()
             if outcome.failure or outcome.exit_code!=0: raise ValueError(name+" failed; private environment preserved: "+output)
-        if yarn_inputs:
-            if yarn_classic_inputs(workspace)!=yarn_inputs:
-                raise ValueError("Yarn lock or workspace manifests changed during provisioning")
-        if python: (environment/"python-ready").write_text("installed")
-        return ({"VIRTUAL_ENV":str(python.parent.parent),"PATH":str(python.parent)+os.pathsep+os.environ.get("PATH","")} if python else {}),python
 
     async def _checks(self,run_id,workspace,checks,task_id=None,phase="final",*,observation_attempt=None):
         from .workspaces import fingerprint
