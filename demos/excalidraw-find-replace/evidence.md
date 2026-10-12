@@ -18,4 +18,11 @@ These host setup checks precede the run. They do not substitute for Parallax's o
 
 1. Read-only architecture preflight `f1b86820-c312-4ddc-9947-41ca6b5e422e`: Antigravity (`gemini-3.8-flash-high`) used repository read tools but exceeded its 240-second attempt limit. The runtime recorded `needs_attention`, no successful verdict, no candidate and no application. Raw local evidence remains under `output/showcase/`.
 
-Implementation, independent final review, browser acceptance and delivery are not yet complete. Provider cost is unknown.
+2. Build run `36b311ef-ff88-4fca-804a-533ff93bebd6` (October 12, 2026, 74 minutes, runtime from branch `claude/yarn-classic` with Yarn Classic provisioning, integration disabled). Coordinator and implementer: Codex `gpt-6.1-sol` (high). Independent reviewer: Antigravity `gemini-3.8-flash-high`. Limits: 1 worker, 1 repair, 12 coordinator turns, 1800 s per attempt, 150 minutes.
+   - Baseline inside Parallax isolation, after a fresh private frozen-lock Yarn install: acceptance 1 passed and 15 failed at the missing "Replace with" control (as calibrated), typecheck passed, upstream regression passed.
+   - Codex completed `safe-find-replace` (SearchMenu, its styles, English locale, a new `searchReplacement.ts` and a new focused test) and one repair task, `repair-replacement-history`. Antigravity approved both task-level reviews.
+   - Final checks: independent acceptance 15 of 16 passed; "commits Replace all as exactly one undoable edit including geometry and frame names" still fails because undo does not restore the exact previous scene. Typecheck failed on the agent's own new test (`searchReplacement.test.tsx(117,32): Type 'true' is not assignable to type 'false'`). Upstream regression passed: 143 files, 2,496 tests, 47 skipped, 1 todo.
+   - The combined integration review could not run: Antigravity returned "Individual quota reached", resetting in about 150 hours. The coordinator then reached its decision limit and the run stopped as `needs_attention` with work and evidence preserved. No candidate was approved or applied, and the clone is unchanged.
+   - Next step: a saved-candidate revision for the undo restoration and the test type error, which needs an independent reviewer. Claude Code requires a native sign-in on this Mac; Antigravity is out of quota; Native Grok is refused by Parallax's isolation policy.
+
+Browser acceptance and delivery are not complete. Provider cost is unknown.
