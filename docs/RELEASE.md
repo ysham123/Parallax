@@ -1,5 +1,7 @@
 # Parallax 1.2 · Public release
 
+Historical 1.2 release notes. For current availability and setup, see the [installation guide](../README.md#install), [first-task guide](FIRST-TASK.md) and [pilot gates](PILOT.md).
+
 Parallax runs a team of coding agents from different providers on your project and integrates only what survives independent review and your project's real checks. This release brings Parallax to Claude Code, adds individual accounts to the hosted Studio, and rebuilds how agents receive context.
 
 ## Highlights

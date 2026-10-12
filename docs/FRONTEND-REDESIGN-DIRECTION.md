@@ -43,3 +43,15 @@ Production tokens: Daylight `#F8FAFF`, Ink `#18305D`, Slate `#5B6D87`, Plane `#E
 Desktop public layout: named navigation, full-width two-line promise, concise purpose and installation action beside one patch object, then a staged workflow, bounded task examples, installation selector and practical details. Mobile: named Menu, account entry, readable promise/action, flat patch and review below it. The existing average-helper example now supplies both the opening patch and detailed walkthrough, avoiding two competing sample tasks. Modernization remains a runnable preview exercise.
 
 Studio uses one labeled primary navigation and one contextual task queue. Current candidate/evidence/next action precede activity. Repositories use current approved worker folders with separate GitHub delivery bindings. Approval, local application and publication remain separate facts and actions. Advanced graph/run/evidence views and shortcuts remain available.
+
+## Round 3: complete product experience
+
+The user asked to reassess this draft against polished AI products and the complete journey across accounts, repositories, local machines, platforms and teams. Retain Perspective while comparing composition and onboarding. Do not treat the earlier internal selection as user acceptance or perform another broad palette rewrite.
+
+The new [product experience blueprint](PRODUCT-EXPERIENCE-BLUEPRINT.md) defines the repository workflow and competitive boundary. LangChain offers finished products as well as frameworks; Parallax already uses LangGraph internally. Focus on a useful candidate change and its acceptance/delivery, rather than generic orchestration or untested agent counts.
+
+Fresh first-party reference inspection, actual capability audit and independent product critique all prioritize version-matched acquisition and first-task setup. Compare a guided first-change journey with a repository workbench using the same identity. For daily work, compare artifact-first inspection with a scoped attention queue. These are hypotheses, not measured usability outcomes.
+
+The next bounded slice replaces the simultaneous worker instruction walls with a two-stage Prepare/Connect guide. It uses manual platform choice, the actual supplied preview and existing pairing operations. Native Windows stays unavailable and WSL2 stays experimental. Stage changes are navigation, never readiness or authorization. Role handoffs, current machine connection and original-state reconnect remain authoritative. Project/provider/check preparation continues through the existing task controls; the guide cannot claim to have verified them.
+
+After this slice, prioritize a continuous authorized-project/readiness-to-composer handoff and greater code reading space. A compatible downloadable preview, native release and live first task remain separate product gates that layout alone cannot resolve.

@@ -1,5 +1,7 @@
 # Real-project delivery in 1.1
 
+Historical 1.1 implementation notes. Current saved-candidate approval and local/GitHub delivery are described in [coding workflows](WORKFLOWS.md); availability and live acceptance remain in the [pilot guide](PILOT.md).
+
 Project assessment reads bounded package manifests and instruction paths without executing project code. Team shows selected connection readiness, supported command isolation, package roots, proposed checks and explicit setup blockers. Saved project profiles contain workspace, package roots and check specifications; they are separate from team presets.
 
 Build and Compare freeze the required checks before coordination. Every command has a relative cwd. Escaping paths, symlink package roots and unavailable command isolation are rejected. Discovery proposes npm script checks and Python unittest or pytest checks; explicit project commands remain available. Configure only meaningful, non-mutating verification. Ignored compiler output can be produced inside private workspaces.
