@@ -1,11 +1,11 @@
+import "./system.css";
+import "./style.css";
+import "./workspace.css";
 import React, { Component, lazy, Suspense, type ReactNode } from "react";
 import ReactDOM from "react-dom/client";
 import PublicSite from "./PublicSite";
 import { publicWebsite } from "./entry-routing";
 import { applyStoredTheme, Mark } from "./PublicChrome";
-import "./system.css";
-import "./style.css";
-import "./workspace.css";
 
 const HostedApp = lazy(() => import("./HostedApp"));
 const LocalApp = lazy(() => import("./App"));

@@ -806,3 +806,8 @@
     padding: 0 16px;
   }
 }
+@media (max-width: 380px) {
+  .site-studio {
+    display: none;
+  }
+}
