@@ -27,4 +27,9 @@ These host setup checks precede the run. They do not substitute for Parallax's o
    - The next run needs an independent reviewer with capacity. Claude Code requires a native sign-in on this Mac; Antigravity's quota returns around 18:02 UTC on October 18; native Grok is refused by Parallax's isolation policy.
    - Product fixes from this run (same branch): a reviewer reporting exhausted quota is now skipped in favor of the next independent provider, and when none is left the run stops at once with a `provider_quota` recovery category instead of spending coordinator turns. Recovery also no longer reports a post-run memory failure as the stop cause, which this run's record did.
 
+3. Build run `66921c92-1fb9-4f91-9539-b6b8526c5498` (October 12, 2026, 24 minutes, runtime with the reviewer-quota fix). Same request, checks and frozen acceptance suite, 16 coordinator turns, Antigravity as reviewer. A one-line Antigravity request succeeded beforehand, so a small probe does not establish capacity for a full review.
+   - Codex completed `safe-search-replacement` (SearchMenu, its styles, English locale, `searchReplacement.ts` and a focused test). The task review then returned "Individual quota reached", resetting in about 144 hours.
+   - The run stopped after 2 coordinator turns with `provider_quota` and "Resume after restoring capacity", instead of spending its remaining turns. The implementation is saved and resumable; no final checks ran, nothing was reviewed or applied, and the clone is unchanged.
+   - Next step: resume this run once an independent reviewer has capacity (Claude Code sign-in, or Antigravity around 18:02 UTC on October 18).
+
 Browser acceptance and delivery are not complete. Provider cost is unknown.
