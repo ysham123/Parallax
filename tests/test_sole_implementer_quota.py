@@ -103,7 +103,7 @@ class SoleImplementerQuotaTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["tasks"][0]["attempts"], 1)
         self.assertGreater(result["artifacts"]["runtime_seconds"], 0)
         self.assertIn("exhausted its provider quota", result["errors"][-1]["message"])
-        self.assertEqual(result["errors"][-1]["category"], "runtime")
+        self.assertEqual(result["errors"][-1]["category"], "provider_quota")
         self.assertEqual(len([event for event in self.store.events(started["run_id"]) if event["kind"] == "provider_exhausted"]), 1)
         self.assertEqual(self.store.actions(started["run_id"])[-1]["state"], "failed")
         self.preserved(result)

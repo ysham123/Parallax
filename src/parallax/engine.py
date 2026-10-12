@@ -16,7 +16,7 @@ from pathlib import Path
 from .models import CheckEvidence, CoordinatorAction, Participant, RunResult, RunSpec, TaskSpec, CheckSpec
 from .store import Store
 from .assessment import assess_project, execution_capability, package_directory
-from .recovery import classify, recovery_options
+from .recovery import classify, provider_quota_exhausted, recovery_options
 from .evidence import phase_attempt, record_observation, bind_current_observations, content_digest, text_digest
 from .context import (PROMPT_LIMIT, REQUEST_LIMIT, Packet, consultant_packet, coordinator_packet, distiller_packet,
                       filter_patch, findings as context_findings, memory_scrubber, review_packet, synthesis_packet, worker_packet)
@@ -84,6 +84,8 @@ class Engine:
         self.wakeup: dict[str, asyncio.Event] = {}
         self.shutting_down = False
         self._clocks: dict[str, tuple[float, float]] = {}
+        # Reviewers that reported exhausted provider quota during this execution; a resume clears it.
+        self._exhausted_reviewers: dict[str, set[str]] = {}
         from .budget import ExecutionBudget
         self.budget = ExecutionBudget(store)
         self._start_lock = asyncio.Lock()
@@ -593,6 +595,7 @@ class Engine:
         spec = RunSpec.model_validate(self.store.get(run_id)["spec"])
         run_dir = Path(self.store.get(run_id)["artifacts"]["directory"])
         manager = None
+        self._exhausted_reviewers.pop(run_id, None)
         used = self.store.get(run_id)["artifacts"].get("runtime_seconds", 0)
         self._clocks[run_id] = self.budget.begin(run_id, used, spec.limits.minutes * 60)
         used = self._clocks[run_id][1]
@@ -915,15 +918,14 @@ class Engine:
                     for task, outcome in zip(batch, outcomes):
                         invocation = outcome.get("provider_result") or {}
                         error = invocation.get("error") or {}
-                        code = str(error.get("code", "")).lower() if isinstance(error, dict) else ""
-                        message = str(error.get("message", "")) if isinstance(error, dict) else str(error)
-                        transient = code in {"rate_limit_exceeded", "rate_limited", "too_many_requests", "request_rate_exceeded", "request_rate_limit_exceeded"}
-                        quota = not transient and (code in {"quota_exceeded", "insufficient_quota", "quota_exhausted"}
-                            or bool(re.search(r"\b(?:individual|account|subscription)\s+quota\s+(?:reached|exhausted|exceeded)\b", message, re.I)))
+                        quota = provider_quota_exhausted(error)
                         if (task["provider"] != spec.coordinator.provider and task["provider"] in writers
                                 and invocation.get("ok") is False and quota and not outcome.get("changed_files")):
                             self.store.event(run_id, "provider_exhausted", {"provider":task["provider"], "reason":"quota", "automatic_retry":False}, task["id"])
                             raise RunProblem(f"Only enabled implementer {task['provider']} exhausted its provider quota. Restore capacity and explicitly resume from saved execution evidence; no further coordinator call was dispatched.")
+                for outcome in outcomes:
+                    if isinstance(outcome, dict) and outcome.get("reviewers_exhausted"):
+                        raise RunProblem(outcome["error"])
         elif action.action=="inspect_results":
             pass
         elif action.action=="explore":
@@ -1174,6 +1176,9 @@ class Engine:
                                       result={**outcome, "ok": False, "error": "Variant checks failed: " + ", ".join(failing)})
                 else:
                     self._task_update(run_id, record["id"], status="candidate", checks=evidence, result=outcome)
+            exhausted = next((o for o in outcomes if o.get("reviewers_exhausted")), None)
+            if exhausted is not None:
+                raise RunProblem(exhausted["error"])
         finally:
             result = self.store.get(run_id)
             stranded = [t for t in result["tasks"] if t["id"] in ids and t["status"] == "running"]
@@ -1309,14 +1314,37 @@ class Engine:
         if outside: return finish({"ok":False,"error":"Changed files outside ownership: "+", ".join(outside),"workspace":str(target),"provider_result":_handoff(outcome),"changed_files":collected["changed_files"]}, resume_safe=False)
         if not outcome.get("ok"): return finish({**collected,"ok":False,"error":outcome.get("error"),"workspace":str(target),"provider_result":_handoff(outcome)})
         if not collected["changed_files"]: return finish({"ok":False,"error":"Implementation produced no changes","workspace":str(target),"provider_result":_handoff(outcome)})
-        reviewer=next((p for p in spec.team if p.provider!=member.provider and p.role=="reviewer"),None) or next((p for p in [spec.coordinator,*spec.team] if p.provider!=member.provider),None)
-        if reviewer is None: return finish({"ok":False,"error":"No independent reviewer","workspace":str(target)})
+        reviewers=[p for p in spec.team if p.provider!=member.provider and p.role=="reviewer"]+[p for p in [spec.coordinator,*spec.team] if p.provider!=member.provider]
+        if not reviewers: return finish({"ok":False,"error":"No independent reviewer","workspace":str(target)})
         requirements={**task,"id":task.get("variant_of") or task["id"]}
-        review=await self._assess_patch(run_id,reviewer,target,spec.prompt,requirements,task["id"],patch=collected.get("patch") or "",
+        review=await self._independent_review(run_id,reviewers,target,spec.prompt,requirements,task["id"],patch=collected.get("patch") or "",
             observation_attempt=phase_attempt("task", task["id"], attempt))
+        if review is None:
+            return finish({**collected,"ok":False,"error":self._reviewers_exhausted(run_id),"reviewers_exhausted":True,"workspace":str(target),"provider_result":_handoff(outcome)})
         if not review["ok"]: return finish({**collected,"ok":False,"error":"Independent review rejected the change","workspace":str(target),"review":review,"provider_result":_handoff(outcome)})
         active["reviewed_fingerprint"] = manager.fingerprint(target)
         return finish({**collected,"ok":True,"workspace":str(target),"review":review,"provider_result":_handoff(outcome)}, "reviewed")
+
+    async def _independent_review(self,run_id,reviewers,*args,**kwargs):
+        """Review with the first independent provider that still has capacity, in preference order.
+
+        A reviewer that reports exhausted plan or account quota is skipped for the rest of this
+        execution. None means every independent reviewer is exhausted; the caller stops the run."""
+        exhausted=self._exhausted_reviewers.setdefault(run_id,set())
+        seen=set()
+        for reviewer in reviewers:
+            if reviewer.provider in seen or reviewer.provider in exhausted: continue
+            seen.add(reviewer.provider)
+            review=await self._assess_patch(run_id,reviewer,*args,**kwargs)
+            if review["ok"] or not provider_quota_exhausted(review.get("error")): return review
+            exhausted.add(reviewer.provider)
+            self.store.event(run_id,"provider_exhausted",{"provider":reviewer.provider,"reason":"quota","role":"reviewer","automatic_retry":False},args[3] if len(args)>3 else None)
+        return None
+
+    def _reviewers_exhausted(self,run_id):
+        names=", ".join(sorted(self._exhausted_reviewers.get(run_id) or ())) or "unknown"
+        return (f"Every independent reviewer exhausted its provider quota ({names}). Restore capacity or enable another "
+                "independent provider, then resume from saved evidence; no further coordinator call was dispatched.")
 
     async def _assess_patch(self,run_id,reviewer,target,request,task,task_id,*,evidence=None,patch="",patch_budget=40000,observation_attempt=None):
         from .workspaces import fingerprint
@@ -1661,10 +1689,12 @@ class Engine:
             raise ValueError("Combined checks failed; repair and validate again")
         contributors={t["provider"] for t in result["tasks"] if t["status"]=="completed" and (spec.mode!="compare" or t["id"]==result["artifacts"].get("selected_task"))}
         candidates=[p for p in spec.team if p.role=="reviewer"]+[spec.coordinator,*spec.team]
-        reviewer=next((p for p in candidates if p.provider not in contributors),None)
-        if reviewer is None: raise ValueError("Combined verification needs a provider that did not implement this candidate")
-        review=await self._assess_patch(run_id,reviewer,manager.integration_path,spec.prompt,self._integration_requirements(result,spec),"integration",
+        reviewers=[p for p in candidates if p.provider not in contributors]
+        if not reviewers: raise ValueError("Combined verification needs a provider that did not implement this candidate")
+        review=await self._independent_review(run_id,reviewers,manager.integration_path,spec.prompt,self._integration_requirements(result,spec),"integration",
             evidence=evidence,patch=before,patch_budget=60000,observation_attempt=evidence_attempt)
+        if review is None:
+            raise RunProblem(self._reviewers_exhausted(run_id))
         if not review["ok"]: raise ValueError("Combined integration review failed")
         result=self.store.get(run_id)
         result["checks"]=evidence
