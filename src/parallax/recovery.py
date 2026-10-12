@@ -11,6 +11,8 @@ CATEGORIES = ('environment', 'provider_permission', 'provider_quota', 'rejected_
 
 QUOTA = re.compile(r"\b(?:individual|account|subscription|usage)\s+quota\s+(?:reached|exhausted|exceeded)\b|\busage\s+limit\s+(?:reached|exhausted|exceeded)\b|\bexhausted its provider quota\b|\binsufficient_quota\b|\bquota_exceeded\b|\bquota_exhausted\b", re.I)
 
+POST_RUN_TASKS = frozenset({'distill'})
+
 
 def provider_quota_exhausted(error) -> bool:
     """A provider reported exhausted plan or account quota, not a transient rate limit."""
@@ -37,7 +39,10 @@ def recovery_options(result: dict) -> dict:
     artifacts = result.get('artifacts', {})
     if result['status'] not in {'needs_attention', 'interrupted'} or artifacts.get('integration_applied') or artifacts.get('verified_only'):
         return {'category': None, 'actions': []}
-    error = (result.get('errors') or [{}])[-1]
+    # Post-run memory distillation can record a provider failure after the run
+    # settled. It never stops a run, so it must not stand in for the stop cause.
+    errors = [item for item in result.get('errors') or [] if item.get('task_id') not in POST_RUN_TASKS]
+    error = (errors or [{}])[-1]
     category = error.get('category') or classify(str(error.get('message', result['status'])))
     if result['status'] == 'interrupted': category = 'interrupted'
     choices = {

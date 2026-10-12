@@ -142,6 +142,16 @@ class QuotaClassificationTests(unittest.TestCase):
         self.assertFalse(provider_quota_exhausted("HTTP429: per-minute quota exceeded; retry after 1s"))
         self.assertEqual(classify("Individual quota reached. Resets in 150h."), "provider_quota")
 
+    def test_post_run_memory_failure_does_not_replace_the_stop_cause(self):
+        # Recorded shape of the October 12 run: the distiller failed after the coordinator limit stopped it.
+        result = {"status": "needs_attention", "spec": {"mode": "build"}, "tasks": [], "artifacts": {},
+                  "errors": [{"code": "run_blocked", "category": "configuration", "message": "Coordinator decision limit reached; work and evidence are preserved"},
+                             {"code": "provider_failure", "provider": "antigravity", "task_id": "distill", "category": "configuration",
+                              "message": "Individual quota reached. Resets in 150h25m7s."}]}
+        options = recovery_options(result)
+        self.assertEqual(options["category"], "configuration")
+        self.assertIn("Coordinator decision limit", options["message"])
+
 
 if __name__ == "__main__":
     unittest.main()
