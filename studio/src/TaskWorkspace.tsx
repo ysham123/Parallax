@@ -871,12 +871,6 @@ export function TaskWorkspace({
               candidate.
             </p>
           )}
-          {workflow.status === "published" && (
-            <p className="decision-blocker">
-              Draft PR published. Inspect GitHub checks and review feedback
-              below.
-            </p>
-          )}
           {["interrupted", "needs_attention"].includes(workflow.status) &&
             !resumable &&
             decision?.action !== "approve" && (
@@ -897,7 +891,7 @@ export function TaskWorkspace({
                     : workflow.status === "approved"
                       ? "Approval recorded. Apply locally or inspect GitHub delivery below."
                       : workflow.status === "published"
-                        ? "Draft PR delivery recorded; inspect its checks and feedback below."
+                        ? "Draft PR published. Its GitHub checks and review feedback are below."
                         : approvalHint || "Recorded candidate evidence."}{" "}
               </span>
             </>
@@ -1359,7 +1353,7 @@ export function TaskWorkspace({
             ["approved", "published"].includes(workflow.status) && (
               <details
                 className="task-delivery"
-                open={workflow.status === "approved"}
+                open={["approved", "published"].includes(workflow.status)}
               >
                 <summary>GitHub delivery and feedback</summary>
                 <PublicationPanel

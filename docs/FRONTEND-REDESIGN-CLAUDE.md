@@ -56,6 +56,8 @@ At the head of `claude/frontend-redesign`:
 - Python `test_release`, `test_deployment`, `test_desktop_runtime` and `test_pilot_fixture_support` pass.
 - Browser inspection on a fresh fixture with frozen cloud assets (port 8847): website, owner and reviewer task, checks, reviews, task browser, composer, repositories, settings, machines, workspace sheet, 390px task and navigation, dark theme, keyboard focus. Screenshots are in `output/redesign/claude/` (ignored). The recovery screenshot uses intercepted responses to show a stopped state; nothing was written.
 - Review link, end to end on a fresh fixture (port 8850): the reviewer copied the link, moved to their personal workspace, opened the link, saw the switch prompt, switched once and landed on the exact task. Forged workspace and machine identifiers showed the unavailable states. The only writes were the two workspace switches.
+- Delivery, end to end on a fresh fixture (port 8851) with simulated GitHub: the reviewer approved, the owner saw Apply locally and the GitHub delivery panel, opened the publication preview (repository, base, branch, title, body), published a draft PR, and the ledger showed GitHub delivery as published. Writes: one approval, one preview, one publication.
+- Sign-in, sign-up and password reset were inspected in their enabled state by intercepting `/api/auth/config`. No marketing opt-in appears anywhere.
 - Local mode was inspected on a disposable server (`PARALLAX_HOME` under `/private/tmp`) against a copy of the fixture project, with consequential requests blocked.
 
 The fixture uses deterministic providers and simulated GitHub. None of this proves live provider, account, GitHub, platform or customer acceptance.
@@ -64,6 +66,6 @@ The fixture uses deterministic providers and simulated GitHub. None of this prov
 
 - **Reviewer handoff, server preview.** The link works without backend changes because every read already goes through the relay's current authorization. It does not implement the proposed `/api/workspaces/{id}/review-target/...` preview from `output/redesign/round8/backend-plan.md`, so the task title is not shown before the person switches workspace, and a team worker without `workflow-v2` shows the existing update message after entry rather than a refusal before it.
 - **Advanced views.** The run workspace, agent graph and advanced run composer inherit the tokens and readability fixes but keep their older layouts. `style.css` (about 3,100 lines) and `workspace.css` (about 1,300 lines) still hold those rules.
-- **Accounts-enabled sign-in.** The fixture has no Supabase configuration, so the email and OAuth sign-in forms were not inspected in their enabled state.
+- **Real sign-in.** The enabled forms were seen with a mocked configuration only; no real Supabase, email or OAuth round trip was exercised.
 - **People.** No usability study, accessibility audit or conversion test has been done. Contrast was chosen against WCAG 2.2 AA targets but not formally measured.
 - **Release gates.** Everything listed in `docs/PILOT.md` and `docs/STAGING-ACCEPTANCE.md` remains open.
