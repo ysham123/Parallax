@@ -518,9 +518,6 @@
   padding: 0;
   height: calc(100dvh - 52px);
 }
-.app-shell.tab-run .page-footer {
-  display: none;
-}
 .studio-scrim {
   display: none;
 }
@@ -564,8 +561,8 @@
   }
   /* Dialogs and sheets opened from sidebar controls stay usable while it is closed. */
   .studio-sidebar .workspace-panel,
-  .studio-sidebar .machine-backdrop,
-  .studio-sidebar .account-popover {
+.studio-sidebar .machine-backdrop,
+.studio-sidebar .account-popover {
     visibility: visible;
   }
   .studio-scrim {
@@ -590,8 +587,8 @@
     min-height: 56px;
   }
   .breadcrumb .scope-workspace,
-  .breadcrumb-project,
-  .breadcrumb-separator {
+.breadcrumb-project,
+.breadcrumb-separator {
     display: none;
   }
   .main-content {

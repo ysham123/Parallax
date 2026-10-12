@@ -120,9 +120,6 @@
   color: var(--ink-2);
   margin: 6px 0 14px;
 }
-.machine-dialog .machine-command {
-  margin: 12px 0;
-}
 .machine-error {
   margin-top: 14px;
   padding: 10px 12px;
@@ -141,7 +138,4 @@
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 8px;
-}
-.machine-offline {
-  color: var(--fail-ink);
 }

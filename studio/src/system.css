@@ -282,8 +282,6 @@ hr {
 .secondary-button,
 .pub-primary,
 .pub-secondary,
-.px-primary,
-.px-secondary,
 .work-button {
   display: inline-flex;
   align-items: center;
@@ -305,22 +303,19 @@ hr {
 }
 .btn-primary,
 .primary-button,
-.pub-primary,
-.px-primary {
+.pub-primary {
   background: var(--button-ink);
   color: var(--on-ink);
 }
 .btn-primary:hover:not(:disabled),
 .primary-button:hover:not(:disabled),
-.pub-primary:hover:not(:disabled),
-.px-primary:hover:not(:disabled) {
+.pub-primary:hover:not(:disabled) {
   background: var(--button-ink-hover);
   color: var(--on-ink);
 }
 .btn-secondary,
 .secondary-button,
 .pub-secondary,
-.px-secondary,
 .work-button {
   background: var(--surface);
   color: var(--ink);
@@ -329,12 +324,10 @@ hr {
 .btn-secondary:hover:not(:disabled),
 .secondary-button:hover:not(:disabled),
 .pub-secondary:hover:not(:disabled),
-.px-secondary:hover,
 .work-button:hover:not(:disabled) {
   border-color: var(--ink-4);
   background: var(--bg-subtle);
 }
-.btn-danger,
 .danger-button {
   display: inline-flex;
   align-items: center;
@@ -356,7 +349,6 @@ hr {
 .secondary-button:disabled,
 .pub-primary:disabled,
 .pub-secondary:disabled,
-.px-primary:disabled,
 .work-button:disabled {
   opacity: 0.45;
 }
@@ -452,8 +444,8 @@ hr {
 
 @media (prefers-reduced-motion: reduce) {
   *,
-  *::before,
-  *::after {
+*::before,
+*::after {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;

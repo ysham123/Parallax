@@ -1596,7 +1596,7 @@ export function TaskWorkspace({
                   onClick={() => setActivityOpen(!activityOpen)}
                 >
                   <WorkIcon name="activity" size={15} />
-                  Activity
+                  <span className="activity-toggle-label">Activity</span>
                 </button>
               </div>
               <div
