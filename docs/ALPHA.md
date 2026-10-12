@@ -12,7 +12,7 @@ Use three tasks with written acceptance criteria before either workflow begins:
 2. Add a small user-facing feature with an existing test harness and a clear file scope.
 3. Refactor a bounded module while preserving behavior and all required checks.
 
-Time box each attempt to 45 minutes and retain failure evidence. Avoid tasks requiring deployment, credentials, a live production database, submodules, or unsupported dependency managers. Python setup supports declared PEP 621 dependencies and requirements.txt in a private venv. Node setup supports committed npm lockfiles with lifecycle scripts disabled. Select independent package roots for monorepos. npm workspaces, Yarn and pnpm installation need further adapter work and block preflight. A package requiring installation scripts is unsupported unless checks already have a supported private environment.
+Time box each attempt to 45 minutes and retain failure evidence. Avoid tasks requiring deployment, credentials, a live production database, submodules, or unsupported dependency managers. Python setup supports declared PEP 621 dependencies and requirements.txt in a private venv. Node setup supports committed npm lockfiles, and Yarn Classic 1.22.x v1 lockfiles including bounded workspace monorepos, with lifecycle scripts disabled. Select independent package roots for npm monorepos. npm workspaces, Yarn Berry and pnpm installation need further adapter work and block preflight. A package requiring installation scripts is unsupported unless checks already have a supported private environment.
 
 ## Matched ordinary Codex comparison
 

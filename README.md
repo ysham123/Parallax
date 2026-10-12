@@ -144,7 +144,7 @@ The optional [remote MCP integration](docs/REMOTE-MCP.md) lets account-authorize
 
 - Build and Compare need a Git repository. Review works in any folder.
 - Git submodules and symlinks that point outside the project need manual handling.
-- Automatic Python setup requires wheel-only requirements with exact versions and hashes. Source builds, editable/VCS installs and unlocked dependency declarations are refused. Locked npm projects run with lifecycle scripts disabled; Yarn, pnpm and npm workspaces need a prepared environment. See [the preview dependency policy](docs/RELIABILITY-MODERNIZATION.md).
+- Automatic Python setup requires wheel-only requirements with exact versions and hashes. Source builds, editable/VCS installs and unlocked dependency declarations are refused. Locked npm projects and Yarn Classic 1.22.x projects (v1 lock, including bounded workspaces) run with lifecycle scripts disabled; Yarn Berry, pnpm and npm workspaces need a prepared environment. See [the preview dependency policy](docs/RELIABILITY-MODERNIZATION.md).
 - API command execution requires enforced command isolation: the macOS sandbox or Linux bubblewrap with the required namespaces. Native provider readiness is checked separately. SSH workers and remote filesystem mounts are not supported.
 - CLI/plugin integration remains local. Versioned Studio tasks separate human approval from local application or draft GitHub PR delivery. GitHub delivery requires a configured App and a clean captured remote baseline; merging and deployment stay with you.
 - Team workspaces and GitHub delivery are gated by `PARALLAX_PILOT_ENABLED=on` for staging and invited pilots. See [pilot setup and launch checklist](docs/PILOT.md).
