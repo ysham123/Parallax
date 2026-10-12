@@ -334,9 +334,22 @@ hr {
   border-color: var(--ink-4);
   background: var(--bg-subtle);
 }
-.btn-danger {
+.btn-danger,
+.danger-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: var(--control-h);
+  padding: 0 16px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 500;
   background: var(--fail);
   color: #fff;
+}
+.danger-button:disabled {
+  opacity: 0.45;
 }
 .btn:disabled,
 .primary-button:disabled,

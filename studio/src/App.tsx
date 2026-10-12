@@ -1234,7 +1234,11 @@ export default function App({
   const [githubConnectionRevision, setGithubConnectionRevision] = useState(0);
   const openedRepositories = useRef<number | undefined>(undefined);
   useEffect(() => {
-    if (!repositoryRequest || openedRepositories.current === repositoryRequest.sequence) return;
+    if (
+      !repositoryRequest ||
+      openedRepositories.current === repositoryRequest.sequence
+    )
+      return;
     openedRepositories.current = repositoryRequest.sequence;
     setTab("repositories");
   }, [repositoryRequest]);
@@ -2012,7 +2016,9 @@ export default function App({
             <button
               className="icon-button"
               aria-label={
-                theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
+                theme === "dark"
+                  ? "Switch to light mode"
+                  : "Switch to dark mode"
               }
               title={theme === "dark" ? "Light mode" : "Dark mode"}
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
@@ -2024,7 +2030,9 @@ export default function App({
               aria-pressed={motion === "reduce"}
               title="Reduce motion"
               aria-label="Reduce motion"
-              onClick={() => setMotion(motion === "reduce" ? "system" : "reduce")}
+              onClick={() =>
+                setMotion(motion === "reduce" ? "system" : "reduce")
+              }
             >
               <Icon name="pause" size={16} />
             </button>
@@ -2052,7 +2060,15 @@ export default function App({
             aria-controls="studio-sidebar"
             onClick={() => setNavOpen(true)}
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              aria-hidden="true"
+            >
               <path d="M4 7h16M4 12h16M4 17h16" />
             </svg>
           </button>
@@ -2170,7 +2186,9 @@ export default function App({
               onManage={onManageWorkspace}
               accountIdentity={accountIdentity}
               connectionRequest={repositoryRequest}
-              onBindingUpdated={() => setGithubConnectionRevision(value => value + 1)}
+              onBindingUpdated={() =>
+                setGithubConnectionRevision((value) => value + 1)
+              }
               onNewTask={(workspace) => {
                 setSpec((previous) => ({ ...previous, workspace }));
                 setNewTaskRequest((previous) => ({
@@ -2278,8 +2296,8 @@ export default function App({
               </section>
             </section>
           )}
-          {tab === "team" && (
-            teamWorkspace ? (
+          {tab === "team" &&
+            (teamWorkspace ? (
               <section className="panel review-placeholder">
                 <h1>Use the team task workflow</h1>
                 <p>
@@ -2295,443 +2313,448 @@ export default function App({
                     setTab(workspaceRole === "reviewer" ? "inbox" : "workflows")
                   }
                 >
-                  {workspaceRole === "reviewer" ? "Open review inbox" : "Open tasks"}
+                  {workspaceRole === "reviewer"
+                    ? "Open review inbox"
+                    : "Open tasks"}
                 </button>
               </section>
             ) : (
-            <>
-              <div className="page-heading">
-                <div>
-                  <span className="eyebrow">PROJECT WORKFLOW</span>
-                  <h1>New run</h1>
-                  <p>
-                    Describe the outcome. Choose a saved team or adjust its
-                    settings.
-                  </p>
-                </div>
-                <span className="heading-tag">
-                  <Icon name="orbit" size={16} /> Local orchestration
-                </span>
-              </div>
-              <div className="team-intro">
-                <section className="mission-panel">
-                  <div className="section-heading">
-                    <div>
-                      <span className="eyebrow">TASK</span>
-                      <h2>What should the team deliver?</h2>
-                    </div>
-                    <Icon name="arrow" size={22} />
-                  </div>
-                  <label className="workspace-field">
-                    <span>Workspace</span>
-                    <div className="input-with-icon">
-                      <Icon name="folder" size={15} />
-                      <input
-                        value={spec.workspace}
-                        onChange={(e) =>
-                          setSpec({ ...spec, workspace: e.target.value })
-                        }
-                        aria-label="Workspace path"
-                        placeholder="Workspace linked by the plugin"
-                      />
-                    </div>
-                  </label>
-                  <label className="prompt-label">
-                    <span className="sr-only">Task prompt</span>
-                    <textarea
-                      value={spec.prompt}
-                      onChange={(e) =>
-                        setSpec({ ...spec, prompt: e.target.value })
-                      }
-                      placeholder="Describe the outcome you want. Include context, constraints, and what a good result looks like…"
-                      rows={5}
-                    />
-                  </label>
-                  <div className="mode-selector" aria-label="Run mode">
-                    {(["build", "review", "compare"] as const).map((mode) => (
-                      <button
-                        key={mode}
-                        className={spec.mode === mode ? "selected" : ""}
-                        onClick={() => setSpec({ ...spec, mode })}
-                        aria-pressed={spec.mode === mode}
-                      >
-                        <Icon
-                          name={
-                            mode === "build"
-                              ? "command"
-                              : mode === "review"
-                                ? "review"
-                                : "team"
-                          }
-                          size={15}
-                        />
-                        {human(mode)}
-                      </button>
-                    ))}
-                  </div>
-                  <p className="mode-description">
-                    {spec.mode === "build"
-                      ? "Coordinate implementation and review in isolated workspaces."
-                      : spec.mode === "review"
-                        ? "Inspect the workspace and collect independent reviews."
-                        : "Compare independent approaches before choosing a result."}
-                  </p>
-                </section>
-              </div>
-              <div className="connections-strip">
-                <div>
-                  <span className="connections-strip-icon">
-                    <Icon name="connection" size={19} />
-                  </span>
+              <>
+                <div className="page-heading">
                   <div>
-                    <strong>Your connection layer</strong>
-                    <span>
-                      {readyCount} local CLIs available ·{" "}
-                      {connections.filter((c) => c.transport === "api").length}{" "}
-                      API connections
-                    </span>
+                    <span className="eyebrow">PROJECT WORKFLOW</span>
+                    <h1>New run</h1>
+                    <p>
+                      Describe the outcome. Choose a saved team or adjust its
+                      settings.
+                    </p>
                   </div>
+                  <span className="heading-tag">
+                    <Icon name="orbit" size={16} /> Local orchestration
+                  </span>
                 </div>
-                <button
-                  className="secondary-button small"
-                  onClick={() => setConnectionsOpen(true)}
-                >
-                  Manage connections <Icon name="arrow" size={14} />
-                </button>
-              </div>
-              <ProjectReadiness
-                spec={spec}
-                onChange={setSpec}
-                providers={providers}
-                connections={connections}
-              />
-              <ProjectMemory workspace={spec.workspace} />
-              <div className="team-section-heading">
-                <div>
-                  <h2>
-                    The team <span>{spec.team.length + 1}</span>
-                  </h2>
-                  <p>
-                    The coordinator assigns work and reconciles the results.
-                  </p>
-                </div>
-                <div className="profile-controls">
-                  <button
-                    className="secondary-button small"
-                    onClick={() =>
-                      void refreshProviders(true).catch(() => undefined)
-                    }
-                    disabled={catalogLoading}
-                    aria-busy={catalogLoading}
-                  >
-                    <Icon
-                      name="refresh"
-                      size={14}
-                      className={catalogLoading ? "spin" : ""}
-                    />
-                    {catalogLoading ? "Refreshing models…" : "Refresh models"}
-                  </button>
-                  <label className="sr-only" htmlFor="profile-select">
-                    Saved profile
-                  </label>
-                  <select
-                    id="profile-select"
-                    value={savedProfile ? spec.profile : ""}
-                    onChange={(e) => {
-                      const profile = profiles.find(
-                        (p) => p.name === e.target.value,
-                      );
-                      if (profile)
-                        setSpec({
-                          ...structuredClone(profile.spec),
-                          workspace: spec.workspace || profile.spec.workspace,
-                          prompt: spec.prompt,
-                        });
-                    }}
-                  >
-                    <option value="">{spec.profile} · custom</option>
-                    {profiles.map((profile) => (
-                      <option key={profile.name} value={profile.name}>
-                        {profile.name}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    className="profile-name"
-                    aria-label="Profile name"
-                    placeholder="Profile name"
-                    value={profileName}
-                    onChange={(e) => setProfileName(e.target.value)}
-                  />
-                  <button
-                    className="icon-button bordered"
-                    onClick={() => void saveProfile()}
-                    disabled={!!busy || loading || catalogLoading}
-                    title="Save profile"
-                    aria-label="Save profile"
-                  >
-                    <Icon name="save" size={16} />
-                  </button>
-                  {savedProfile && (
-                    <button
-                      className="icon-button bordered"
-                      onClick={() => void deleteProfile()}
-                      disabled={!!busy}
-                      title="Delete saved profile"
-                      aria-label="Delete saved profile"
-                    >
-                      <Icon name="trash" size={16} />
-                    </button>
-                  )}
-                </div>
-              </div>
-              <div
-                className={`model-refresh-feedback ${catalogError ? "error" : ""}`}
-                aria-live="polite"
-              >
-                {catalogLoading
-                  ? "Discovering local CLI model catalogs…"
-                  : catalogError || catalogNote}
-              </div>
-              <ParticipantEditor
-                checking={loading || catalogLoading}
-                connections={connections}
-                participant={spec.coordinator}
-                providers={providers}
-                coordinator
-                onChange={(coordinator) => setSpec({ ...spec, coordinator })}
-              />
-              <div className="team-grid">
-                {spec.team.map((participant, i) => (
-                  <ParticipantEditor
-                    checking={loading || catalogLoading}
-                    connections={connections}
-                    key={i}
-                    participant={participant}
-                    providers={providers}
-                    onChange={(next) =>
-                      setSpec({
-                        ...spec,
-                        team: spec.team.map((p, index) =>
-                          index === i ? next : p,
-                        ),
-                      })
-                    }
-                    onRemove={() =>
-                      setSpec({
-                        ...spec,
-                        team: spec.team.filter((_, index) => index !== i),
-                      })
-                    }
-                  />
-                ))}
-              </div>
-              <div className="add-participant">
-                <Icon name="plus" size={15} />
-                <select
-                  aria-label="Add team participant"
-                  value=""
-                  disabled={spec.team.length >= 8}
-                  onChange={(e) =>
-                    e.target.value &&
-                    setSpec({
-                      ...spec,
-                      team: [
-                        ...spec.team,
-                        {
-                          provider: e.target.value.startsWith("api:")
-                            ? connections.find(
-                                (c) => c.id === e.target.value.slice(4),
-                              )!.provider
-                            : e.target.value,
-                          transport: e.target.value.startsWith("api:")
-                            ? "api"
-                            : "cli",
-                          connection_id: e.target.value.startsWith("api:")
-                            ? e.target.value.slice(4)
-                            : null,
-                          model: null,
-                          effort: null,
-                          role: "generalist",
-                        },
-                      ],
-                    })
-                  }
-                >
-                  <option value="">
-                    {spec.team.length >= 8
-                      ? "Team limit reached"
-                      : "Add a participant"}
-                  </option>
-                  {PROVIDERS.map((id) => (
-                    <option key={id} value={id}>
-                      {LABELS[id]} · CLI
-                    </option>
-                  ))}
-                  {connections
-                    .filter((c) => c.transport === "api")
-                    .map((c) => (
-                      <option key={c.id} value={`api:${c.id}`}>
-                        {c.name} · API
-                      </option>
-                    ))}
-                </select>
-              </div>
-              <section className="run-settings">
-                <details>
-                  <summary>
-                    <span>
-                      <Icon name="settings" size={18} />
-                      Run limits & validation
-                    </span>
-                    <span className="settings-summary">
-                      {spec.limits.workers} concurrent workers ·{" "}
-                      {spec.limits.minutes} min · {spec.checks.length}{" "}
-                      {spec.checks.length === 1 ? "check" : "checks"}
-                      <Icon name="chevron" size={15} />
-                    </span>
-                  </summary>
-                  <div className="settings-body">
-                    <div className="limits-grid">
-                      {(
-                        [
-                          {
-                            key: "workers",
-                            label: "Concurrent workers",
-                            min: 1,
-                            max: 8,
-                          },
-                          {
-                            key: "repairs",
-                            label: "Repair attempts",
-                            min: 0,
-                            max: 5,
-                          },
-                          {
-                            key: "minutes",
-                            label: "Run budget (minutes)",
-                            min: 1,
-                            max: 240,
-                          },
-                          {
-                            key: "attempt_seconds",
-                            label: "Attempt timeout (seconds)",
-                            min: 10,
-                            max: 3600,
-                          },
-                          {
-                            key: "coordinator_turns",
-                            label: "Coordinator turns",
-                            min: 2,
-                            max: 60,
-                          },
-                        ] as const
-                      ).map((field) => (
-                        <label key={field.key}>
-                          {field.label}
-                          <input
-                            type="number"
-                            min={field.min}
-                            max={field.max}
-                            value={spec.limits[field.key]}
-                            onChange={(e) =>
-                              setSpec({
-                                ...spec,
-                                limits: {
-                                  ...spec.limits,
-                                  [field.key]: Number(e.target.value),
-                                },
-                              })
+                <div className="team-intro">
+                  <section className="mission-panel">
+                    <div className="section-heading">
+                      <div>
+                        <span className="eyebrow">TASK</span>
+                        <h2>What should the team deliver?</h2>
+                      </div>
+                      <Icon name="arrow" size={22} />
+                    </div>
+                    <label className="workspace-field">
+                      <span>Workspace</span>
+                      <div className="input-with-icon">
+                        <Icon name="folder" size={15} />
+                        <input
+                          value={spec.workspace}
+                          onChange={(e) =>
+                            setSpec({ ...spec, workspace: e.target.value })
+                          }
+                          aria-label="Workspace path"
+                          placeholder="Workspace linked by the plugin"
+                        />
+                      </div>
+                    </label>
+                    <label className="prompt-label">
+                      <span className="sr-only">Task prompt</span>
+                      <textarea
+                        value={spec.prompt}
+                        onChange={(e) =>
+                          setSpec({ ...spec, prompt: e.target.value })
+                        }
+                        placeholder="Describe the outcome you want. Include context, constraints, and what a good result looks like…"
+                        rows={5}
+                      />
+                    </label>
+                    <div className="mode-selector" aria-label="Run mode">
+                      {(["build", "review", "compare"] as const).map((mode) => (
+                        <button
+                          key={mode}
+                          className={spec.mode === mode ? "selected" : ""}
+                          onClick={() => setSpec({ ...spec, mode })}
+                          aria-pressed={spec.mode === mode}
+                        >
+                          <Icon
+                            name={
+                              mode === "build"
+                                ? "command"
+                                : mode === "review"
+                                  ? "review"
+                                  : "team"
                             }
+                            size={15}
                           />
-                        </label>
+                          {human(mode)}
+                        </button>
                       ))}
                     </div>
-                    <div className="checks-heading">
-                      <div>
-                        <h3>Validation commands</h3>
-                        <p>
-                          Commands run as explicit argument arrays, without
-                          shell expansion.
-                        </p>
-                      </div>
-                      <button
-                        className="secondary-button small"
-                        onClick={() =>
-                          setSpec({
-                            ...spec,
-                            checks: [
-                              ...spec.checks,
-                              { name: "", argv: [], timeout: 120 },
-                            ],
-                          })
-                        }
-                      >
-                        <Icon name="plus" size={14} /> Add check
-                      </button>
+                    <p className="mode-description">
+                      {spec.mode === "build"
+                        ? "Coordinate implementation and review in isolated workspaces."
+                        : spec.mode === "review"
+                          ? "Inspect the workspace and collect independent reviews."
+                          : "Compare independent approaches before choosing a result."}
+                    </p>
+                  </section>
+                </div>
+                <div className="connections-strip">
+                  <div>
+                    <span className="connections-strip-icon">
+                      <Icon name="connection" size={19} />
+                    </span>
+                    <div>
+                      <strong>Your connection layer</strong>
+                      <span>
+                        {readyCount} local CLIs available ·{" "}
+                        {
+                          connections.filter((c) => c.transport === "api")
+                            .length
+                        }{" "}
+                        API connections
+                      </span>
                     </div>
-                    {spec.checks.map((check, i) => (
-                      <CheckEditor
-                        key={i}
-                        index={i}
-                        check={check}
-                        onChange={(next) =>
-                          setSpec({
-                            ...spec,
-                            checks: spec.checks.map((c, index) =>
-                              index === i ? next : c,
-                            ),
-                          })
-                        }
-                        onRemove={() =>
-                          setSpec({
-                            ...spec,
-                            checks: spec.checks.filter(
-                              (_, index) => index !== i,
-                            ),
-                          })
-                        }
+                  </div>
+                  <button
+                    className="secondary-button small"
+                    onClick={() => setConnectionsOpen(true)}
+                  >
+                    Manage connections <Icon name="arrow" size={14} />
+                  </button>
+                </div>
+                <ProjectReadiness
+                  spec={spec}
+                  onChange={setSpec}
+                  providers={providers}
+                  connections={connections}
+                />
+                <ProjectMemory workspace={spec.workspace} />
+                <div className="team-section-heading">
+                  <div>
+                    <h2>
+                      The team <span>{spec.team.length + 1}</span>
+                    </h2>
+                    <p>
+                      The coordinator assigns work and reconciles the results.
+                    </p>
+                  </div>
+                  <div className="profile-controls">
+                    <button
+                      className="secondary-button small"
+                      onClick={() =>
+                        void refreshProviders(true).catch(() => undefined)
+                      }
+                      disabled={catalogLoading}
+                      aria-busy={catalogLoading}
+                    >
+                      <Icon
+                        name="refresh"
+                        size={14}
+                        className={catalogLoading ? "spin" : ""}
                       />
-                    ))}
-                    {!spec.checks.length && (
-                      <p className="empty-checks">
-                        No explicit checks configured.
-                      </p>
+                      {catalogLoading ? "Refreshing models…" : "Refresh models"}
+                    </button>
+                    <label className="sr-only" htmlFor="profile-select">
+                      Saved profile
+                    </label>
+                    <select
+                      id="profile-select"
+                      value={savedProfile ? spec.profile : ""}
+                      onChange={(e) => {
+                        const profile = profiles.find(
+                          (p) => p.name === e.target.value,
+                        );
+                        if (profile)
+                          setSpec({
+                            ...structuredClone(profile.spec),
+                            workspace: spec.workspace || profile.spec.workspace,
+                            prompt: spec.prompt,
+                          });
+                      }}
+                    >
+                      <option value="">{spec.profile} · custom</option>
+                      {profiles.map((profile) => (
+                        <option key={profile.name} value={profile.name}>
+                          {profile.name}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      className="profile-name"
+                      aria-label="Profile name"
+                      placeholder="Profile name"
+                      value={profileName}
+                      onChange={(e) => setProfileName(e.target.value)}
+                    />
+                    <button
+                      className="icon-button bordered"
+                      onClick={() => void saveProfile()}
+                      disabled={!!busy || loading || catalogLoading}
+                      title="Save profile"
+                      aria-label="Save profile"
+                    >
+                      <Icon name="save" size={16} />
+                    </button>
+                    {savedProfile && (
+                      <button
+                        className="icon-button bordered"
+                        onClick={() => void deleteProfile()}
+                        disabled={!!busy}
+                        title="Delete saved profile"
+                        aria-label="Delete saved profile"
+                      >
+                        <Icon name="trash" size={16} />
+                      </button>
                     )}
                   </div>
-                </details>
-              </section>
-              <div className="launch-bar">
-                <label className="toggle-label">
-                  <input
-                    type="checkbox"
-                    checked={spec.integrate}
-                    onChange={(e) =>
-                      setSpec({ ...spec, integrate: e.target.checked })
-                    }
-                  />
-                  <span className="toggle" />
-                  <span>
-                    <strong>Integrate accepted changes</strong>
-                    <small>
-                      The runtime applies the selected result after validation.
-                    </small>
-                  </span>
-                </label>
-                <button
-                  className="primary-button start-button"
-                  onClick={() => void start()}
-                  disabled={!connected || !!busy || loading || catalogLoading}
+                </div>
+                <div
+                  className={`model-refresh-feedback ${catalogError ? "error" : ""}`}
+                  aria-live="polite"
                 >
-                  <span>
-                    {busy === "start" ? "Starting…" : "Start team run"}
-                  </span>
-                  <Icon name="arrow" size={18} />
-                </button>
-              </div>
-            </>
-            )
-          )}
+                  {catalogLoading
+                    ? "Discovering local CLI model catalogs…"
+                    : catalogError || catalogNote}
+                </div>
+                <ParticipantEditor
+                  checking={loading || catalogLoading}
+                  connections={connections}
+                  participant={spec.coordinator}
+                  providers={providers}
+                  coordinator
+                  onChange={(coordinator) => setSpec({ ...spec, coordinator })}
+                />
+                <div className="team-grid">
+                  {spec.team.map((participant, i) => (
+                    <ParticipantEditor
+                      checking={loading || catalogLoading}
+                      connections={connections}
+                      key={i}
+                      participant={participant}
+                      providers={providers}
+                      onChange={(next) =>
+                        setSpec({
+                          ...spec,
+                          team: spec.team.map((p, index) =>
+                            index === i ? next : p,
+                          ),
+                        })
+                      }
+                      onRemove={() =>
+                        setSpec({
+                          ...spec,
+                          team: spec.team.filter((_, index) => index !== i),
+                        })
+                      }
+                    />
+                  ))}
+                </div>
+                <div className="add-participant">
+                  <Icon name="plus" size={15} />
+                  <select
+                    aria-label="Add team participant"
+                    value=""
+                    disabled={spec.team.length >= 8}
+                    onChange={(e) =>
+                      e.target.value &&
+                      setSpec({
+                        ...spec,
+                        team: [
+                          ...spec.team,
+                          {
+                            provider: e.target.value.startsWith("api:")
+                              ? connections.find(
+                                  (c) => c.id === e.target.value.slice(4),
+                                )!.provider
+                              : e.target.value,
+                            transport: e.target.value.startsWith("api:")
+                              ? "api"
+                              : "cli",
+                            connection_id: e.target.value.startsWith("api:")
+                              ? e.target.value.slice(4)
+                              : null,
+                            model: null,
+                            effort: null,
+                            role: "generalist",
+                          },
+                        ],
+                      })
+                    }
+                  >
+                    <option value="">
+                      {spec.team.length >= 8
+                        ? "Team limit reached"
+                        : "Add a participant"}
+                    </option>
+                    {PROVIDERS.map((id) => (
+                      <option key={id} value={id}>
+                        {LABELS[id]} · CLI
+                      </option>
+                    ))}
+                    {connections
+                      .filter((c) => c.transport === "api")
+                      .map((c) => (
+                        <option key={c.id} value={`api:${c.id}`}>
+                          {c.name} · API
+                        </option>
+                      ))}
+                  </select>
+                </div>
+                <section className="run-settings">
+                  <details>
+                    <summary>
+                      <span>
+                        <Icon name="settings" size={18} />
+                        Run limits & validation
+                      </span>
+                      <span className="settings-summary">
+                        {spec.limits.workers} concurrent workers ·{" "}
+                        {spec.limits.minutes} min · {spec.checks.length}{" "}
+                        {spec.checks.length === 1 ? "check" : "checks"}
+                        <Icon name="chevron" size={15} />
+                      </span>
+                    </summary>
+                    <div className="settings-body">
+                      <div className="limits-grid">
+                        {(
+                          [
+                            {
+                              key: "workers",
+                              label: "Concurrent workers",
+                              min: 1,
+                              max: 8,
+                            },
+                            {
+                              key: "repairs",
+                              label: "Repair attempts",
+                              min: 0,
+                              max: 5,
+                            },
+                            {
+                              key: "minutes",
+                              label: "Run budget (minutes)",
+                              min: 1,
+                              max: 240,
+                            },
+                            {
+                              key: "attempt_seconds",
+                              label: "Attempt timeout (seconds)",
+                              min: 10,
+                              max: 3600,
+                            },
+                            {
+                              key: "coordinator_turns",
+                              label: "Coordinator turns",
+                              min: 2,
+                              max: 60,
+                            },
+                          ] as const
+                        ).map((field) => (
+                          <label key={field.key}>
+                            {field.label}
+                            <input
+                              type="number"
+                              min={field.min}
+                              max={field.max}
+                              value={spec.limits[field.key]}
+                              onChange={(e) =>
+                                setSpec({
+                                  ...spec,
+                                  limits: {
+                                    ...spec.limits,
+                                    [field.key]: Number(e.target.value),
+                                  },
+                                })
+                              }
+                            />
+                          </label>
+                        ))}
+                      </div>
+                      <div className="checks-heading">
+                        <div>
+                          <h3>Validation commands</h3>
+                          <p>
+                            Commands run as explicit argument arrays, without
+                            shell expansion.
+                          </p>
+                        </div>
+                        <button
+                          className="secondary-button small"
+                          onClick={() =>
+                            setSpec({
+                              ...spec,
+                              checks: [
+                                ...spec.checks,
+                                { name: "", argv: [], timeout: 120 },
+                              ],
+                            })
+                          }
+                        >
+                          <Icon name="plus" size={14} /> Add check
+                        </button>
+                      </div>
+                      {spec.checks.map((check, i) => (
+                        <CheckEditor
+                          key={i}
+                          index={i}
+                          check={check}
+                          onChange={(next) =>
+                            setSpec({
+                              ...spec,
+                              checks: spec.checks.map((c, index) =>
+                                index === i ? next : c,
+                              ),
+                            })
+                          }
+                          onRemove={() =>
+                            setSpec({
+                              ...spec,
+                              checks: spec.checks.filter(
+                                (_, index) => index !== i,
+                              ),
+                            })
+                          }
+                        />
+                      ))}
+                      {!spec.checks.length && (
+                        <p className="empty-checks">
+                          No explicit checks configured.
+                        </p>
+                      )}
+                    </div>
+                  </details>
+                </section>
+                <div className="launch-bar">
+                  <label className="toggle-label">
+                    <input
+                      type="checkbox"
+                      checked={spec.integrate}
+                      onChange={(e) =>
+                        setSpec({ ...spec, integrate: e.target.checked })
+                      }
+                    />
+                    <span className="toggle" />
+                    <span>
+                      <strong>Integrate accepted changes</strong>
+                      <small>
+                        The runtime applies the selected result after
+                        validation.
+                      </small>
+                    </span>
+                  </label>
+                  <button
+                    className="primary-button start-button"
+                    onClick={() => void start()}
+                    disabled={!connected || !!busy || loading || catalogLoading}
+                  >
+                    <span>
+                      {busy === "start" ? "Starting…" : "Start team run"}
+                    </span>
+                    <Icon name="arrow" size={18} />
+                  </button>
+                </div>
+              </>
+            ))}
           {tab === "run" && (
             <RunWorkspace
               run={run}
@@ -2972,24 +2995,18 @@ export default function App({
                   ) : (
                     <button
                       className="primary-button"
-                      onClick={() => setTab(teamWorkspace ? "workflows" : "team")}
+                      onClick={() =>
+                        setTab(teamWorkspace ? "workflows" : "team")
+                      }
                     >
-                      {teamWorkspace ? "Open tasks" : "Create a team run"} <Icon name="arrow" size={17} />
+                      {teamWorkspace ? "Open tasks" : "Create a team run"}{" "}
+                      <Icon name="arrow" size={17} />
                     </button>
                   )}
                 </section>
               )}
             </>
           )}
-          <footer className="page-footer">
-            <span>
-              <Icon name="orbit" size={15} /> Parallax Studio
-            </span>
-            <span>Local agents. Recorded evidence. Your workspace.</span>
-            <span className="keyboard-hint">
-              Alt + 1 / 2 / 3 / 4 to navigate
-            </span>
-          </footer>
         </main>
       </div>
       {notice && (

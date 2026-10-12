@@ -27,49 +27,146 @@ type Fact = {
   detail: string;
   state: "passed" | "failed" | "attention" | "waiting" | "pending";
 };
-type Line = { kind: "context" | "add" | "del"; old?: number; new?: number; text: string };
+type Line = {
+  kind: "context" | "add" | "del";
+  old?: number;
+  new?: number;
+  text: string;
+};
 
 const EXAMPLE: Record<1 | 2, { facts: Fact[]; lines: Line[]; note: string }> = {
   1: {
     note: "Candidate 1 is blocked. The reviewer found a gap and one final check failed.",
     facts: [
-      { name: "Baseline checks", detail: "412 passed on main", state: "passed" },
+      {
+        name: "Baseline checks",
+        detail: "412 passed on main",
+        state: "passed",
+      },
       { name: "Prepared", detail: "Codex changed 4 files", state: "passed" },
-      { name: "Independent review", detail: "Claude Code: 1 finding", state: "attention" },
+      {
+        name: "Independent review",
+        detail: "Claude Code: 1 finding",
+        state: "attention",
+      },
       { name: "Final checks", detail: "1 failed, 416 passed", state: "failed" },
-      { name: "Human approval", detail: "Blocked until checks pass", state: "pending" },
+      {
+        name: "Human approval",
+        detail: "Blocked until checks pass",
+        state: "pending",
+      },
       { name: "Delivery", detail: "Nothing delivered", state: "pending" },
     ],
     lines: [
-      { kind: "context", old: 39, new: 39, text: '  const signature = header(req, "x-ledger-signature");' },
-      { kind: "del", old: 40, text: "  if (!hmacEquals(secret, req.rawBody, signature)) {" },
-      { kind: "add", new: 40, text: '  const sent = Number(header(req, "x-ledger-timestamp"));' },
-      { kind: "add", new: 41, text: "  if (clock.now() - sent > REPLAY_WINDOW_MS) {" },
-      { kind: "add", new: 42, text: '    throw new WebhookRejected("stale_timestamp");' },
+      {
+        kind: "context",
+        old: 39,
+        new: 39,
+        text: '  const signature = header(req, "x-ledger-signature");',
+      },
+      {
+        kind: "del",
+        old: 40,
+        text: "  if (!hmacEquals(secret, req.rawBody, signature)) {",
+      },
+      {
+        kind: "add",
+        new: 40,
+        text: '  const sent = Number(header(req, "x-ledger-timestamp"));',
+      },
+      {
+        kind: "add",
+        new: 41,
+        text: "  if (clock.now() - sent > REPLAY_WINDOW_MS) {",
+      },
+      {
+        kind: "add",
+        new: 42,
+        text: '    throw new WebhookRejected("stale_timestamp");',
+      },
       { kind: "add", new: 43, text: "  }" },
-      { kind: "add", new: 44, text: "  if (!verifySignature(secret, `${sent}.${req.rawBody}`, signature)) {" },
-      { kind: "context", old: 41, new: 45, text: '    throw new WebhookRejected("bad_signature");' },
+      {
+        kind: "add",
+        new: 44,
+        text: "  if (!verifySignature(secret, `${sent}.${req.rawBody}`, signature)) {",
+      },
+      {
+        kind: "context",
+        old: 41,
+        new: 45,
+        text: '    throw new WebhookRejected("bad_signature");',
+      },
     ],
   },
   2: {
     note: "Candidate 2 is ready. Evidence is recorded against this exact candidate.",
     facts: [
-      { name: "Baseline checks", detail: "412 passed on main", state: "passed" },
-      { name: "Prepared", detail: "Codex revised candidate 1", state: "passed" },
-      { name: "Independent review", detail: "Finding resolved", state: "passed" },
-      { name: "Final checks", detail: "418 passed, 6 new tests", state: "passed" },
+      {
+        name: "Baseline checks",
+        detail: "412 passed on main",
+        state: "passed",
+      },
+      {
+        name: "Prepared",
+        detail: "Codex revised candidate 1",
+        state: "passed",
+      },
+      {
+        name: "Independent review",
+        detail: "Finding resolved",
+        state: "passed",
+      },
+      {
+        name: "Final checks",
+        detail: "418 passed, 6 new tests",
+        state: "passed",
+      },
       { name: "Human approval", detail: "Needs a teammate", state: "waiting" },
-      { name: "Delivery", detail: "Then a draft pull request", state: "pending" },
+      {
+        name: "Delivery",
+        detail: "Then a draft pull request",
+        state: "pending",
+      },
     ],
     lines: [
-      { kind: "context", old: 39, new: 39, text: '  const signature = header(req, "x-ledger-signature");' },
-      { kind: "del", old: 40, text: "  if (!hmacEquals(secret, req.rawBody, signature)) {" },
-      { kind: "add", new: 40, text: '  const sent = Number(header(req, "x-ledger-timestamp"));' },
-      { kind: "add", new: 41, text: "  if (!Number.isFinite(sent) || clock.now() - sent > REPLAY_WINDOW_MS) {" },
-      { kind: "add", new: 42, text: '    throw new WebhookRejected("stale_timestamp");' },
+      {
+        kind: "context",
+        old: 39,
+        new: 39,
+        text: '  const signature = header(req, "x-ledger-signature");',
+      },
+      {
+        kind: "del",
+        old: 40,
+        text: "  if (!hmacEquals(secret, req.rawBody, signature)) {",
+      },
+      {
+        kind: "add",
+        new: 40,
+        text: '  const sent = Number(header(req, "x-ledger-timestamp"));',
+      },
+      {
+        kind: "add",
+        new: 41,
+        text: "  if (!Number.isFinite(sent) || clock.now() - sent > REPLAY_WINDOW_MS) {",
+      },
+      {
+        kind: "add",
+        new: 42,
+        text: '    throw new WebhookRejected("stale_timestamp");',
+      },
       { kind: "add", new: 43, text: "  }" },
-      { kind: "add", new: 44, text: "  if (!verifySignature(secret, `${sent}.${req.rawBody}`, signature)) {" },
-      { kind: "context", old: 41, new: 45, text: '    throw new WebhookRejected("bad_signature");' },
+      {
+        kind: "add",
+        new: 44,
+        text: "  if (!verifySignature(secret, `${sent}.${req.rawBody}`, signature)) {",
+      },
+      {
+        kind: "context",
+        old: 41,
+        new: 45,
+        text: '    throw new WebhookRejected("bad_signature");',
+      },
     ],
   },
 };
@@ -85,7 +182,9 @@ function ProductExample() {
           <div className="site-window-main">
             <div className="site-window-head">
               <span className="site-repo">ledger-api</span>
-              <strong>Reject replayed webhook events older than five minutes</strong>
+              <strong>
+                Reject replayed webhook events older than five minutes
+              </strong>
             </div>
             <div className="site-window-tabs" aria-hidden="true">
               <span className="selected">
@@ -94,12 +193,22 @@ function ProductExample() {
               <span>Checks</span>
               <span>Review</span>
             </div>
-            <div className="site-diff" aria-label={`Example diff, candidate ${candidate}`} role="img">
+            <div
+              className="site-diff"
+              aria-label={`Example diff, candidate ${candidate}`}
+              role="img"
+            >
               <div className="site-diff-file">src/webhooks/verify.ts</div>
               {example.lines.map((line, index) => (
                 <div key={index} className={`site-diff-line ${line.kind}`}>
                   <span>{line.kind === "add" ? line.new : line.old}</span>
-                  <span>{line.kind === "add" ? "+" : line.kind === "del" ? "-" : " "}</span>
+                  <span>
+                    {line.kind === "add"
+                      ? "+"
+                      : line.kind === "del"
+                        ? "-"
+                        : " "}
+                  </span>
                   <span>{line.text}</span>
                 </div>
               ))}
@@ -115,7 +224,9 @@ function ProductExample() {
             </div>
           </div>
           <div className="site-window-ledger">
-            <span className="site-ledger-title">Evidence for candidate {candidate}</span>
+            <span className="site-ledger-title">
+              Evidence for candidate {candidate}
+            </span>
             <ol className="site-ledger">
               {example.facts.map((fact) => (
                 <li key={fact.name} className={fact.state}>
@@ -126,7 +237,9 @@ function ProductExample() {
               ))}
             </ol>
             <div className="site-ledger-actions" aria-hidden="true">
-              <span className={`site-fake-button ${candidate === 2 ? "primary" : "disabled"}`}>
+              <span
+                className={`site-fake-button ${candidate === 2 ? "primary" : "disabled"}`}
+              >
                 Approve
               </span>
               <span className="site-fake-button">Request changes</span>
@@ -160,17 +273,25 @@ function ProductExample() {
 function Install() {
   const [selected, setSelected] = useState(0);
   return (
-    <section className="site-section site-install" id="install" aria-labelledby="install-title">
+    <section
+      className="site-section site-install"
+      id="install"
+      aria-labelledby="install-title"
+    >
       <div className="site-section-head">
         <h2 id="install-title">Install</h2>
         <p>
           Public tools {PUBLIC_RELEASE.version} run on your machine with the
-          agent sign-ins you already have. No Parallax account is needed to
-          work locally.
+          agent sign-ins you already have. No Parallax account is needed to work
+          locally.
         </p>
       </div>
       <div className="site-install-box">
-        <div role="tablist" aria-label="Installation method" className="site-tabs">
+        <div
+          role="tablist"
+          aria-label="Installation method"
+          className="site-tabs"
+        >
           {INSTALL_METHODS.map((name, index) => (
             <button
               type="button"
@@ -213,9 +334,13 @@ function Install() {
           hidden={selected !== 0}
           className="site-install-panel"
         >
-          <CopyBlock label="Claude Code install commands" text={CLAUDE_INSTALL} />
+          <CopyBlock
+            label="Claude Code install commands"
+            text={CLAUDE_INSTALL}
+          />
           <p>
-            Start a new chat, then use <code>{PUBLIC_RELEASE.claudeStudio}</code>,{" "}
+            Start a new chat, then use{" "}
+            <code>{PUBLIC_RELEASE.claudeStudio}</code>,{" "}
             <code>{PUBLIC_RELEASE.claudeReview}</code> or{" "}
             <code>{PUBLIC_RELEASE.claudeBuild}</code>.
           </p>
@@ -264,7 +389,10 @@ function Install() {
       <dl className="site-platforms">
         <div>
           <dt>macOS</dt>
-          <dd>Plugin and source. A signed desktop app is in preparation and not yet downloadable.</dd>
+          <dd>
+            Plugin and source. A signed desktop app is in preparation and not
+            yet downloadable.
+          </dd>
         </div>
         <div>
           <dt>Linux</dt>
@@ -279,8 +407,8 @@ function Install() {
         <p>
           <strong>About the 1.4 preview.</strong> Saved candidates, revisions,
           team approval and GitHub delivery shown on this page belong to the
-          development preview. They are not in the public {PUBLIC_RELEASE.version}{" "}
-          download.
+          development preview. They are not in the public{" "}
+          {PUBLIC_RELEASE.version} download.
         </p>
         <a href={PREVIEW_GUIDES.setup}>Preview setup guide</a>
       </div>
@@ -305,12 +433,30 @@ function Install() {
 }
 
 const STEPS = [
-  ["Describe the outcome", "Acceptance criteria, the checks that prove it, and a budget."],
-  ["Agents work in isolation", "On a separate copy of the repository. Your working files stay untouched."],
-  ["A second agent reviews", "Fresh context, findings pinned to lines, fixes made as a new candidate."],
-  ["Your checks run twice", "Before and after the change, so new failures are never confused with old ones."],
-  ["A person decides", "On a team, someone other than the requester approves. Owners too."],
-  ["You choose delivery", "Apply locally or open a draft pull request. Never an automatic merge."],
+  [
+    "Describe the outcome",
+    "Acceptance criteria, the checks that prove it, and a budget.",
+  ],
+  [
+    "Agents work in isolation",
+    "On a separate copy of the repository. Your working files stay untouched.",
+  ],
+  [
+    "A second agent reviews",
+    "Fresh context, findings pinned to lines, fixes made as a new candidate.",
+  ],
+  [
+    "Your checks run twice",
+    "Before and after the change, so new failures are never confused with old ones.",
+  ],
+  [
+    "A person decides",
+    "On a team, someone other than the requester approves. Owners too.",
+  ],
+  [
+    "You choose delivery",
+    "Apply locally or open a draft pull request. Never an automatic merge.",
+  ],
 ] as const;
 
 export default function PublicEntry({
@@ -323,7 +469,9 @@ export default function PublicEntry({
   notice?: string;
 }) {
   const [busy, setBusy] = useState(false);
-  const [failure, setFailure] = useState(error ? signInErrorMessage(error) : "");
+  const [failure, setFailure] = useState(
+    error ? signInErrorMessage(error) : "",
+  );
   const [menu, setMenu] = useState(false);
   const menuButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -347,7 +495,8 @@ export default function PublicEntry({
     document.addEventListener("keydown", close);
     return () => document.removeEventListener("keydown", close);
   }, [menu]);
-  const accounts = config?.identity === "supabase" && signInMethods(config).length > 0;
+  const accounts =
+    config?.identity === "supabase" && signInMethods(config).length > 0;
   async function signIn() {
     setBusy(true);
     setFailure("");
@@ -360,14 +509,20 @@ export default function PublicEntry({
       const body = await response.json().catch(() => ({}));
       if (!response.ok || typeof body.url !== "string")
         throw new Error(
-          signInErrorMessage(typeof body.detail === "string" ? body.detail : "failed"),
+          signInErrorMessage(
+            typeof body.detail === "string" ? body.detail : "failed",
+          ),
         );
       const destination = new URL(body.url);
       if (destination.origin !== "https://github.com")
         throw new Error(signInErrorMessage("failed"));
       window.location.assign(destination.href);
     } catch (problem) {
-      setFailure(problem instanceof Error ? problem.message : signInErrorMessage("failed"));
+      setFailure(
+        problem instanceof Error
+          ? problem.message
+          : signInErrorMessage("failed"),
+      );
       setBusy(false);
     }
   }
@@ -376,7 +531,12 @@ export default function PublicEntry({
       Sign in
     </a>
   ) : config?.github ? (
-    <button type="button" className="site-nav-link" onClick={() => void signIn()} disabled={busy}>
+    <button
+      type="button"
+      className="site-nav-link"
+      onClick={() => void signIn()}
+      disabled={busy}
+    >
       {busy ? "Opening GitHub…" : "Sign in"}
     </button>
   ) : (
@@ -426,7 +586,12 @@ export default function PublicEntry({
             </button>
           </div>
         </div>
-        <nav className="site-mobile-nav" id="public-menu" aria-label="Mobile site" hidden={!menu}>
+        <nav
+          className="site-mobile-nav"
+          id="public-menu"
+          aria-label="Mobile site"
+          hidden={!menu}
+        >
           {navigation.map(([href, name]) => (
             <a key={name} href={href} onClick={() => setMenu(false)}>
               {name}
@@ -472,7 +637,9 @@ export default function PublicEntry({
         <ProductExample />
         <section className="site-section" id="how" aria-labelledby="how-title">
           <div className="site-section-head">
-            <h2 id="how-title">Every claim about a change is a separate, recorded fact.</h2>
+            <h2 id="how-title">
+              Every claim about a change is a separate, recorded fact.
+            </h2>
             <p>
               An agent saying it is done is not evidence. Parallax keeps the
               work, the review, the checks and your decision apart, and ties
@@ -507,12 +674,17 @@ export default function PublicEntry({
               <h3>A one-component migration</h3>
               <p>
                 Replace a legacy parser while protecting its compatibility
-                contract. <a href={PREVIEW_GUIDES.modernization}>See the exercise</a>
+                contract.{" "}
+                <a href={PREVIEW_GUIDES.modernization}>See the exercise</a>
               </p>
             </div>
           </div>
         </section>
-        <section className="site-section" id="teams" aria-labelledby="teams-title">
+        <section
+          className="site-section"
+          id="teams"
+          aria-labelledby="teams-title"
+        >
           <div className="site-section-head">
             <h2 id="teams-title">Alone on your laptop, or with a team.</h2>
           </div>
@@ -538,7 +710,12 @@ export default function PublicEntry({
                 {accounts ? (
                   <a href="/login">Sign in to your workspace</a>
                 ) : config?.github ? (
-                  <button type="button" className="btn-text" onClick={() => void signIn()} disabled={busy}>
+                  <button
+                    type="button"
+                    className="btn-text"
+                    onClick={() => void signIn()}
+                    disabled={busy}
+                  >
                     Sign in with GitHub
                   </button>
                 ) : (
@@ -560,8 +737,8 @@ export default function PublicEntry({
             <div>
               <dt>On your machine</dt>
               <dd>
-                Project copies, agent processes, provider sessions, sign-ins
-                and credentials.
+                Project copies, agent processes, provider sessions, sign-ins and
+                credentials.
               </dd>
             </div>
             <div>
@@ -598,9 +775,9 @@ export default function PublicEntry({
               <summary>Can I connect a GitHub repository?</summary>
               <p>
                 In the team preview, an owner can authorize the GitHub App and
-                connect a repository and base branch to a project folder that
-                is already on a paired machine. Publishing needs a clean
-                baseline that matches the remote base. Parallax does not clone
+                connect a repository and base branch to a project folder that is
+                already on a paired machine. Publishing needs a clean baseline
+                that matches the remote base. Parallax does not clone
                 repositories for you yet.
               </p>
             </details>
@@ -624,7 +801,9 @@ export default function PublicEntry({
               <summary>Where are the technical limits written down?</summary>
               <p>
                 In the <a href="/privacy">privacy policy</a>, the{" "}
-                <a href={`${REPOSITORY}/blob/main/SECURITY.md`}>security notes</a>{" "}
+                <a href={`${REPOSITORY}/blob/main/SECURITY.md`}>
+                  security notes
+                </a>{" "}
                 and the <a href={`${REPOSITORY}#limits`}>execution limits</a>.
                 The preview is still awaiting live provider, account and GitHub
                 acceptance.

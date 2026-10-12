@@ -245,32 +245,6 @@
   gap: 6px;
   flex-shrink: 0;
 }
-.work-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  background: var(--surface);
-  color: var(--text);
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  padding: 7px 10px;
-  font-size: 10px;
-  font-weight: 500;
-  line-height: 1.5;
-}
-.work-button:hover {
-  background: var(--surface-hover);
-  border-color: var(--muted);
-}
-.work-button.work-primary {
-  background: var(--accent-tint);
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent), transparent 70%);
-}
-.work-button.work-stop {
-  color: var(--danger);
-}
 .work-new-compact {
   font-size: 23px;
 }
@@ -1147,9 +1121,6 @@
     z-index: 30;
     background: #00000055;
   }
-  .studio-workspace.tab-run .main-content > .alert {
-    left: 85px;
-  }
 }
 @media (max-width: 900px) {
   .work-inspector {
@@ -1188,60 +1159,6 @@
   }
 }
 @media (max-width: 580px) {
-  .studio-workspace .sidebar {
-    position: relative;
-    width: 100%;
-    height: 49px;
-    padding: 0 12px;
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-  }
-  .studio-workspace .brand {
-    margin: 0;
-  }
-  .studio-workspace .brand-mark {
-    width: 28px;
-    height: 28px;
-    border-radius: 7px;
-  }
-  .studio-workspace .sidebar nav {
-    flex-direction: row;
-    gap: 2px;
-  }
-  .studio-workspace .nav-item {
-    width: auto;
-    padding: 9px 9px;
-    gap: 5px;
-  }
-  .studio-workspace .nav-item > span {
-    display: block;
-    font-size: 10px;
-  }
-  .studio-workspace .sidebar-options {
-    padding: 0;
-  }
-  .studio-workspace .sidebar-options .icon-button {
-    width: 23px;
-  }
-  .studio-workspace .main-shell {
-    width: 100%;
-    margin: 0;
-  }
-  .studio-workspace .topbar {
-    height: 34px;
-    min-height: 34px;
-    padding: 0 15px;
-  }
-  .studio-workspace .topbar .connection {
-    font-size: 9px;
-  }
-  .studio-workspace .main-content {
-    padding: 22px 16px;
-  }
-  .studio-workspace.tab-run .main-content {
-    height: calc(100dvh - 83px);
-  }
   .workbench {
     min-height: 580px;
   }
@@ -1325,11 +1242,6 @@
   .workbench.history-open .work-history-backdrop {
     inset: 83px 0 0;
   }
-  .studio-workspace.tab-run .main-content > .alert {
-    left: 12px;
-    right: 12px;
-    top: 88px;
-  }
   .work-console > summary {
     padding: 11px 12px;
   }
@@ -1399,4 +1311,3 @@
     grid-template-columns: 1fr;
   }
 }
-
