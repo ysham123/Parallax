@@ -1591,3 +1591,63 @@
   margin: 0;
   border-radius: 0 0 var(--radius) var(--radius);
 }
+
+/* Recovery guidance for stopped tasks (read-only). */
+.task-recovery {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 20px;
+  padding: 18px 20px;
+  border: 1px solid var(--warn-line);
+  border-radius: var(--radius-lg);
+  background: var(--warn-soft);
+}
+.task-recovery h2 {
+  font-size: 16px;
+  color: var(--warn-ink);
+}
+.task-recovery > p {
+  max-width: 72ch;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+.task-recovery-message {
+  margin: 0;
+  padding: 10px 12px;
+  max-height: 160px;
+  overflow: auto;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--warn-line);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.task-recovery-facts {
+  display: grid;
+  gap: 6px;
+  margin: 4px 0 0;
+  font-size: 14px;
+}
+.task-recovery-facts > div {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 16px;
+}
+.task-recovery-facts dt {
+  color: var(--ink-3);
+}
+.task-recovery-facts dd {
+  margin: 0;
+}
+@container task (max-width: 600px) {
+  .task-recovery-facts > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+  .task-recovery-facts dd {
+    margin-bottom: 8px;
+  }
+}

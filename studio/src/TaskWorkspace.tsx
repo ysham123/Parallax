@@ -2,6 +2,12 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, apiUrl, messageOf, viaMachine } from "./api";
 import { PublicationPanel } from "./PublicationPanel";
 import "./task.css";
+import {
+  budgetUsed,
+  recoveryCategory,
+  recoveryGuidance,
+  type RecoveryRead,
+} from "./task-recovery";
 import { ProviderMark } from "./Brand";
 import { eventSummary } from "./run-inspection";
 import { parseDiff, type DiffFile } from "./diff-model";
@@ -218,6 +224,11 @@ export function TaskWorkspace({
     }
   });
   const [correctionOpen, setCorrectionOpen] = useState(false);
+  const [recoverySnapshot, setRecoverySnapshot] = useState<{
+    identity: string;
+    value?: RecoveryRead;
+    error?: string;
+  } | null>(null);
   useEffect(() => {
     try {
       localStorage.setItem(
@@ -371,6 +382,26 @@ export function TaskWorkspace({
       source.close();
     };
   }, [evidenceIdentity, eventIdentity, revision, visible, online]);
+  const stopped =
+    ["needs_attention", "interrupted"].includes(workflow.status) &&
+    (workflow.decision || workflow.approval)?.action !== "approve";
+  useEffect(() => {
+    if (!stopped || !runId || !visible || !online) return;
+    const identity = evidenceIdentity;
+    const abort = new AbortController();
+    api<RecoveryRead>(`/runs/${runId}/recovery`, { signal: abort.signal })
+      .then((value) => {
+        if (!abort.signal.aborted && identityRef.current === identity)
+          setRecoverySnapshot({ identity, value });
+      })
+      .catch((failure) => {
+        if (!abort.signal.aborted && identityRef.current === identity)
+          setRecoverySnapshot({ identity, error: messageOf(failure) });
+      });
+    return () => abort.abort();
+  }, [stopped, runId, visible, online, evidenceIdentity, workflow.status]);
+  const recovery =
+    recoverySnapshot?.identity === evidenceIdentity ? recoverySnapshot : null;
   const files = useMemo(() => parseDiff(run?.diff || ""), [run?.diff]);
   const visibleFiles = files.filter((file) =>
     file.path.toLowerCase().includes(fileQuery.toLowerCase()),
@@ -1003,6 +1034,71 @@ export function TaskWorkspace({
           )}
         </div>
       </div>
+      {stopped && (
+        <section className="task-recovery" aria-labelledby="task-recovery-title">
+          {(() => {
+            const guidance = recoveryGuidance(
+              recoveryCategory(recovery?.value?.category),
+              {
+                resumable,
+                candidate: !!workflow.candidate,
+                canAct: canDeliver,
+              },
+            );
+            const budget = budgetUsed(
+              workflow.runtime_seconds,
+              workflow.spec?.limits.minutes,
+            );
+            return (
+              <>
+                <h2 id="task-recovery-title">
+                  {recovery?.value ? guidance.title : "What happened"}
+                </h2>
+                {recovery?.value ? (
+                  <p>{guidance.explanation}</p>
+                ) : recovery?.error ? (
+                  <p>Recovery details are unavailable: {recovery.error}</p>
+                ) : (
+                  <p role="status">
+                    {online
+                      ? "Loading the recorded failure…"
+                      : "Reconnect the machine to read the recorded failure."}
+                  </p>
+                )}
+                {recovery?.value?.message && (
+                  <pre className="task-recovery-message">
+                    {recovery.value.message}
+                  </pre>
+                )}
+                <dl className="task-recovery-facts">
+                  <div>
+                    <dt>Kept</dt>
+                    <dd>
+                      {workflow.candidate
+                        ? `Candidate ${workflow.candidate.digest.slice(0, 12)}, its diff and evidence`
+                        : "Execution records and logs; no candidate was produced"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Budget</dt>
+                    <dd>
+                      {budget
+                        ? `${budget}. Used time is never reset.`
+                        : "Usage unrecorded. Used time is never reset."}
+                    </dd>
+                  </div>
+                  {recovery?.value && (
+                    <div>
+                      <dt>Next step</dt>
+                      <dd>{guidance.next}</dd>
+                    </div>
+                  )}
+                </dl>
+              </>
+            );
+          })()}
+        </section>
+      )}
       <div className={`task-layout ${activityOpen ? "with-activity" : ""}`}>
         <section
           className="candidate-summary"

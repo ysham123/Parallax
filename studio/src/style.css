@@ -1833,9 +1833,6 @@
   }
 }
 @media (max-width: 800px) {
-  .motion-button {
-    display: none;
-  }
   .page-heading p {
     font-size: 12px;
   }
