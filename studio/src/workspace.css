@@ -79,7 +79,7 @@
   padding: 8px 9px;
   font-size: 12px;
   border-radius: 5px;
-  background: var(--background);
+  background-color: var(--background);
 }
 .work-history select {
   padding-right: 28px;
