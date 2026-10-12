@@ -2853,14 +2853,10 @@ export default function App({
             <>
               <div className="page-heading">
                 <div>
-                  <span className="eyebrow">Result</span>
-                  <h1>
-                    Inspect the verification record
-                    <span className="title-dot">.</span>
-                  </h1>
+                  <h1>Run evidence</h1>
                   <p>
-                    Independent reviews, project checks, and the recorded
-                    integration outcome.
+                    Independent reviews, project checks and the recorded
+                    integration outcome for one run.
                   </p>
                 </div>
                 {runs.length > 0 && (
