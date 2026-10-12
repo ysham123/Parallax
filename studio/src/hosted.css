@@ -5,20 +5,18 @@
   color: var(--text);
 }
 .hosted-header {
-  height: 96px;
+  height: 72px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid var(--line);
 }
 .hosted-brand {
   display: flex;
   align-items: center;
-  gap: 12px;
-  font-size: 23px;
+  gap: 10px;
+  font-size: 17px;
   font-weight: 600;
   text-decoration: none;
-  letter-spacing: -0.8px;
 }
 .hosted-brand svg {
   color: var(--accent);
@@ -89,7 +87,7 @@
   color: var(--muted);
 }
 .hosted-workflow span[aria-hidden] {
-  color: var(--teal);
+  color: var(--ink-4);
 }
 .hosted-intro .hosted-local-note {
   margin-top: 22px;
@@ -143,13 +141,15 @@
   width: 100%;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 13px 16px;
-  background: var(--accent);
-  color: var(--background);
-  border-radius: 7px;
-  font-size: 13px;
-  font-weight: 600;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 20px;
+  background: var(--button-ink);
+  color: var(--on-ink);
+  border-radius: 999px;
+  font-size: 14.5px;
+  font-weight: 500;
   margin-top: 18px;
 }
 .hosted-error {

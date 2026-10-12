@@ -55,7 +55,7 @@ function HostedEntry() {
     <div className="hosted-page">
       <header className="hosted-header">
         <a className="hosted-brand" href="/" aria-label="Parallax home">
-          <Mark size={32} />
+          <Mark size={22} />
           Parallax
         </a>
         <nav aria-label="Site navigation">
