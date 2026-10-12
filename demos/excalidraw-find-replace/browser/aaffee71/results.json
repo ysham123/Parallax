@@ -1,0 +1,112 @@
+[
+ {
+  "name": "scene built through the UI",
+  "ok": true,
+  "detail": [
+   [
+    "dog",
+    false
+   ],
+   [
+    "locked cat",
+    true
+   ],
+   [
+    "black cat, white cat",
+    false
+   ],
+   [
+    "the cat sat",
+    false
+   ]
+  ]
+ },
+ {
+  "name": "case-insensitive search finds every occurrence including the locked one",
+  "ok": true,
+  "detail": "1 / 4 results"
+ },
+ {
+  "name": "protected results are announced before acting",
+  "ok": true,
+  "detail": "1 protected results will be skipped (locked elements, locked containers, or default frame names)."
+ },
+ {
+  "name": "Replace with field is visible and accessibly named",
+  "ok": true
+ },
+ {
+  "name": "Replace all is literal, keeps element ids, skips the locked text",
+  "ok": true,
+  "detail": [
+   "dog",
+   "locked cat",
+   "black bird $& $1, white bird $& $1",
+   "the bird $& $1 sat"
+  ]
+ },
+ {
+  "name": "text geometry was recomputed for grown labels",
+  "ok": true,
+  "detail": [
+   35,
+   101,
+   337,
+   187
+  ]
+ },
+ {
+  "name": "result is reported",
+  "ok": true,
+  "detail": "Replaced 3 occurrences. Skipped 1 protected results."
+ },
+ {
+  "name": "one undo restores the entire previous text content and geometry",
+  "ok": true,
+  "detail": [
+   [
+    "dog",
+    35
+   ],
+   [
+    "locked cat",
+    101
+   ],
+   [
+    "black cat, white cat",
+    194
+   ],
+   [
+    "the cat sat",
+    115
+   ]
+  ]
+ },
+ {
+  "name": "one redo restores the replaced content",
+  "ok": true
+ },
+ {
+  "name": "Replace changes only the focused occurrence",
+  "ok": true,
+  "detail": [
+   "dog",
+   "locked cat",
+   "black cat, white tiger",
+   "the cat sat"
+  ]
+ },
+ {
+  "name": "search stays available in view mode and replacement is refused",
+  "ok": true,
+  "detail": {
+   "viewCount": "1 / 3 results",
+   "disabled": true
+  }
+ },
+ {
+  "name": "no uncaught page errors",
+  "ok": true,
+  "detail": []
+ }
+]

@@ -32,4 +32,17 @@ These host setup checks precede the run. They do not substitute for Parallax's o
    - The run stopped after 2 coordinator turns with `provider_quota` and "Resume after restoring capacity", instead of spending its remaining turns. The implementation is saved and resumable; no final checks ran, nothing was reviewed or applied, and the clone is unchanged.
    - Next step: resume this run once an independent reviewer has capacity (Claude Code sign-in, or Antigravity around 18:02 UTC on October 18).
 
+4. Build run `aaffee71-7a19-4ed8-b6a8-03cbf122f385` (October 12, 2026, 78 minutes, runtime that also passes the login name so Claude Code's sign-in is found). Coordinator and implementer: Codex `gpt-6.1-sol` (high). Independent reviewer: Claude `sonnet` (high). 16 coordinator turns allowed, 15 used.
+   - The first final validation failed because the disk was full during the private Yarn install. Removing the dependency caches of the two settled runs freed space, and the coordinator validated again.
+   - Final checks then failed (acceptance, typecheck on the agent's own test, upstream regression). Claude rejected the first repair and approved a second repair that restores replacement geometry through the editor's history.
+   - Final result `completed`, verified and not applied: independent acceptance passed, monorepo typecheck passed, upstream regression suite passed. Claude approved the combined review. Patch `verified.patch`, SHA-256 `a28b902c…79da5`, 10 files.
+
+## Browser acceptance
+
+`browser/accept.mjs` drives the real editor (Vite dev server on a disposable copy of the baseline plus the verified patch, dependencies installed offline from the run's private cache) in headless Chromium 1217 at 1280x800. The scene is built through the UI and the feature is used through its visible controls; the development test hook is read only to verify scene state.
+
+Run `aaffee71`: 12 of 12 behavior checks passed (`browser/aaffee71/results.json`). Case-insensitive search found all 4 occurrences and announced the locked one; Replace all was literal for `$&` and `$1`, kept element IDs, skipped the locked text, regrew text geometry and reported the result; one undo restored the exact previous text and widths, one redo restored the replacement; Replace changed only the focused occurrence; view mode kept search and disabled replacement; no page errors.
+
+Screenshots show two presentation defects the code-only review did not catch: the Replace and Replace all controls use icon-button styling, so they lack button chrome, "Replace all" wraps and "Replace" overruns the panel padding; and status copy does not pluralize ("1 protected results"). These were not fixed by hand. They were handed to a focused follow-up Parallax run on the committed candidate, with every configured check still required.
+
 Browser acceptance and delivery are not complete. Provider cost is unknown.
