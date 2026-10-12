@@ -312,8 +312,8 @@ hr {
 }
 .btn-primary:hover:not(:disabled),
 .primary-button:hover:not(:disabled),
-.pub-primary:hover,
-.px-primary:hover {
+.pub-primary:hover:not(:disabled),
+.px-primary:hover:not(:disabled) {
   background: var(--button-ink-hover);
   color: var(--on-ink);
 }
@@ -328,7 +328,7 @@ hr {
 }
 .btn-secondary:hover:not(:disabled),
 .secondary-button:hover:not(:disabled),
-.pub-secondary:hover,
+.pub-secondary:hover:not(:disabled),
 .px-secondary:hover,
 .work-button:hover:not(:disabled) {
   border-color: var(--ink-4);
@@ -354,6 +354,9 @@ hr {
 .btn:disabled,
 .primary-button:disabled,
 .secondary-button:disabled,
+.pub-primary:disabled,
+.pub-secondary:disabled,
+.px-primary:disabled,
 .work-button:disabled {
   opacity: 0.45;
 }

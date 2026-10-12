@@ -872,3 +872,67 @@
 .consent-grants { list-style: none; padding: 0; }
 .consent-grants li { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin: 1rem 0; }
 .consent-grants span { overflow-wrap: anywhere; }
+
+/* Account controls in the public header (onboarding and account pages). */
+.pub-header .workspace-controls > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+.pub-header .workspace-controls > summary:hover {
+  background: var(--bg-muted);
+  color: var(--ink);
+}
+.pub-header .workspace-control-mark {
+  display: none;
+}
+.pub-header .workspace-control-role {
+  text-transform: capitalize;
+}
+.pub-header .account-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 12px 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 13.5px;
+}
+.pub-header .account-initials {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--bg-muted);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.onboarding-archives {
+  max-width: 720px;
+  margin: 0 auto 64px;
+  padding: 0 24px;
+}
+.onboarding-archives > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+.onboarding-archives > summary::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid var(--ink-3);
+  border-bottom: 1.5px solid var(--ink-3);
+  transform: rotate(45deg) translateY(-2px);
+}

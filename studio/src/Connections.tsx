@@ -1,3 +1,4 @@
+import "./connections.css";
 import { useEffect, useRef, useState } from "react";
 import { api, messageOf } from "./api";
 import { ProviderMark } from "./Brand";
@@ -301,7 +302,9 @@ export function Connections({
             onClick={onClose}
             aria-label="Close connections"
           >
-            ✕
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+              <path d="M6 6l12 12M18 6 6 18" />
+            </svg>
           </button>
         </header>
         <div className="connection-drawer-body">
@@ -324,7 +327,7 @@ export function Connections({
                 </p>
               </div>
               <span className="connection-section-tag">
-                {hosted ? "RAILWAY CLI" : "LOCAL CLI"}
+                {hosted ? "Railway CLIs" : "Local CLIs"}
               </span>
             </div>
             <div className="native-connection-grid">
@@ -390,7 +393,7 @@ export function Connections({
                   setRemove(null);
                 }}
               >
-                ＋ New connection
+                New connection
               </button>
             </div>
             {apiConnections.length ? (
