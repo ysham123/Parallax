@@ -430,7 +430,7 @@ function ParticipantEditor({
           size={37}
         />
         <div className="participant-name">
-          <span>{coordinator ? "LEAD THE TEAM" : "TEAM MEMBER"}</span>
+          <span>{coordinator ? "Coordinator" : "Team member"}</span>
           <strong>{name}</strong>
         </div>
         {coordinator ? (
@@ -746,7 +746,7 @@ export function TaskDetail({
     <div className="task-detail">
       <div className="section-heading">
         <div>
-          <span className="eyebrow">TASK {text(task.id)}</span>
+          <span className="eyebrow">Task {text(task.id)}</span>
           <h3>{text(task.title, "Task details")}</h3>
         </div>
         <button
@@ -806,7 +806,7 @@ export function TaskDetail({
       )}
       {Array.isArray(task.acceptance) && task.acceptance.length > 0 && (
         <div className="task-acceptance">
-          <span className="eyebrow">ACCEPTANCE CRITERIA</span>
+          <span className="eyebrow">Acceptance criteria</span>
           <ul className="acceptance">
             {task.acceptance.map((item, i) => (
               <li key={i}>
@@ -821,7 +821,7 @@ export function TaskDetail({
       )}
       {repaired && (
         <div className="task-resolution">
-          <span className="eyebrow">REPAIR HISTORY</span>
+          <span className="eyebrow">Repair history</span>
           <p>
             The original attempt failed. The runtime recorded a replacement and
             reviewed it against this task’s requirements.
@@ -1096,7 +1096,7 @@ export function ReviewContent({
                       size={32}
                     />
                     <div>
-                      <span className="eyebrow">INDEPENDENT REVIEW</span>
+                      <span className="eyebrow">Independent review</span>
                       <h3>
                         {LABELS[text(review.provider) as ProviderId] ||
                           text(review.provider, `Review ${i + 1}`)}
@@ -2322,7 +2322,7 @@ export default function App({
               <>
                 <div className="page-heading">
                   <div>
-                    <span className="eyebrow">PROJECT WORKFLOW</span>
+                    <span className="eyebrow">Project workflow</span>
                     <h1>New run</h1>
                     <p>
                       Describe the outcome. Choose a saved team or adjust its
@@ -2337,7 +2337,7 @@ export default function App({
                   <section className="mission-panel">
                     <div className="section-heading">
                       <div>
-                        <span className="eyebrow">TASK</span>
+                        <span className="eyebrow">Task</span>
                         <h2>What should the team deliver?</h2>
                       </div>
                       <Icon name="arrow" size={22} />
@@ -2820,7 +2820,7 @@ export default function App({
             <>
               <div className="page-heading">
                 <div>
-                  <span className="eyebrow">EXAMINE THE RESULT</span>
+                  <span className="eyebrow">Result</span>
                   <h1>
                     Inspect the verification record
                     <span className="title-dot">.</span>

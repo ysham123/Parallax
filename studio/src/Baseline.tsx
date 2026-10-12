@@ -14,7 +14,7 @@ export function Baseline({ run }: { run: RunResult }) {
     <section className="baseline-panel" aria-labelledby="baseline-title">
       <div className="readiness-heading">
         <div>
-          <span className="eyebrow">BEFORE & AFTER</span>
+          <span className="eyebrow">Before and after</span>
           <h2 id="baseline-title">Project check comparison</h2>
           <p>Every required check must pass on the combined candidate.</p>
         </div>

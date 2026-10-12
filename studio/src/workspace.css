@@ -58,7 +58,7 @@
   border-radius: 6px;
   padding: 9px 10px;
   text-align: left;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 550;
 }
 .work-new-button > span {
@@ -68,7 +68,7 @@
 .work-new-button kbd {
   color: var(--faint);
   font-family: inherit;
-  font-size: 10px;
+  font-size: 12px;
   margin-left: auto;
   border: 1px solid var(--line);
   padding: 1px 4px;
@@ -77,7 +77,7 @@
 .work-history input,
 .work-history select {
   padding: 8px 9px;
-  font-size: 10px;
+  font-size: 12px;
   border-radius: 5px;
   background: var(--background);
 }
@@ -93,7 +93,7 @@
   background: transparent;
   color: var(--muted);
   padding: 6px 9px;
-  font-size: 10px;
+  font-size: 12px;
 }
 .work-history-filters button.selected {
   background: var(--surface-hover);
@@ -128,7 +128,7 @@
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 10px;
+  font-size: 12px;
 }
 .work-history-item > div > span:nth-child(2) {
   max-width: 100px;
@@ -138,7 +138,7 @@
 }
 .work-history-item > div > small {
   margin-left: auto;
-  font-size: 9px;
+  font-size: 12px;
   text-transform: capitalize;
 }
 .work-run-dot {
@@ -163,7 +163,7 @@
   overflow: hidden;
   color: var(--text);
   font-weight: 500;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.6;
   margin: 9px 0;
 }
@@ -171,22 +171,22 @@
   display: flex;
   justify-content: space-between;
   gap: 6px;
-  font-size: 9px;
+  font-size: 12px;
 }
 .work-history-item code {
-  font-size: 9px;
+  font-size: 12px;
   color: var(--faint);
 }
 .work-history-footer {
   padding: 15px 4px 18px;
   border-top: 1px solid var(--line-soft);
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
 }
 .work-history-footer span {
   display: block;
   color: var(--faint);
-  font-size: 9px;
+  font-size: 12px;
   margin-top: 5px;
 }
 .history-toggle,
@@ -218,15 +218,15 @@
   flex-wrap: wrap;
   gap: 9px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
   margin-bottom: 7px;
 }
 .work-title code {
-  font-size: 9px;
+  font-size: 12px;
   color: var(--faint);
 }
 .work-title .status {
-  font-size: 9px;
+  font-size: 12px;
   padding: 2px 7px;
 }
 .work-title h1 {
@@ -253,7 +253,7 @@
   gap: 7px;
   align-items: center;
   padding: 9px 20px;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
   border-bottom: 1px solid var(--line-soft);
 }
@@ -262,7 +262,7 @@
   color: var(--muted);
   padding: 0;
   margin-left: auto;
-  font-size: 10px;
+  font-size: 12px;
   border-bottom: 1px dotted var(--line);
 }
 .work-statusline button:hover {
@@ -295,7 +295,7 @@
 .work-steering label {
   margin-bottom: 9px;
   color: var(--text);
-  font-size: 11px;
+  font-size: 12px;
 }
 .work-steering > div {
   display: flex;
@@ -303,12 +303,12 @@
 }
 .work-steering input {
   padding: 9px 10px;
-  font-size: 11px;
+  font-size: 12px;
   background: var(--background);
 }
 .work-steering > small {
   display: block;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
   margin-top: 9px;
 }
@@ -327,7 +327,7 @@
   font-size: 14px;
 }
 .work-recovery .recovery-panel p {
-  font-size: 11px;
+  font-size: 12px;
   margin: 6px 0;
 }
 .work-recovery .recovery-panel > .eyebrow {
@@ -376,12 +376,12 @@
   min-width: 0;
 }
 .work-agent strong {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 550;
   display: block;
 }
 .work-agent small {
-  font-size: 9px;
+  font-size: 12px;
   color: var(--muted);
   display: block;
   margin-top: 4px;
@@ -391,7 +391,7 @@
   display: none;
   margin-left: auto;
   color: var(--faint);
-  font-size: 9px;
+  font-size: 12px;
 }
 .work-canvas-toolbar {
   display: flex;
@@ -413,7 +413,7 @@
   background: transparent;
   color: var(--muted);
   padding: 5px 9px;
-  font-size: 10px;
+  font-size: 12px;
   border-radius: 3px;
 }
 .work-view-switch button.selected {
@@ -422,7 +422,7 @@
 }
 .work-graph-caption {
   color: var(--faint);
-  font-size: 10px;
+  font-size: 12px;
   margin-left: auto;
 }
 .work-canvas {
@@ -443,7 +443,7 @@
   padding: 9px 16px;
   background: transparent;
   border: 0;
-  font-size: 9px;
+  font-size: 12px;
 }
 .work-canvas .graph-accessibility {
   position: absolute;
@@ -481,13 +481,13 @@
 }
 .graph-node-subtitle {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 .graph-node-detail,
 .graph-node-assignment,
 .graph-node-files {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.5;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -499,13 +499,11 @@
 .graph-node-files {
   color: var(--faint);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 12px;
 }
 .graph-node-kind {
   color: var(--faint);
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 1px;
+  font-size: 12px;
 }
 .graph-record .graph-task-bottom {
   margin-top: 12px;
@@ -528,15 +526,13 @@
 }
 .work-list h2 {
   color: var(--muted);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 1px;
+  font-size: 12px;
   font-weight: 500;
   margin: 22px 0 9px;
 }
 .work-list h2 small {
   color: var(--faint);
-  font-size: 10px;
+  font-size: 12px;
   margin-left: 5px;
 }
 .work-list > button {
@@ -566,12 +562,12 @@
 }
 .work-list > button small {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
   display: block;
   margin-top: 5px;
 }
 .work-list .status {
-  font-size: 9px;
+  font-size: 12px;
 }
 .work-evidence-icon {
   width: 26px;
@@ -600,8 +596,7 @@
   justify-content: space-between;
   padding: 14px 16px 6px;
   color: var(--faint);
-  letter-spacing: 1px;
-  font-size: 9px;
+  font-size: 12px;
 }
 .work-inspector-heading > button {
   font-size: 23px;
@@ -627,7 +622,7 @@
   border-bottom: 1px solid var(--line);
 }
 .work-inspector-tabs button {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
   background: transparent;
   border-bottom: 2px solid transparent;
@@ -645,11 +640,11 @@
   flex: 1;
 }
 .work-inspector-content p {
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.7;
 }
 .work-inspector-content h3 {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 550;
   margin: 21px 0 11px;
 }
@@ -667,7 +662,7 @@
   display: flex;
   justify-content: space-between;
   gap: 15px;
-  font-size: 10px;
+  font-size: 12px;
 }
 .work-properties dt {
   color: var(--muted);
@@ -687,8 +682,7 @@
 }
 .work-observation > span {
   color: var(--faint);
-  font-size: 8px;
-  letter-spacing: 1px;
+  font-size: 12px;
 }
 .work-observation p {
   margin: 6px 0 0;
@@ -715,18 +709,18 @@
 .work-assignment > span:not(.provider-mark):not(.status) {
   flex: 1;
   min-width: 0;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
 }
 .work-assignment small {
   display: block;
   color: var(--faint);
-  font-size: 9px;
+  font-size: 12px;
   margin-top: 4px;
   overflow-wrap: anywhere;
 }
 .work-assignment .status {
-  font-size: 8px;
+  font-size: 12px;
   padding: 2px 5px;
   flex-shrink: 0;
 }
@@ -736,7 +730,7 @@
   margin-top: 12px;
 }
 .work-inspector-content summary {
-  font-size: 11px;
+  font-size: 12px;
   display: flex;
   gap: 8px;
   justify-content: space-between;
@@ -745,7 +739,7 @@
 }
 .work-inspector-content summary small {
   color: var(--faint);
-  font-size: 9px;
+  font-size: 12px;
   margin-left: auto;
 }
 .work-inspector-content details pre,
@@ -754,7 +748,7 @@
   overflow-x: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.6;
   padding: 12px;
   border-radius: 5px;
@@ -767,17 +761,17 @@
   flex-direction: column;
   gap: 7px;
   padding: 13px 0;
-  font-size: 10px;
+  font-size: 12px;
   border-bottom: 1px solid var(--line-soft);
 }
 .work-session code,
 .work-session small {
   color: var(--faint);
   overflow-wrap: anywhere;
-  font-size: 9px;
+  font-size: 12px;
 }
 .work-empty-note {
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.7;
   color: var(--muted);
 }
@@ -790,7 +784,7 @@
   border-top: 1px solid var(--line-soft);
   border-bottom: 1px solid var(--line-soft);
   padding: 14px 0;
-  font-size: 11px;
+  font-size: 12px;
 }
 .work-original-brief {
   white-space: pre-wrap;
@@ -813,18 +807,18 @@
   gap: 12px;
 }
 .work-inspector .task-properties > span {
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.6;
 }
 .work-inspector .task-properties strong {
-  font-size: 10px;
+  font-size: 12px;
   overflow-wrap: anywhere;
 }
 .work-inspector .task-acceptance {
   margin: 20px 0;
 }
 .work-inspector .acceptance li {
-  font-size: 11px;
+  font-size: 12px;
   padding: 0;
 }
 .work-file {
@@ -835,11 +829,11 @@
   border-bottom: 1px solid var(--line-soft);
 }
 .work-file code {
-  font-size: 10px;
+  font-size: 12px;
   overflow-wrap: anywhere;
 }
 .work-file > span {
-  font-size: 9px;
+  font-size: 12px;
   color: var(--faint);
 }
 .work-inspector-content .work-button {
@@ -857,18 +851,18 @@
   align-items: center;
 }
 .work-review strong {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
 }
 .work-review .status {
   margin-left: auto;
-  font-size: 8px;
+  font-size: 12px;
 }
 .work-review > small {
   display: block;
   margin: 9px 0;
   color: var(--faint);
-  font-size: 10px;
+  font-size: 12px;
 }
 .work-review p {
   color: var(--muted);
@@ -880,19 +874,19 @@
 .work-check summary > span:first-child {
   flex: 1;
   color: var(--text);
-  font-size: 11px;
+  font-size: 12px;
 }
 .work-check summary small {
   display: block;
   margin-top: 5px;
 }
 .work-check .status {
-  font-size: 9px;
+  font-size: 12px;
 }
 .work-check > code {
   display: block;
   margin-top: 13px;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
   overflow-wrap: anywhere;
 }
@@ -902,10 +896,10 @@
   align-items: center;
   gap: 6px;
   padding: 10px 0;
-  font-size: 10px;
+  font-size: 12px;
 }
 .work-baseline .status {
-  font-size: 9px;
+  font-size: 12px;
 }
 .work-console {
   margin: 0;
@@ -919,7 +913,7 @@
   justify-content: space-between;
   gap: 12px;
   padding: 12px 16px;
-  font-size: 11px;
+  font-size: 12px;
 }
 .work-console > summary::after {
   display: none;
@@ -935,18 +929,18 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--faint);
-  font-size: 10px;
+  font-size: 12px;
 }
 .work-console summary small {
   color: var(--faint);
-  font-size: 9px;
+  font-size: 12px;
   border: 1px solid var(--line);
   padding: 1px 5px;
   border-radius: 4px;
 }
 .work-console-scope {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 12px;
   margin-left: 9px;
 }
 .work-console-controls {
@@ -959,7 +953,7 @@
   color: var(--muted);
   padding: 5px 8px;
   border-radius: 4px;
-  font-size: 10px;
+  font-size: 12px;
 }
 .work-console-controls button.selected {
   background: var(--surface);
@@ -992,7 +986,7 @@
 }
 .work-events time {
   color: var(--faint);
-  font-size: 9px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   margin-top: 3px;
@@ -1007,18 +1001,18 @@
   align-items: center;
   flex-wrap: wrap;
   color: var(--text);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 500;
   text-transform: capitalize;
 }
 .work-event-label code {
   text-transform: none;
-  font-size: 9px;
+  font-size: 12px;
   color: var(--faint);
 }
 .work-events p {
   margin: 4px 0;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.7;
   color: var(--muted);
   overflow-wrap: anywhere;
@@ -1029,7 +1023,7 @@
   padding: 0;
 }
 .work-events summary {
-  font-size: 9px;
+  font-size: 12px;
   color: var(--faint);
   justify-content: flex-start;
 }
@@ -1059,7 +1053,7 @@
   margin-bottom: 12px;
 }
 .work-start .eyebrow {
-  font-size: 9px;
+  font-size: 12px;
   color: var(--muted);
 }
 .work-start h2 {
@@ -1075,7 +1069,7 @@
 }
 .work-start-note {
   color: var(--faint);
-  font-size: 10px;
+  font-size: 12px;
   margin-top: 18px;
 }
 
@@ -1188,14 +1182,14 @@
     flex-wrap: wrap;
     padding: 8px 12px;
     gap: 6px;
-    font-size: 9px;
+    font-size: 12px;
   }
   .work-status-time {
     margin-left: 5px;
-    font-size: 9px;
+    font-size: 12px;
   }
   .work-statusline button {
-    font-size: 9px;
+    font-size: 12px;
   }
   .work-status-separator {
     display: none;
@@ -1208,7 +1202,7 @@
     padding: 9px;
   }
   .work-agent strong {
-    font-size: 11px;
+    font-size: 12px;
   }
   .work-canvas-toolbar {
     padding: 9px 12px;
@@ -1218,7 +1212,7 @@
   }
   .work-view-switch button {
     flex: 1;
-    font-size: 10px;
+    font-size: 12px;
     padding: 6px 4px;
   }
   .work-inspector.open {
@@ -1228,7 +1222,7 @@
     z-index: 22;
   }
   .work-canvas .graph-hint {
-    font-size: 9px;
+    font-size: 12px;
     padding: 9px 12px;
   }
   .work-canvas .graph-hint > span:last-child {
@@ -1291,7 +1285,7 @@
 }
 .review-evidence-disclosure > summary small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 400;
   margin-left: auto;
 }

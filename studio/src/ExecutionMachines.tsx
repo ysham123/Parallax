@@ -155,7 +155,6 @@ export function ExecutionMachines({
           >
             <header>
               <div>
-                <span className="eyebrow">EXECUTION</span>
                 <h2 id="machines-title">Your machines</h2>
               </div>
               <button

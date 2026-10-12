@@ -288,7 +288,6 @@ export function Connections({
       >
         <header className="connection-drawer-header">
           <div>
-            <span className="eyebrow">YOUR MODELS. YOUR CONNECTIONS.</span>
             <h2 id="connections-title">Connect your workspace</h2>
             <p>
               {hosted
@@ -491,7 +490,7 @@ export function Connections({
             <section className="connection-form">
               <div className="connection-form-title">
                 <span className="eyebrow">
-                  {editing ? "EDIT CONNECTION" : "ADD AN API"}
+                  {editing ? "Edit connection" : "Add an API connection"}
                 </span>
                 <h3>{draft.name || "New connection"}</h3>
               </div>

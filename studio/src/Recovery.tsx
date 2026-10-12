@@ -52,7 +52,7 @@ export function Recovery({
   }
   return (
     <section className="recovery-panel">
-      <span className="eyebrow">PRESERVED WORK</span>
+      <span className="eyebrow">Preserved work</span>
       <h2>{info?.category?.replaceAll("_", " ") || "Recovery"}</h2>
       <p>{info?.message || "Loading the available recovery options…"}</p>
       {info?.actions.map((action) => (

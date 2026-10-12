@@ -963,14 +963,14 @@ export function RunWorkspace(props: Props) {
                 <div className="work-inspector-heading">
                   <span>
                     {agent
-                      ? "AGENT"
+                      ? "Agent"
                       : task
-                        ? "TASK"
+                        ? "Task"
                         : review
-                          ? "INDEPENDENT REVIEW"
+                          ? "Independent review"
                           : selected === "evidence:checks"
-                            ? "EVIDENCE"
-                            : "RUN"}
+                            ? "Evidence"
+                            : "Run"}
                   </span>
                   <button
                     className="work-icon-button"
@@ -1110,7 +1110,7 @@ export function RunWorkspace(props: Props) {
                             })()}
                           {agent.latestEvent && (
                             <div className="work-observation">
-                              <span>LAST REPORTED EVENT</span>
+                              <span>Last reported event</span>
                               <p>{eventSummary(agent.latestEvent)}</p>
                             </div>
                           )}
@@ -1348,7 +1348,6 @@ export function RunWorkspace(props: Props) {
         ) : (
           <div className="work-start">
             <div className="work-start-symbol">⟡</div>
-            <span className="eyebrow">PARALLAX WORKSPACE</span>
             <h2>
               {loading
                 ? "Connecting to your project…"

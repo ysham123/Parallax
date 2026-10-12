@@ -564,3 +564,47 @@ summary::-webkit-details-marker {
   font-size: 13px;
   color: var(--fail-ink);
 }
+
+/* Code shows exactly what was recorded: no programming ligatures. */
+code,
+pre,
+kbd,
+samp,
+.mono,
+textarea,
+input {
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
+}
+
+/* Default disclosure marker for plain details elements. */
+details:not([class]) > summary,
+.verification-hashes > summary,
+.review-report > details > summary,
+.task-review-diagnostics > summary,
+.queue-report-tools > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+details:not([class]) > summary::after,
+.verification-hashes > summary::after,
+.review-report > details > summary::after,
+.task-review-diagnostics > summary::after,
+.queue-report-tools > summary::after {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid var(--ink-3);
+  border-bottom: 1.5px solid var(--ink-3);
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform 0.15s ease;
+}
+details:not([class])[open] > summary::after,
+.verification-hashes[open] > summary::after,
+.review-report > details[open] > summary::after,
+.task-review-diagnostics[open] > summary::after,
+.queue-report-tools[open] > summary::after {
+  transform: rotate(225deg) translateY(-2px);
+}

@@ -75,7 +75,6 @@ export function Verification({ run }: { run: RunResult }) {
     >
       <div className="verification-heading">
         <div>
-          <span className="eyebrow">RECORDED EVIDENCE</span>
           <h2 id="verification-title">Verification record</h2>
           <p>The runtime’s gate outcomes for this run.</p>
           {receipt && (
@@ -218,7 +217,7 @@ export function Verification({ run }: { run: RunResult }) {
             {Array.isArray(receipt.limitations) &&
               receipt.limitations.length > 0 && (
                 <div className="verification-limitations">
-                  <span className="eyebrow">RECORD COVERAGE</span>
+                  <h3>What this record covers</h3>
                   <ul>
                     {receipt.limitations.map((limitation, index) => (
                       <li key={index}>{limitation}</li>

@@ -138,6 +138,7 @@
   background-position: right 0 center;
 }
 .queue-search kbd {
+  white-space: nowrap;
   font-family: var(--font-sans);
   font-size: 12px;
   color: var(--ink-4);

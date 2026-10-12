@@ -61,7 +61,7 @@ export function ExplorationDetail({
   const rounds = [...new Set(exploration.variants.map((variant) => text(variant.variant_round, "1")))];
   return (
     <div className="task-exploration">
-      <span className="eyebrow">EXPLORATION</span>
+      <span className="eyebrow">Exploration</span>
       <p>
         {exploration.variants.length} variants across {exploration.rounds}{" "}
         {exploration.rounds === 1 ? "round" : "rounds"}, each in its own checkout, reviewed without knowing which
@@ -105,7 +105,7 @@ export function VariantDetail({
   const reason = DISCARD_REASONS[text(task.discarded_reason)];
   return (
     <div className="task-exploration">
-      <span className="eyebrow">VARIANT · ROUND {text(task.variant_round, "1")}</span>
+      <span className="eyebrow">Variant, round {text(task.variant_round, "1")}</span>
       {text(task.directive) && <p className="variant-directive">{text(task.directive)}</p>}
       {text(task.status) === "discarded" && reason && <p>Set aside: {reason.toLowerCase()}.</p>}
       {parent && (

@@ -89,7 +89,7 @@ export function ProjectMemory({ workspace }: { workspace: string }) {
     <section className="project-readiness project-memory" aria-labelledby="memory-title" aria-busy={!memory && !error}>
       <div className="readiness-heading">
         <div>
-          <span className="eyebrow">PROJECT MEMORY</span>
+          <span className="eyebrow">Project memory</span>
           <h2 id="memory-title">What earlier runs learned</h2>
           <p>
             Coordinators read these as dated observations from this project, never as rules. They are stored only on

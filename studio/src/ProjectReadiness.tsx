@@ -138,7 +138,7 @@ export function ProjectReadiness({
     >
       <div className="readiness-heading">
         <div>
-          <span className="eyebrow">PROJECT PREFLIGHT</span>
+          <span className="eyebrow">Project preflight</span>
           <h2 id="readiness-title">Ready for real work</h2>
           <p>Confirm the environment and checks before agents start.</p>
         </div>
