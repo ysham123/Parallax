@@ -9,7 +9,7 @@ const source = fs.readFileSync(path.join(root, 'studio/src/task-recovery.ts'), '
 const output = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText;
 const loaded = { exports: {} };
 new Function("module", "exports", output)(loaded, loaded.exports);
-const { recoveryCategory, recoveryGuidance, budgetUsed } = loaded.exports;
+const { recoveryCategory, recoveryGuidance, budgetUsed, recoveryAllowsResume } = loaded.exports;
 let passed = 0;
 const check = (name, fn) => { fn(); passed++; console.log('PASS ' + name); };
 
@@ -56,5 +56,15 @@ check('Viewers without delivery permission are pointed to a developer instead of
   const guidance = recoveryGuidance('failed_checks', { resumable: false, candidate: true, canAct: false });
   assert.match(guidance.next, /^A developer on this project can act: request a revision/);
   assert.doesNotMatch(recoveryGuidance('failed_checks', { resumable: false, candidate: true }).next, /A developer/);
+});
+check('Resume is offered only when the recorded recovery can continue the task', () => {
+  assert.equal(recoveryAllowsResume(null), true);
+  assert.equal(recoveryAllowsResume({ category: 'failed_checks', actions: [{ id: 'repair_candidate', label: '', detail: '' }] }), true);
+  assert.equal(recoveryAllowsResume({ category: 'provider_quota', actions: [{ id: 'retry_interrupted', label: '', detail: '' }] }), true);
+  // A spent coordinator limit only offers a new task; resuming would stop again.
+  assert.equal(recoveryAllowsResume({ category: 'configuration', actions: [{ id: 'fix_configuration', label: '', detail: '' }] }), false);
+  assert.equal(recoveryAllowsResume({ category: 'runtime', actions: [] }), false);
+  // A completed run whose workflow stopped afterwards has no recorded failure.
+  assert.equal(recoveryAllowsResume({ category: null, actions: [] }), true);
 });
 console.log(`${passed} task recovery checks passed`);

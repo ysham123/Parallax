@@ -144,6 +144,19 @@ function categoryGuidance(
   }
 }
 
+/**
+ * Whether resuming can help, from the recorded recovery actions. A spent limit
+ * offers only a new task, so resuming would just stop again.
+ */
+export function recoveryAllowsResume(read?: RecoveryRead | null): boolean {
+  // No recorded failure (for example, the run completed and only the workflow
+  // stopped): the task status alone decides.
+  if (!read || !read.category) return true;
+  return (read.actions || []).some((action) =>
+    ["retry_interrupted", "repair_candidate"].includes(action.id),
+  );
+}
+
 /** "12 of 45 minutes used", or null when either side is unrecorded. */
 export function budgetUsed(
   runtimeSeconds: unknown,

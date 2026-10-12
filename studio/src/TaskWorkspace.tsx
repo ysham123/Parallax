@@ -4,6 +4,7 @@ import { PublicationPanel } from "./PublicationPanel";
 import "./task.css";
 import {
   budgetUsed,
+  recoveryAllowsResume,
   recoveryCategory,
   recoveryGuidance,
   type RecoveryRead,
@@ -537,11 +538,17 @@ export function TaskWorkspace({
   const usageReports = Array.isArray(run?.usage?.reports)
     ? run.usage.reports
     : [];
-  const resumable = workflowCanResume(
-    workflow.status,
-    run && run.run_id === runId ? run.status : workflow.run_status,
-    workflow.schema_version === "2.0" && decision?.action === "approve",
-  );
+  const resumable =
+    recoveryAllowsResume(recovery?.value) &&
+    workflowCanResume(
+      workflow.status,
+      run && run.run_id === runId ? run.status : workflow.run_status,
+      workflow.schema_version === "2.0" && decision?.action === "approve",
+    );
+  const cannotResume =
+    ["interrupted", "needs_attention"].includes(workflow.status) &&
+    !resumable &&
+    decision?.action !== "approve";
   const recordedCheckLabel = currentChecks.length
     ? Object.entries(checkOutcomes)
         .filter(([, count]) => count > 0)
@@ -823,7 +830,10 @@ export function TaskWorkspace({
                   : relationship === "fresh"
                     ? "New task from current project after"
                     : "Related task"}
-                : {parentTitle ? taskTitle(parentTitle) : workflow.parent_workflow_id.slice(0, 8)}
+                :{" "}
+                {parentTitle
+                  ? taskTitle(parentTitle)
+                  : workflow.parent_workflow_id.slice(0, 8)}
               </button>
             )}
             {followups.map((child) => (
@@ -843,7 +853,7 @@ export function TaskWorkspace({
           </nav>
         )}
       </header>
-      {workflow.error && (
+      {workflow.error && !(stopped && recovery?.value?.message) && (
         <div className="task-alert" role="alert">
           <WorkIcon name="warning" />
           <p>{workflow.error}</p>
@@ -872,14 +882,12 @@ export function TaskWorkspace({
               candidate.
             </p>
           )}
-          {["interrupted", "needs_attention"].includes(workflow.status) &&
-            !resumable &&
-            decision?.action !== "approve" && (
-              <p className="decision-blocker">
-                This execution cannot resume. Inspect the failure, then start a
-                fresh task from the current project.
-              </p>
-            )}
+          {cannotResume && (
+            <p className="decision-blocker">
+              This execution cannot resume. Inspect the failure, then start a
+              fresh task from the current project.
+            </p>
+          )}
           {workflow.candidate ? (
             <>
               <span className="decision-caption">
@@ -896,7 +904,7 @@ export function TaskWorkspace({
                         : approvalHint || "Recorded candidate evidence."}{" "}
               </span>
             </>
-          ) : (
+          ) : cannotResume ? null : (
             <>
               <strong>
                 {workflow.status === "preparing"
@@ -1455,7 +1463,9 @@ export function TaskWorkspace({
                             )}
                             <details>
                               <summary>Task data</summary>
-                              <pre tabIndex={0}>{JSON.stringify(task, null, 2)}</pre>
+                              <pre tabIndex={0}>
+                                {JSON.stringify(task, null, 2)}
+                              </pre>
                             </details>
                           </div>
                         </details>
@@ -1512,7 +1522,9 @@ export function TaskWorkspace({
                               </time>
                               <span>{eventSummary(event)}</span>
                             </summary>
-                            <pre tabIndex={0}>{JSON.stringify(event.data, null, 2)}</pre>
+                            <pre tabIndex={0}>
+                              {JSON.stringify(event.data, null, 2)}
+                            </pre>
                           </details>
                         </li>
                       ))}
@@ -1619,7 +1631,9 @@ export function TaskWorkspace({
                           <WorkIcon name="branch" size={14} />
                           {workflow.status === "applied"
                             ? "Applied candidate"
-                            : "Candidate changes"}
+                            : workflow.candidate
+                              ? "Candidate changes"
+                              : "Unverified changes · no candidate"}
                         </span>
                         <span className="diff-count">
                           <b>+{totals.added}</b>
