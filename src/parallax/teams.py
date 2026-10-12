@@ -200,6 +200,79 @@ class Teams:
                 "reviewers_by_project":{path:actors for path,actors in self.reviewers_by_project(principal.workspace, worker).items() if path in projects},
                 "recipes":self.recipe_versions(principal.workspace),"projects":projects}
 
+    def review_target(self, principal, hub, workspace, worker, workflow):
+        """Read-only preview of a review link from managed records.
+
+        Membership and project grants are resolved for the target workspace, not
+        the session's current one. Nothing is queued, sent to a machine or
+        switched. Every refusal looks the same so a link reveals nothing.
+        """
+        unavailable = HTTPException(404, "Review link is unavailable")
+        try:
+            from uuid import UUID
+            workspace, worker, workflow = (str(UUID(value)) for value in (workspace, worker, workflow))
+        except (ValueError, AttributeError, TypeError):
+            raise unavailable
+        if not principal.account:
+            raise unavailable
+        actor = principal.account["id"]
+        with self.store.connect() as db:
+            if not db.execute("SELECT 1 FROM sessions WHERE hash=? AND account=? AND expires>=?",
+                              (principal.session, actor, time.time())).fetchone():
+                raise unavailable
+            space = db.execute("SELECT id,kind,name FROM workspaces WHERE id=?", (workspace,)).fetchone()
+            if not space:
+                raise unavailable
+            if space["kind"] == "team":
+                row = db.execute("SELECT m.role FROM memberships m JOIN accounts a ON a.id=m.account "
+                                 "WHERE m.workspace=? AND m.account=? AND a.disabled=0", (workspace, actor)).fetchone()
+                role = row[0] if row else None
+            else:
+                owned = db.execute("SELECT 1 FROM accounts WHERE id=? AND workspace=? AND disabled=0", (actor, workspace)).fetchone()
+                role = "owner" if owned else None
+            if role is None:
+                raise unavailable
+            bindings = db.execute("SELECT path,members FROM project_bindings WHERE workspace=? AND worker=?",
+                                  (workspace, worker)).fetchall() if space["kind"] == "team" else []
+        try:
+            machine = hub.worker(worker, workspace)
+        except HTTPException:
+            raise unavailable
+        team = space["kind"] == "team"
+        if team and "workflow-v2" not in machine.get("features", []):
+            raise unavailable
+        record = None
+        cached = hub.cached(worker, "/api/workflows/" + workflow)
+        if cached and cached.get("status") == 200 and isinstance(cached.get("body"), dict):
+            record = cached["body"]
+        else:
+            listed = hub.cached(worker, "/api/workflows")
+            rows = listed.get("body") if listed and listed.get("status") == 200 else None
+            if isinstance(rows, list):
+                record = next((row for row in rows if isinstance(row, dict) and row.get("id") == workflow), None)
+        if not record or record.get("id") != workflow:
+            raise unavailable
+        project = record.get("workspace")
+        if not isinstance(project, str) or project not in machine.get("workspaces", []):
+            raise unavailable
+        if team:
+            permitted = [path for path, members in bindings
+                         if role == "owner" or not json.loads(members) or actor in json.loads(members)]
+            if project not in permitted:
+                raise unavailable
+        title = record.get("title")
+        status = record.get("status")
+        return {
+            "schema_version": "1.0",
+            "capability": "review-target-v1",
+            "actor": actor,
+            "workspace": {"id": space["id"], "name": space["name"], "kind": space["kind"], "role": role},
+            "worker": {"id": machine["id"], "name": machine["name"], "online": bool(machine.get("online"))},
+            "workflow": {"id": workflow, "title": title if isinstance(title, str) else None,
+                         "status": status if isinstance(status, str) else None},
+            "source": "managed_cache",
+        }
+
     def reviewers_by_project(self, workspace, worker):
         with self.store.connect() as db:
             projects = db.execute("SELECT path,members FROM project_bindings WHERE workspace=? AND worker=?", (workspace,worker)).fetchall()

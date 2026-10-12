@@ -9,7 +9,7 @@ const source = fs.readFileSync(path.join(root, 'studio/src/review-link.ts'), 'ut
 const output = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText;
 const loaded = { exports: {} };
 new Function('module', 'exports', output)(loaded, loaded.exports);
-const { parseReviewTarget, reviewLink, resolveReviewEntry } = loaded.exports;
+const { parseReviewTarget, reviewLink, resolveReviewEntry, matchingPreview } = loaded.exports;
 let passed = 0;
 const check = (name, fn) => { fn(); passed++; console.log('PASS ' + name); };
 const ws = '11111111-1111-4111-8111-111111111111', other = '22222222-2222-4222-8222-222222222222';
@@ -50,5 +50,21 @@ check('In the right workspace, only an authorized listed machine opens the task'
   assert.deepEqual(resolveReviewEntry(target, ws, null, [{ id: worker }]), { kind: 'open', worker, task });
   assert.deepEqual(resolveReviewEntry(target, ws, null, [{ id: other }]), { kind: 'unavailable', reason: 'machine' });
   assert.deepEqual(resolveReviewEntry(target, ws, null, []), { kind: 'unavailable', reason: 'machine' });
+});
+const preview = { schema_version: '1.0', capability: 'review-target-v1', actor: 'me',
+  workspace: { id: ws, name: 'Team', kind: 'team', role: 'reviewer' }, worker: { id: worker, name: 'Mac', online: false },
+  workflow: { id: task, title: 'Fix addition', status: 'awaiting_approval' }, source: 'managed_cache' };
+check('A server preview is used only when it describes exactly the linked target', () => {
+  assert.deepEqual(matchingPreview(target, preview).workflow, { id: task, title: 'Fix addition', status: 'awaiting_approval' });
+  assert.equal(matchingPreview(target, preview).worker.online, false);
+  assert.equal(matchingPreview(target, { ...preview, workflow: { ...preview.workflow, id: other } }), null);
+  assert.equal(matchingPreview(target, { ...preview, worker: { ...preview.worker, id: other } }), null);
+  assert.equal(matchingPreview(target, { ...preview, workspace: { ...preview.workspace, id: other } }), null);
+  assert.equal(matchingPreview(target, { ...preview, capability: 'other' }), null);
+  for (const bad of [null, 'text', 42, { detail: 'Review link is unavailable' }]) assert.equal(matchingPreview(target, bad), null);
+});
+check('Untrusted preview fields are coerced to plain text or omitted', () => {
+  const coerced = matchingPreview(target, { ...preview, worker: { id: worker, name: 'Mac', online: 'yes' }, workflow: { id: task, title: { html: '<b>x</b>' }, status: 7 } });
+  assert.equal(coerced.worker.online, false); assert.equal(coerced.workflow.title, null); assert.equal(coerced.workflow.status, null);
 });
 console.log(`${passed} review link checks passed`);

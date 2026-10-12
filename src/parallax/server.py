@@ -502,6 +502,11 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
     async def workspace_invite(body:InvitationInput, request:Request): return teams().invite(principal_of(request),body.role)
     @app.post("/api/invitations/accept")
     async def invitation_accept(body:InvitationAccept, request:Request): return teams().accept(principal_of(request),body.token)
+    @app.get("/api/workspaces/{identifier}/review-target/{worker}/{workflow}")
+    async def workspace_review_target(identifier:str, worker:str, workflow:str, request:Request):
+        if not hub: raise HTTPException(404,"Review link is unavailable")
+        preview = await asyncio.to_thread(teams().review_target, principal_of(request), hub, identifier, worker, workflow)
+        return JSONResponse(preview, headers={"Cache-Control":"no-store"})
     @app.get("/api/workspaces/projects")
     async def workspace_projects(request:Request): return teams().projects(principal_of(request))
     @app.post("/api/workspaces/projects")

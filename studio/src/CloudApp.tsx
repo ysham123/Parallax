@@ -38,7 +38,9 @@ import {
 import "./hosted.css";
 import "./public.css";
 import {
+  matchingPreview,
   parseReviewTarget,
+  type ReviewPreview,
   resolveReviewEntry,
   type ReviewSpace,
   type ReviewTarget,
@@ -334,6 +336,10 @@ function CloudWorkspace() {
   } | null>(null);
   const [reviewBusy, setReviewBusy] = useState(false);
   const [reviewOpened, setReviewOpened] = useState(0);
+  const [reviewPreview, setReviewPreview] = useState<{
+    key: string;
+    value: ReviewPreview | null;
+  } | null>(null);
   useEffect(() => {
     // A link pasted into an open Studio tab changes only the hash.
     const follow = () => {
@@ -400,6 +406,30 @@ function CloudWorkspace() {
     reviewEntry?.kind,
     reviewEntry?.kind === "open" ? reviewEntry.worker : "",
   ]);
+  const previewKey = reviewTarget
+    ? `${scope}:${reviewTarget.workspace}.${reviewTarget.worker}.${reviewTarget.task}`
+    : "";
+  useEffect(() => {
+    if (!reviewTarget || reviewEntry?.kind !== "switch") return;
+    if (reviewPreview?.key === previewKey) return;
+    const requested = previewKey;
+    const target = reviewTarget;
+    // Optional: older servers return 404 and the prompt simply omits task details.
+    fetch(
+      `/api/workspaces/${encodeURIComponent(target.workspace)}/review-target/${encodeURIComponent(target.worker)}/${encodeURIComponent(target.task)}`,
+      { credentials: "same-origin" },
+    )
+      .then(async (response) =>
+        response.ok ? matchingPreview(target, await response.json()) : null,
+      )
+      .catch(() => null)
+      .then((value) => {
+        if (scopeRef.current && requested.startsWith(scopeRef.current + ":"))
+          setReviewPreview({ key: requested, value });
+      });
+  }, [reviewTarget, reviewEntry?.kind, previewKey, reviewPreview?.key]);
+  const shownPreview =
+    reviewPreview?.key === previewKey ? reviewPreview.value : null;
   async function enterReviewWorkspace(space: ReviewSpace) {
     setReviewBusy(true);
     try {
@@ -639,6 +669,33 @@ function CloudWorkspace() {
                 role is {reviewEntry.space.role || "member"}. Switching changes
                 the workspace for this browser. Nothing is approved or run.
               </p>
+              {shownPreview && (
+                <dl className="review-entry-target">
+                  {shownPreview.workflow.title && (
+                    <div>
+                      <dt>Task</dt>
+                      <dd>{shownPreview.workflow.title}</dd>
+                    </div>
+                  )}
+                  <div>
+                    <dt>Machine</dt>
+                    <dd>
+                      {shownPreview.worker.name}
+                      {shownPreview.worker.online
+                        ? ""
+                        : ", offline. Saved evidence may be unavailable until it reconnects."}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Recorded status</dt>
+                    <dd>
+                      {(
+                        shownPreview.workflow.status || "unrecorded"
+                      ).replaceAll("_", " ")}
+                    </dd>
+                  </div>
+                </dl>
+              )}
               <div className="review-entry-actions">
                 <button
                   type="button"

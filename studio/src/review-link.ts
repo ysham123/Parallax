@@ -77,3 +77,52 @@ export function resolveReviewEntry(
     ? { kind: "open", worker: machine.id, task: target.task }
     : { kind: "unavailable", reason: "machine" };
 }
+
+export type ReviewPreview = {
+  workspace: { id: string; name: string; kind: string; role: string };
+  worker: { id: string; name: string; online: boolean };
+  workflow: { id: string; title: string | null; status: string | null };
+};
+
+/** Accepts a server preview only when it describes exactly the linked target. */
+export function matchingPreview(
+  target: ReviewTarget,
+  value: unknown,
+): ReviewPreview | null {
+  if (!value || typeof value !== "object") return null;
+  const preview = value as Partial<ReviewPreview> & { capability?: unknown };
+  if (preview.capability !== "review-target-v1") return null;
+  const { workspace, worker, workflow } = preview;
+  if (
+    !workspace ||
+    !worker ||
+    !workflow ||
+    typeof workspace.id !== "string" ||
+    typeof worker.id !== "string" ||
+    typeof workflow.id !== "string" ||
+    workspace.id.toLowerCase() !== target.workspace ||
+    worker.id.toLowerCase() !== target.worker ||
+    workflow.id.toLowerCase() !== target.task ||
+    typeof workspace.name !== "string" ||
+    typeof worker.name !== "string"
+  )
+    return null;
+  return {
+    workspace: {
+      id: workspace.id,
+      name: workspace.name,
+      kind: String(workspace.kind || ""),
+      role: String(workspace.role || ""),
+    },
+    worker: {
+      id: worker.id,
+      name: worker.name,
+      online: worker.online === true,
+    },
+    workflow: {
+      id: workflow.id,
+      title: typeof workflow.title === "string" ? workflow.title : null,
+      status: typeof workflow.status === "string" ? workflow.status : null,
+    },
+  };
+}

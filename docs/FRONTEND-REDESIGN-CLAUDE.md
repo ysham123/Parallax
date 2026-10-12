@@ -33,7 +33,7 @@ Two Studio compositions were compared on a private concept canvas before impleme
 | Studio shell (`App.tsx`, `shell.css`) | Labeled sidebar: workspace switcher and account at the top; Tasks, Review inbox, Repositories, Settings; Advanced tools collapsed; machine, project and agent readiness at the bottom. The seven-item top bar became a slim breadcrumb that only adds a status when the runtime is unreachable. Below 860px the sidebar is a focus-managed drawer. |
 | Task view (`TaskWorkspace.tsx`, `task.css`) | Header with project, status, title and byline; one decision bar; the ledger in a sticky right rail that reflows above the diff through a container query; Changes, Checks, Reviews and Details tabs with Activity as a toggle; correction and delivery as calm disclosures. Reading order stays decision, evidence, change. |
 | Recovery guidance (`task-recovery.ts`) | Stopped tasks read the runtime's existing `/runs/{id}/recovery` classification and say what happened, what was kept, how much budget was used and which existing action applies. Read-only: no new operation, never implies a budget reset, offers resume only when the task can resume, and points viewers without delivery permission to a developer. |
-| Reviewer handoff (`review-link.ts`) | A team task awaiting approval offers **Copy review link**. The link is `/studio#review=<workspace>.<machine>.<task>`: three UUIDs, no token, path or source, kept in the hash so servers never log it. Opening it checks the signed-in account's own workspace list; another workspace asks before switching, naming the role; a workspace or machine the person cannot reach gets a uniform unavailable message. After an explicit switch it selects the machine from the current authorized machine list and opens the exact task, including tasks beyond the latest 100. Opening never approves, runs or publishes. Links pasted into an open tab work too. |
+| Reviewer handoff (`review-link.ts`) | A team task awaiting approval offers **Copy review link**. The link is `/studio#review=<workspace>.<machine>.<task>`: three UUIDs, no token, path or source, kept in the hash so servers never log it. Opening it checks the signed-in account's own workspace list; another workspace asks before switching, naming the role; a workspace or machine the person cannot reach gets a uniform unavailable message. After an explicit switch it selects the machine from the current authorized machine list and opens the exact task, including tasks beyond the latest 100. Opening never approves, runs or publishes. Links pasted into an open tab work too. Before switching, the prompt shows the task title, machine and recorded status from a read-only server preview (below), used only when its identifiers exactly match the link. |
 | Browser and composer (`workflows.css`) | On-demand task browser that sits beside the task at 1280px and up and takes the surface below it. Focused composer with readiness, task, workflow, team and delivery. |
 | Evidence content | Checks, verification record, reviews and run settings restyled as quiet cards. |
 | Settings, dialogs, connections | Workspace settings open as a right-hand sheet with inline forms and member rows. Machines and account deletion share `dialogs.css`. Worker platform choice is a segmented control. Connections drawer rewritten in `connections.css`. The account menu now names team workspaces correctly instead of calling them personal. |
@@ -43,15 +43,20 @@ Later passes simplified the advanced run composer (no orbit illustration or grad
 
 Removed: `WorkflowPreview.tsx`, `workflow-preview.css`, `perspective.css`, the Archivo and Plex Mono files, the Studio footer slogan, and the legacy shell, button and evidence rules they depended on.
 
+## Backend addition: review preview
+
+`GET /api/workspaces/{workspace}/review-target/{worker}/{workflow}` (`teams.review_target`, `server.py`) implements the read-only contract from `output/redesign/round8/backend-plan.md`. It resolves the signed-in account's live session, its role in the target workspace (never inherited from the current one), the machine in that workspace's scope, `workflow-v2` for team machines, the cached task (single record, then the cached list), the task's project against the machine's approved roots and, for teams, the member's current project grant. It returns workspace, machine and task identity, title and status with `Cache-Control: no-store`, never a project path. Every refusal is the same 404 with `Review link is unavailable`. It queues nothing, contacts no machine and switches nothing. `tests/test_review_target.py` covers 8 cases including non-members, revoked grants, foreign and revoked machines, outdated workers, mismatched cache records and a no-writes check.
+
 ## Contracts preserved
 
-No backend file changed. Request routing (`api()` versus `relayApi()`), executor scoping, stale-response guards, request IDs, expected digests, role checks and the separation of approval, local application and publication are untouched. Labels the tests rely on are preserved. One existing assertion changed on purpose: the primary navigation order (Review inbox now follows Tasks). Studio's isolation key stays `scope:machine`; it gains a suffix only after a review link opens, to force a fresh mount.
+Apart from the review preview, no backend file changed. Request routing (`api()` versus `relayApi()`), executor scoping, stale-response guards, request IDs, expected digests, role checks and the separation of approval, local application and publication are untouched. Labels the tests rely on are preserved. One existing assertion changed on purpose: the primary navigation order (Review inbox now follows Tasks). Studio's isolation key stays `scope:machine`; it gains a suffix only after a review link opens, to force a fresh mount.
 
 ## Verification
 
 At the head of `claude/frontend-redesign`:
 
-- `npm --prefix studio test`: all 17 suites pass, including the new `studio_task_recovery.cjs` (6 checks) and `studio_review_link.cjs` (7 checks).
+- `npm --prefix studio test`: all 17 suites pass, including the new `studio_task_recovery.cjs` (6 checks) and `studio_review_link.cjs` (9 checks).
+- Python: `test_review_target` (8 new), plus `test_teams`, `test_executors`, `test_accounts`, `test_legacy_team_authorization`, `test_delivery` and `test_supabase_auth` pass.
 - `npm --prefix studio run test:hosted`: passes.
 - TypeScript, local, hosted and cloud builds succeed. Packaged assets in `src/parallax/static` are rebuilt.
 - `scripts/validate_release.py` passes. `scripts/build_claude_plugin.py --check` passes.
@@ -67,7 +72,7 @@ The fixture uses deterministic providers and simulated GitHub. None of this prov
 
 ## Remaining work
 
-- **Reviewer handoff, server preview.** The link works without backend changes because every read already goes through the relay's current authorization. It does not implement the proposed `/api/workspaces/{id}/review-target/...` preview from `output/redesign/round8/backend-plan.md`, so the task title is not shown before the person switches workspace, and a team worker without `workflow-v2` shows the existing update message after entry rather than a refusal before it.
+- **Review preview coverage.** The preview reads the relay's managed cache, so a task that no permitted member has opened through the relay yet returns the uniform refusal; the prompt then falls back to switching without task details and the task's own authorized read decides access.
 - **Advanced views.** The run workspace and agent graph inherit the tokens, readability fixes and a simplified composer but keep their older structure. Their rules still live in `style.css` and `workspace.css`; only unused rules were removed.
 - **Real sign-in.** The enabled forms were seen with a mocked configuration only; no real Supabase, email or OAuth round trip was exercised.
 - **People.** No usability study, manual accessibility audit (screen readers, zoom, voice control) or conversion test has been done.
