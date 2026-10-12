@@ -51,4 +51,4 @@ Screenshots show two presentation defects the code-only review did not catch: th
 
 Final browser acceptance on the baseline plus both verified patches: 14 of 14 checks passed (`browser/final/results.json`), adding single-line, in-panel button layout and singular and plural wording to the earlier checks. Screenshots in `browser/final/` cover the scene, search and replacement, Replace all, undo, dark mode with keyboard focus, and view mode. A paced 28-second recording of the same run is kept locally at `output/demo/browser/final/walkthrough.mp4` (not committed). The combined candidate is `output/demo/combined-candidate.patch`, 10 files, SHA-256 `46da2c52…71f76`.
 
-The candidate is verified and browser-accepted but not applied: delivery into a real checkout needs explicit human approval. Provider cost is unknown. Provider cost is unknown.
+The candidate is verified and browser-accepted but not applied: delivery into a real checkout needs explicit human approval. Provider cost is unknown.
