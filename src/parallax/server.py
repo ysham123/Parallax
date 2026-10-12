@@ -927,7 +927,7 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
     @app.post("/api/project/assess")
     async def assess(body:AssessmentRequest):
         check_workspace(body.workspace)
-        result = await engine.assess(body.workspace,body.package_roots,body.checks,body.participants)
+        result = await engine.assess(body.workspace,body.package_roots or store.project_roots(body.workspace),body.checks,body.participants)
         pilot.setup(body.workspace,result)
         return result
     @app.get("/api/project-profiles")

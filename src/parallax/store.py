@@ -249,6 +249,25 @@ class Store:
         with self.connect() as db:
             db.execute("INSERT INTO project_profiles VALUES(?,?) ON CONFLICT(name) DO UPDATE SET profile=excluded.profile", (name, json.dumps(value)))
 
+    def project_roots(self, workspace: str) -> list[str]:
+        """Package roots from the saved project profiles for this folder, when they agree.
+
+        Conflicting profiles for one folder supply nothing, so assessment stays explicit."""
+        try:
+            target = Path(workspace).expanduser().resolve()
+        except (OSError, RuntimeError):
+            return []
+        found = set()
+        for item in self.project_profiles():
+            profile = item["profile"]
+            try:
+                same = Path(profile.get("workspace", "")).expanduser().resolve() == target
+            except (OSError, RuntimeError):
+                same = False
+            if same and profile.get("package_roots"):
+                found.add(tuple(profile["package_roots"]))
+        return list(next(iter(found))) if len(found) == 1 else []
+
     def delete_project_profile(self, name: str):
         with self.connect() as db:
             db.execute("DELETE FROM project_profiles WHERE name=?", (name,))

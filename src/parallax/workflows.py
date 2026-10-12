@@ -378,6 +378,9 @@ class Workflows:
                 spec = RunSpec(workspace=request.workspace, prompt=request.prompt,
                     coordinator=request.coordinator or template["coordinator"], team=request.team or template["team"],
                     limits=template["limits"], checks=template["checks"], mode="build", integrate=False)
+                # A saved project profile scopes assessment to the folder's packages (for example
+                # one workspace of a monorepo); the roots become part of this task's fixed settings.
+                spec.package_roots = self.store.project_roots(request.workspace)
             if request.task_settings:
                 for key in ("instructions", "checks"):
                     override = getattr(request.task_settings, key)
