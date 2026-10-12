@@ -39,6 +39,8 @@ Two Studio compositions were compared on a private concept canvas before impleme
 | Settings, dialogs, connections | Workspace settings open as a right-hand sheet with inline forms and member rows. Machines and account deletion share `dialogs.css`. Worker platform choice is a segmented control. Connections drawer rewritten in `connections.css`. The account menu now names team workspaces correctly instead of calling them personal. |
 | Performance | The agent graph and its libraries load only when an advanced view opens. The local App chunk went from 258 kB to 230 kB, inside the 256 KiB packaging limit. |
 
+Later passes simplified the advanced run composer (no orbit illustration or gradients, full-width task card), removed 224 dead selectors left from earlier designs, and restored the system select style where local overrides had dropped its chevron.
+
 Removed: `WorkflowPreview.tsx`, `workflow-preview.css`, `perspective.css`, the Archivo and Plex Mono files, the Studio footer slogan, and the legacy shell, button and evidence rules they depended on.
 
 ## Contracts preserved
@@ -66,7 +68,7 @@ The fixture uses deterministic providers and simulated GitHub. None of this prov
 ## Remaining work
 
 - **Reviewer handoff, server preview.** The link works without backend changes because every read already goes through the relay's current authorization. It does not implement the proposed `/api/workspaces/{id}/review-target/...` preview from `output/redesign/round8/backend-plan.md`, so the task title is not shown before the person switches workspace, and a team worker without `workflow-v2` shows the existing update message after entry rather than a refusal before it.
-- **Advanced views.** The run workspace, agent graph and advanced run composer inherit the tokens and readability fixes but keep their older layouts. `style.css` (about 3,100 lines) and `workspace.css` (about 1,300 lines) still hold those rules.
+- **Advanced views.** The run workspace and agent graph inherit the tokens, readability fixes and a simplified composer but keep their older structure. Their rules still live in `style.css` and `workspace.css`; only unused rules were removed.
 - **Real sign-in.** The enabled forms were seen with a mocked configuration only; no real Supabase, email or OAuth round trip was exercised.
 - **People.** No usability study, manual accessibility audit (screen readers, zoom, voice control) or conversion test has been done.
 - **Release gates.** Everything listed in `docs/PILOT.md` and `docs/STAGING-ACCEPTANCE.md` remains open.
