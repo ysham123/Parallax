@@ -88,6 +88,11 @@ function CloudWorkspace() {
   const [selected, setSelected] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [machineDialogRequest, setMachineDialogRequest] = useState(0);
+  const [workspaceSettingsRequest, setWorkspaceSettingsRequest] = useState<{
+    scope: string;
+    sequence: number;
+    section: "workspace" | "projects" | "github";
+  }>();
   // Set while a workspace with no machines is onboarding, so a newly paired machine is
   // announced in place and Studio opens only when the user chooses it.
   const [onboarding, setOnboarding] = useState(false);
@@ -394,6 +399,11 @@ function CloudWorkspace() {
         session={active}
         machines={machines}
         onSwitch={() => void checkSession(true)}
+        openRequest={
+          workspaceSettingsRequest?.scope === scope
+            ? workspaceSettingsRequest
+            : undefined
+        }
       />
       <AccountMenu
         session={active}
@@ -468,6 +478,15 @@ function CloudWorkspace() {
     <>
       <App
         teamWorkspace={active.workspace.kind === "team"}
+        workspaceName={active.workspace.name}
+        workspaceRole={active.workspace.role}
+        onManageWorkspace={(section) =>
+          setWorkspaceSettingsRequest((previous) => ({
+            scope,
+            sequence: (previous?.sequence || 0) + 1,
+            section,
+          }))
+        }
         onReconnect={() => setMachineDialogRequest((value) => value + 1)}
         key={`${scope}:${resolved}`}
         execution={

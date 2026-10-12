@@ -1,15 +1,15 @@
 /* Persistent task queue, execution context, and reviewable evidence. */
-.studio-workspace.tab-workflows .main-content {
+:is(.studio-workspace.tab-workflows, .studio-workspace.tab-inbox) .main-content {
   padding: 0;
   max-width: none;
   margin: 0;
   height: calc(100dvh - 42px);
   min-height: 460px;
 }
-.studio-workspace.tab-workflows .page-footer {
+:is(.studio-workspace.tab-workflows, .studio-workspace.tab-inbox) .page-footer {
   display: none;
 }
-.studio-workspace.tab-workflows .main-content > .alert {
+:is(.studio-workspace.tab-workflows, .studio-workspace.tab-inbox) .main-content > .alert {
   position: absolute;
   z-index: 20;
   top: 46px;
@@ -20,7 +20,7 @@
   display: grid;
   grid-template-columns: 258px minmax(0, 1fr);
   height: 100%;
-  font-size: 12px;
+  font-size: 14px;
 }
 .task-studio svg {
   flex-shrink: 0;
@@ -52,6 +52,7 @@
   justify-content: space-between;
   padding: 22px 18px 18px;
 }
+.queue-heading h2 { font-size: 15px; margin: 0; font-weight: 600; }
 .queue-brand {
   font-size: 18px;
   font-weight: 630;
@@ -366,7 +367,7 @@
 }
 .candidate-summary-facts {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px 20px;
   margin: 0 0 12px;
 }
@@ -409,10 +410,10 @@
   font-size: 12px;
 }
 .evidence-outcome.passed {
-  color: var(--success, #3bb68a);
+  color: var(--teal);
 }
 .evidence-outcome.failed {
-  color: var(--danger, #df7869);
+  color: var(--danger);
 }
 .evidence-outcome.unavailable,
 .evidence-outcome.unrecorded,
@@ -437,7 +438,7 @@
   line-height: 1.5;
 }
 .decision-gates .failed {
-  color: var(--danger, #df7869);
+  color: var(--danger);
 }
 .decision-gates .unavailable,
 .decision-gates .skipped,
@@ -1355,7 +1356,7 @@
   .task-studio .decision-actions .text-button {
     min-height: 44px;
   }
-  .studio-workspace.tab-workflows .main-content {
+  :is(.studio-workspace.tab-workflows, .studio-workspace.tab-inbox) .main-content {
     height: calc(100dvh - 86px);
     min-height: 420px;
   }
@@ -1447,7 +1448,7 @@
   .compose-heading .text-button {
     font-size: 9px;
   }
-  .studio-workspace.tab-workflows .main-content > .alert {
+  :is(.studio-workspace.tab-workflows, .studio-workspace.tab-inbox) .main-content > .alert {
     left: 10px;
     top: 90px;
   }
@@ -1841,4 +1842,94 @@
   .task-workspace .finding-location {
     flex-wrap: wrap;
   }
+}
+
+/* Current evidence and the next human action precede activity. */
+:is(.studio-workspace.tab-workflows, .studio-workspace.tab-inbox) .main-content { height: calc(100dvh - 64px); }
+.task-host[hidden] { display: none; }
+.task-dot.delivery { background: var(--accent); }
+.task-studio .primary-button, .task-studio .secondary-button { min-height: 44px; font-size: 13px; }
+.task-studio .text-button { font-size: 13px; }
+.task-studio .queue-views button { min-height: 40px; font-size: 13px; }
+.task-workspace .task-decision { border-top: 0; border-bottom: 1px solid var(--line); padding: 18px 22px; align-items: flex-start; }
+.next-action-title { font-size: 14px; margin: 0 0 10px; font-weight: 600; }
+.decision-blocker { margin: 6px 0 10px; font-size: 13px; color: var(--muted); line-height: 1.5; }
+.task-workspace .decision-caption { font-size: 12px; }
+.task-workspace .decision-gates > span { font-size: 11px; }
+.decision-gate-details { font-size: 12px; color: var(--muted); }
+.decision-gate-details summary { cursor: pointer; }
+.decision-gate-details .decision-gates { margin-top: 10px; }
+.task-workspace .decision-actions { align-self: center; flex-wrap: wrap; }
+.task-human-record { margin-top: 12px; font-size: 12px; color: var(--muted); }
+.task-human-record summary, .candidate-run-details summary { cursor: pointer; padding: 6px 0; }
+.candidate-summary { font-size: 14px; padding: 20px 22px; }
+.candidate-summary h2 { font-size: 16px; }
+.candidate-summary-facts dt { font-size: 12px; }
+.candidate-summary-facts dd { font-size: 14px; }
+.candidate-delivery-facts { display: flex; flex-wrap: wrap; gap: 10px 28px; margin: 14px 0 10px; }
+.candidate-delivery-facts > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font-size: 12px; }
+.candidate-delivery-facts dt { color: var(--muted); }
+.candidate-delivery-facts dd { margin: 0; }
+.candidate-run-details { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+.candidate-runtime-facts { display: flex; flex-wrap: wrap; gap: 20px; }
+.candidate-runtime-facts dd { margin: 5px 0 0; }
+.candidate-uncertainty { font-size: 12px; margin: 10px 0; }
+.candidate-run-details > a { display: inline-flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+.candidate-run-details > a span { color: var(--muted); }
+.task-project-location code { overflow-wrap: anywhere; white-space: normal; font-size: 12px; }
+.task-human-record .task-meta { margin: 10px 0; }
+.task-human-record .task-human-meta dt { font-size: 12px; }
+.task-human-record .task-human-meta dd { font-size: 13px; }
+.task-delivery { flex-shrink: 0; border-bottom: 1px solid var(--line); }
+.task-delivery > summary { padding: 14px 22px; cursor: pointer; font-size: 13px; font-weight: 600; }
+.task-workspace .task-evidence { order: 0; }
+.task-workspace .task-conversation { order: 1; border-right: 0; border-left: 1px solid var(--line); }
+.task-workspace .task-panels { grid-template-columns: minmax(0, 1.35fr) minmax(275px, .8fr); }
+.task-workspace .task-panels.activity-hidden { grid-template-columns: minmax(0, 1fr); }
+.task-workspace .evidence-tabs button { font-size: 13px; min-height: 44px; padding: 0 15px; }
+.task-workspace .patch-table, .task-workspace .patch-table pre { font-size: 14px; line-height: 1.65; }
+.task-workspace .patch-table .line-number { font-size: 12px; }
+.task-workspace .diff-file-heading { align-items: center; }
+.task-workspace .diff-file-heading code { font-size: 12px; }
+.task-workspace .patch-header-toggle { flex-shrink: 0; min-height: 32px; font-size: 12px; }
+.task-workspace .diff-files input, .task-workspace .diff-files button { font-size: 13px; }
+.task-workspace .diff-files button { min-height: 44px; }
+.task-workspace .pane-heading, .task-workspace .diff-heading { font-size: 13px; }
+.task-workspace .task-title-row .activity-toggle { min-height: 36px; display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; font-size: 12px; }
+.task-workspace .task-followup > label, .task-workspace .task-followup textarea { font-size: 13px; }
+.task-correction { flex-shrink: 0; border-top: 1px solid var(--line); }
+.task-correction > summary { padding: 15px 22px; cursor: pointer; font-size: 13px; font-weight: 600; }
+.task-correction .task-followup { padding: 20px 22px; border-top: 0; }
+.task-correction .task-followup > div { gap: 12px; flex-wrap: wrap; }
+.task-correction .task-followup > div > span { flex: 1 0 100%; font-size: 12px; }
+.task-correction .task-followup textarea { min-height: 84px; }
+@media (max-width: 980px) {
+ .candidate-summary-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+ .task-workspace .task-conversation { border-left: 0; border-top: 1px solid var(--line); }
+}
+@media (max-width: 700px) {
+ :is(.studio-workspace.tab-workflows, .studio-workspace.tab-inbox) .main-content { height: calc(100dvh - 185px); min-height: 420px; }
+ .candidate-summary-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 12px; }
+ .candidate-summary { padding: 18px 15px; }
+ .task-workspace .task-decision { padding: 12px 15px; gap: 10px; }
+ .task-workspace .next-action-title { margin-bottom: 3px; }
+ .task-workspace .decision-caption { margin-top: 0; line-height: 1.45; }
+ .task-workspace .candidate-summary { padding: 15px; }
+ .task-workspace .candidate-summary > p { margin-bottom: 12px; }
+ .task-workspace .candidate-summary-facts { gap: 12px; margin-bottom: 8px; }
+ .task-workspace .task-titlebar { padding: 10px 15px; }
+ .task-workspace .task-title-row h1 { font-size: 16px; line-height: 1.45; }
+ .task-workspace .task-human-record { margin-top: 3px; }
+ .task-workspace .task-human-record > summary { padding: 3px 0; }
+ .task-workspace .diff-workspace.single-file > .diff-files { display: none; }
+ .task-workspace .diff-workspace.single-file { grid-template-columns: minmax(0, 1fr); }
+ .task-workspace .diff-file-heading { gap: 10px; padding: 7px 14px; }
+ .task-workspace .decision-actions { margin-left: 0; justify-content: flex-start; }
+ .task-workspace .decision-gates { gap: 4px 10px; }
+ .task-delivery > summary { padding: 14px 15px; }
+ .task-correction > summary { padding: 15px; }
+ .task-correction .task-followup { padding: 10px 15px 20px; }
+ .task-workspace .task-evidence { min-height: 460px; }
+ .task-workspace .task-conversation { min-height: 260px; }
+ .mobile-task-bar { min-height: 44px; }
 }

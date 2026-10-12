@@ -32,12 +32,19 @@ export function WorkspaceControls({
   session,
   machines,
   onSwitch,
+  openRequest,
 }: {
   session: Session;
   machines: ExecutionMachine[];
   onSwitch: () => void;
+  openRequest?: {
+    sequence: number;
+    section: "workspace" | "projects" | "github";
+  };
 }) {
   const details = useRef<HTMLDetailsElement>(null);
+  const openedRequest = useRef<number | undefined>(undefined);
+  const openedFrom = useRef<HTMLElement | null>(null);
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [error, setError] = useState("");
@@ -137,8 +144,29 @@ export function WorkspaceControls({
   }
   function closePanel(restoreFocus = true) {
     setPanelOpen(false);
-    if (restoreFocus) details.current?.querySelector("summary")?.focus();
+    if (restoreFocus) {
+      if (openedFrom.current?.isConnected) openedFrom.current.focus();
+      else details.current?.querySelector("summary")?.focus();
+    }
+    openedFrom.current = null;
   }
+  useEffect(() => {
+    if (!openRequest || openedRequest.current === openRequest.sequence) return;
+    openedRequest.current = openRequest.sequence;
+    openedFrom.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    setPanelOpen(true);
+  }, [openRequest]);
+  useEffect(() => {
+    if (!panelOpen || !openRequest) return;
+    const target = details.current?.querySelector<HTMLElement>(
+      `[data-workspace-section="${openRequest.section}"]`,
+    );
+    target?.scrollIntoView?.({ block: "nearest" });
+    target?.focus({ preventScroll: true });
+  }, [panelOpen, openRequest]);
   useEffect(() => {
     if (!panelOpen) return;
     const escape = (event: KeyboardEvent) => {
@@ -233,14 +261,20 @@ export function WorkspaceControls({
       onToggle={(e) => setPanelOpen(e.currentTarget.open)}
     >
       <summary>
-        {session.workspace.name} · {session.workspace.role || "owner"}
+        <span className="workspace-control-name">{session.workspace.name}</span>
+        <span className="workspace-control-separator"> · </span>
+        <span className="workspace-control-role">
+          {session.workspace.role || "owner"}
+        </span>
       </summary>
       <div
         className="workspace-panel"
         role="region"
         aria-label="Workspace settings"
       >
-        <h2>Workspace</h2>
+        <h2 tabIndex={-1} data-workspace-section="workspace">
+          Workspace
+        </h2>
         <button className="secondary-button" onClick={() => closePanel()}>
           Close workspace settings
         </button>
@@ -541,7 +575,9 @@ export function WorkspaceControls({
           )}
           {owner && (
             <>
-              <h3>Approved project</h3>
+              <h3 tabIndex={-1} data-workspace-section="projects">
+                Approved project
+              </h3>
               <label>
                 Worker and project
                 <select
@@ -602,7 +638,9 @@ export function WorkspaceControls({
                   </button>
                 </>
               )}
-              <h3>GitHub delivery</h3>
+              <h3 tabIndex={-1} data-workspace-section="github">
+                GitHub delivery
+              </h3>
               {!configured ? (
                 <p>
                   The deployment operator must configure the GitHub App before

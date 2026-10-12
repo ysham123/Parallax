@@ -1,0 +1,115 @@
+.repositories-page {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.studio-page-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 32px;
+}
+.studio-page-heading h1 {
+  font-size: 30px;
+  letter-spacing: -0.7px;
+  margin: 0 0 10px;
+}
+.studio-page-heading p {
+  color: var(--muted);
+  max-width: 65ch;
+  line-height: 1.6;
+  margin: 0;
+}
+.repository-list {
+  border-top: 1px solid var(--line);
+}
+.repository-project {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.8fr);
+  gap: 20px 32px;
+  padding: 28px 0;
+  border-bottom: 1px solid var(--line);
+}
+.repository-identity h2 {
+  font-size: 20px;
+  margin: 0 0 8px;
+}
+.repository-identity code {
+  display: block;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.repository-identity p,
+.repository-delivery p {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.repository-delivery h3 {
+  font-size: 14px;
+  margin: 0 0 10px;
+}
+.repository-delivery ul {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.repository-delivery li {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 10px;
+  font-size: 14px;
+}
+.repository-delivery span {
+  color: var(--muted);
+}
+.repository-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.repository-empty,
+.repository-setup-note {
+  background: var(--surface);
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.repository-empty h2,
+.repository-setup-note h2 {
+  font-size: 17px;
+  margin: 0 0 10px;
+}
+.repository-empty p,
+.repository-setup-note p {
+  color: var(--muted);
+  max-width: 75ch;
+  line-height: 1.6;
+}
+.repository-setup-note {
+  margin-top: 30px;
+}
+.repositories-page .primary-button,
+.repositories-page .secondary-button {
+  min-height: 44px;
+}
+@media (max-width: 700px) {
+  .studio-page-heading {
+    flex-direction: column;
+    gap: 16px;
+  }
+  .repository-project {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+  .repository-actions {
+    grid-column: auto;
+  }
+  .repository-empty,
+  .repository-setup-note {
+    padding: 18px;
+  }
+}

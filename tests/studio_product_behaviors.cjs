@@ -87,7 +87,7 @@ global.window = {
   setInterval: () => 1, clearInterval() {}, addEventListener() {}, removeEventListener() {},
   history: global.history,
 };
-global.document = { hidden: false, body: {}, getElementById: () => null };
+global.document = { hidden: false, body: {}, documentElement: { dataset: {} }, getElementById: () => null };
 global.requestAnimationFrame = () => 1;
 global.__PARALLAX_VERSION__ = 'test';
 function renderer(component, props) {
@@ -221,7 +221,7 @@ const taskProps = {
     throw new Error('Unexpected request '+p);
   };
   responder = teamResponder;
-  const teamHistory = renderer(Workflows,{...workflowProps,teamWorkspace:true,onReconnect(){reconnects++;}});
+  const teamHistory = renderer(Workflows,{...workflowProps,teamWorkspace:true,view:'inbox',onReconnect(){reconnects++;}});
   teamHistory.render(); await settle(teamHistory);
   check('Connected team history preserves reviewer handoff and peer approval', () => {
     assert.ok(nodes(teamHistory.tree).some(n => n.type === TaskWorkspace && n.props.ready));
@@ -286,6 +286,7 @@ const taskProps = {
     comments:[{id:'c',actor:'requester',at:'2026-10-10T13:00:00Z',message:'<img src=x onerror=alert(1)>'}],
     decision:{action:'approve',actor:'approver',at:'2026-10-10T14:00:00Z'}},onRelated:id=>{related=id;}});
   identity.render();
+  nodes(identity.tree).find(n=>n.type==='button' && n.props['aria-label']==='Show task activity').props.onClick(); identity.render();
   check('Another developer request and comment identify the recorded people', () => {
     assert.doesNotMatch(text(identity.tree),/Your request/); assert.match(text(identity.tree),/Ada/); assert.match(text(identity.tree),/Grace/); assert.match(text(identity.tree),/Linus/);
     assert.ok(nodes(identity.tree).some(n => n.type === 'time' && n.props.dateTime === '2026-10-10T13:00:00Z'));
@@ -442,11 +443,12 @@ const taskProps = {
   const evidenceRun = {run_id:'evidence-run',status:'completed',tasks:[],errors:[],reviews:[reviewRow],checks:[checkRow],changed_files:['maths.py'],spec:{},diff:'',sessions:[],usage:{},summary:'Preserved behavior while replacing parser',artifacts:{current_verification_attempt:{phase:'final',phase_attempt_id:phaseId},baseline_checks:[{name:'original compatibility',ok:false,error:'check_failed',exit_code:1}]}};
   responder = async p => p === '/runs/evidence-run' ? evidenceRun : (()=>{throw new Error('Unexpected request '+p)})();
   const summary = renderer(TaskWorkspace,{...taskProps,workflow:{...base,run_id:'evidence-run',candidate:{...base.candidate,changed_files:['maths.py'],summary:'Saved result'},delivery:{local:'pending',github:'pending'}}}); summary.render(); await settle(summary);
+  nodes(summary.tree).find(n=>n.type==='button' && n.props['aria-label']==='Show task activity').props.onClick(); summary.render();
   nodes(summary.tree).find(n=>n.type==='button' && n.props['aria-label']==='Hide task activity').props.onClick(); summary.render();
   check('Candidate result and separate human/local/GitHub states remain visible when activity is hidden', () => {
     const result = nodes(summary.tree).find(n=>n.props.className==='candidate-summary');
     assert.match(text(result),/Saved result/); assert.match(text(result),/1 passed/); assert.match(text(result),/Reviewed/);
-    assert.match(text(result),/Awaiting a recorded decision/); assert.match(text(result),/Not applied/); assert.match(text(result),/Not published/);
+    assert.match(text(result),/Human decisionAwaiting approval/); assert.match(text(result),/Not applied/); assert.match(text(result),/Not published/);
     assert.ok(nodes(result).some(n=>n.type==='a' && /verification record/.test(text(n)) && /partial/.test(text(n))));
     assert.equal(nodes(summary.tree).some(n=>n.props.className==='task-conversation'),false);
   });

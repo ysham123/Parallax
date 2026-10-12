@@ -228,9 +228,11 @@ type Props = {
   onSteer: () => void;
   recovery: ReactNode;
   renderTask: (task: Data) => ReactNode;
+  readOnly?: boolean;
 };
 
 export function RunWorkspace(props: Props) {
+  const readOnly = props.readOnly === true;
   const { run, runs, events, selected, onSelect, loading, busy, streamStatus } =
     props;
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -434,7 +436,7 @@ export function RunWorkspace(props: Props) {
           </button>
         </div>
         <button className="work-new-button" onClick={props.onNew}>
-          <span>+</span> New run{" "}
+          <span>+</span> {readOnly ? "Open tasks" : "New run"}{" "}
         </button>
         <label className="sr-only" htmlFor="history-project">
           Filter by project
@@ -549,6 +551,7 @@ export function RunWorkspace(props: Props) {
           <div className="work-actions">
             {run && (
               <>
+                {!readOnly && (
                 <button
                   className="work-button"
                   onClick={() => setSteerOpen(!steerOpen)}
@@ -557,7 +560,8 @@ export function RunWorkspace(props: Props) {
                 >
                   Steer
                 </button>
-                {!terminal(run.status) && (
+                )}
+                {!readOnly && !terminal(run.status) && (
                   <>
                     <button
                       className="work-button"
@@ -613,7 +617,7 @@ export function RunWorkspace(props: Props) {
             <button
               className="work-icon-button work-new-compact"
               onClick={props.onNew}
-              aria-label="New run"
+              aria-label={readOnly ? "Open tasks" : "New run"}
             >
               +
             </button>
@@ -621,7 +625,7 @@ export function RunWorkspace(props: Props) {
         </header>
         {run ? (
           <>
-            {steerOpen && (
+            {!readOnly && steerOpen && (
               <form
                 className="work-steering"
                 inert={inspectionModal || undefined}
@@ -690,7 +694,7 @@ export function RunWorkspace(props: Props) {
                   : "Checks pending"}
               </button>
             </div>
-            {props.recovery && (
+            {!readOnly && props.recovery && (
               <div
                 className="work-recovery"
                 inert={inspectionModal || undefined}
@@ -1355,7 +1359,7 @@ export function RunWorkspace(props: Props) {
               one workspace.
             </p>
             <button className="work-button work-primary" onClick={props.onNew}>
-              New run <span>→</span>
+              {readOnly ? "Open tasks" : "New run"} <span>→</span>
             </button>
             {history.length > 0 && (
               <button

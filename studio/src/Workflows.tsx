@@ -19,6 +19,7 @@ import {
   workflowAccess,
   workflowOperationId,
   workflowReviewAccess,
+  workflowInReviewInbox,
   githubBindingsForProject,
   type WorkflowAuthority,
 } from "./workflow-state";
@@ -125,7 +126,11 @@ export function Workflows({
   renderEvidence,
   renderParticipant,
   renderCheck,
+  view = "tasks",
+  newTaskRequest,
 }: {
+  view?: "tasks" | "inbox";
+  newTaskRequest?: { sequence: number; workspace: string };
   teamWorkspace?: boolean;
   executionWorker?: string;
   active: boolean;
@@ -217,6 +222,7 @@ export function Workflows({
   const firstLoad = useRef(true);
   const searchRef = useRef<HTMLInputElement>(null);
   const pendingStart = useRef<{ signature: string; id: string } | null>(null);
+  const composedRequest = useRef<number | undefined>(undefined);
   const pendingComments = useRef(
     new Map<string, { signature: string; id: string }>(),
   );
@@ -852,18 +858,45 @@ export function Workflows({
   const projectHistory = history.filter(
     (w) => !projectFilter || w.workspace === projectFilter,
   );
+  const effectiveFilter = view === "inbox" ? "your-review" : filter;
+  const inView = (w: Workflow, id: string) =>
+    id === "all" ||
+    (id === "your-review"
+      ? workflowInReviewInbox(w, caller, viaMachine(), teamWorkspace)
+      : workflowGroup(w.status, w.decision?.action) === id);
   const visible = projectHistory.filter(
     (w) =>
-      (filter === "all" ||
-        (filter === "your-review"
-          ? w.status === "awaiting_approval" &&
-            w.requester !== caller?.actor &&
-            (!w.reviewer || w.reviewer === caller?.actor)
-          : workflowGroup(w.status) === filter)) &&
+      inView(w, effectiveFilter) &&
       `${w.title} ${w.workspace} ${w.template.name} ${w.id}`
         .toLowerCase()
         .includes(search.toLowerCase().trim()),
   );
+  useEffect(() => {
+    if (view !== "inbox") return;
+    setComposing(false);
+    setArchiveView(false);
+    if (!online || loading || historyState !== "ready" || !authorityLoaded)
+      return;
+    const waiting = projectHistory.filter((w) =>
+      workflowInReviewInbox(w, caller, viaMachine(), teamWorkspace),
+    );
+    if (waiting.some((w) => w.id === selectedId.current)) return;
+    if (waiting[0]) void choose(waiting[0]);
+    else {
+      selectedId.current = null;
+      setSelected(null);
+    }
+  }, [
+    view,
+    history,
+    projectFilter,
+    online,
+    loading,
+    historyState,
+    authorityLoaded,
+    caller,
+    teamWorkspace,
+  ]);
   function newTask() {
     if (busy || !access.deliver) return;
     firstLoad.current = false;
@@ -876,6 +909,27 @@ export function Workflows({
       document.getElementById("workflow-prompt")?.focus(),
     );
   }
+  useEffect(() => {
+    if (
+      !newTaskRequest ||
+      composedRequest.current === newTaskRequest.sequence ||
+      !access.deliver ||
+      busy ||
+      view !== "tasks"
+    )
+      return;
+    composedRequest.current = newTaskRequest.sequence;
+    firstLoad.current = false;
+    setParentTask(null);
+    setComposing(true);
+    setArchiveView(false);
+    setQueueOpen(false);
+    setProjectFilter(newTaskRequest.workspace);
+    setNotice("");
+    requestAnimationFrame(() =>
+      document.getElementById("workflow-prompt")?.focus(),
+    );
+  }, [newTaskRequest, access.deliver, busy, view]);
   const ready =
     !!selected &&
     online &&
@@ -906,9 +960,7 @@ export function Workflows({
     <div className={`task-studio ${queueOpen ? "queue-open" : ""}`}>
       <aside className="task-queue" aria-label="Project tasks">
         <div className="queue-heading">
-          <span className="queue-brand">
-            Parallax <small>STUDIO</small>
-          </span>
+          <h2>{view === "inbox" ? "Review inbox" : "Task browser"}</h2>
           <button
             className="icon-button queue-dismiss"
             aria-label="Hide task list"
@@ -917,13 +969,15 @@ export function Workflows({
             <WorkIcon name="close" />
           </button>
         </div>
-        <button
-          className="new-task-button"
-          disabled={!access.deliver}
-          onClick={newTask}
-        >
-          <WorkIcon name="plus" /> New task <span>↗</span>
-        </button>
+        {view === "tasks" && (
+          <button
+            className="new-task-button"
+            disabled={!access.deliver}
+            onClick={newTask}
+          >
+            <WorkIcon name="plus" /> New task
+          </button>
+        )}
         <label className="queue-search">
           <WorkIcon name="search" />
           <input
@@ -951,19 +1005,22 @@ export function Workflows({
           </select>
         </label>
         <nav className="queue-views" aria-label="Task views">
-          {[
-            ["all", "All tasks", "stack"],
-            ["approval", "Awaiting approval", "review"],
-            ...(caller?.team
-              ? [["your-review", "Awaiting your review", "review"]]
-              : []),
-            ["running", "In progress", "activity"],
-            ["attention", "Needs attention", "warning"],
-            ["finished", "Completed & closed", "check"],
-          ].map(([id, label, icon]) => (
+          {(view === "inbox"
+            ? [["your-review", "Awaiting your review", "review"]]
+            : [
+                ["all", "All tasks", "stack"],
+                ["approval", "Awaiting approval", "review"],
+                ...(access.deliver
+                  ? [["delivery", "Ready for delivery", "arrow"]]
+                  : []),
+                ["running", "In progress", "activity"],
+                ["attention", "Needs attention", "warning"],
+                ["finished", "Completed & closed", "check"],
+              ]
+          ).map(([id, label, icon]) => (
             <button
               key={id}
-              aria-pressed={!archiveView && filter === id}
+              aria-pressed={!archiveView && effectiveFilter === id}
               onClick={() => {
                 setFilter(id);
                 setArchiveView(false);
@@ -974,19 +1031,11 @@ export function Workflows({
               <small>
                 {historyState !== "ready" || !online
                   ? "—"
-                  : projectHistory.filter(
-                      (w) =>
-                        id === "all" ||
-                        (id === "your-review"
-                          ? w.status === "awaiting_approval" &&
-                            w.requester !== caller?.actor &&
-                            (!w.reviewer || w.reviewer === caller?.actor)
-                          : workflowGroup(w.status) === id),
-                    ).length}
+                  : projectHistory.filter((w) => inView(w, id)).length}
               </small>
             </button>
           ))}
-          {viaMachine() && (
+          {viaMachine() && view === "tasks" && (
             <button
               aria-pressed={archiveView}
               onClick={() => {
@@ -1001,7 +1050,13 @@ export function Workflows({
           )}
         </nav>
         <div className="queue-list-heading">
-          <span>{search ? "SEARCH RESULTS" : "RECENT TASKS"}</span>
+          <span>
+            {search
+              ? "Search results"
+              : view === "inbox"
+                ? "Waiting for you"
+                : "Recent tasks"}
+          </span>
           <button
             className="icon-button"
             aria-label="Refresh task list"
@@ -1047,7 +1102,9 @@ export function Workflows({
                     aria-pressed={!composing && selected?.id === w.id}
                     onClick={() => void choose(w)}
                   >
-                    <span className={`task-dot ${workflowGroup(w.status)}`} />
+                    <span
+                      className={`task-dot ${workflowGroup(w.status, w.decision?.action)}`}
+                    />
                     <span className="task-list-content">
                       <strong>{w.title}</strong>
                       <span>
@@ -1090,18 +1147,21 @@ export function Workflows({
             className="text-button"
             onClick={() => setQueueOpen(!queueOpen)}
           >
-            <WorkIcon name="stack" /> Tasks{" "}
+            <WorkIcon name="stack" />{" "}
+            {view === "inbox" ? "Review inbox" : "Tasks"}{" "}
             <span>
               {historyState === "ready" && online ? history.length : "—"}
             </span>
           </button>
-          <button
-            className="text-button"
-            disabled={!access.deliver}
-            onClick={newTask}
-          >
-            <WorkIcon name="plus" /> New task
-          </button>
+          {view === "tasks" && (
+            <button
+              className="text-button"
+              disabled={!access.deliver}
+              onClick={newTask}
+            >
+              <WorkIcon name="plus" /> New task
+            </button>
+          )}
         </div>
         {viaMachine() && authorityLoaded && !caller && (
           <div className="task-alert" role="alert">
@@ -1190,6 +1250,7 @@ export function Workflows({
         <div
           className="task-compose-scroll"
           hidden={
+            view === "inbox" ||
             archiveView ||
             (!composing &&
               (!!selected ||
@@ -1212,7 +1273,15 @@ export function Workflows({
                 {selected && (
                   <button
                     className="text-button"
-                    onClick={() => setComposing(false)}
+                    onClick={() => {
+                      setComposing(false);
+                      requestAnimationFrame(() =>
+                        (
+                          document.getElementById("selected-task-title") ||
+                          document.getElementById("main")
+                        )?.focus(),
+                      );
+                    }}
                   >
                     Back to task <WorkIcon name="close" size={14} />
                   </button>
@@ -1601,6 +1670,17 @@ export function Workflows({
             </section>
           </fieldset>
         </div>
+        {view === "inbox" &&
+          online &&
+          !loading &&
+          historyState === "ready" &&
+          !selected && (
+            <div className="task-loading" role="status">
+              <WorkIcon name="check" size={28} />
+              <h2>No tasks awaiting your review</h2>
+              <p>Assigned and eligible candidate reviews will appear here.</p>
+            </div>
+          )}
         {!archiveView &&
         !composing &&
         selected &&
@@ -1636,9 +1716,9 @@ export function Workflows({
             approvalHint={
               caller?.team && selected.status === "awaiting_approval"
                 ? selected.requester === caller.actor
-                  ? "Another workspace member must approve this candidate. Owners follow the same rule."
+                  ? "A different member must approve this candidate, including for Owners."
                   : selected.reviewer && selected.reviewer !== caller.actor
-                    ? "The assigned reviewer must approve this candidate."
+                    ? "Only the assigned reviewer can approve this candidate."
                     : undefined
                 : undefined
             }

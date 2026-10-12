@@ -47,6 +47,7 @@ Module._load = function(request, parent, ...rest) {
   if (request === 'react') return react;
   if (request === 'react/jsx-runtime') return { jsx, jsxs: jsx, Fragment: Symbol.for('fragment') };
   if (parent?.filename.startsWith(src)) {
+    if (/\.css$/.test(request)) return {};
     if (request === './api') return api;
     if (request === './Brand') return { ProviderMark() {} };
     if (parent.filename === path.join(src, 'App.tsx') &&
@@ -180,6 +181,38 @@ const props = { connections: [], onChanged: async () => {}, onClose() {} };
     });
     app.unmount();
   }
+  responder = async p => p === '/context' ? {workspace:'/project',desktop_runtime:true} : [];
+  let management = '';
+  const shell = renderer(App, {workspaceName:'Current workspace', onManageWorkspace:s=>{management=s;}});
+  shell.render(); await settle(shell);
+  check('Studio has one labeled primary navigation and retains explicitly named advanced tools', () => {
+    const primary=nodes(shell.tree).find(n=>n.type==='nav' && n.props['aria-label']==='Studio navigation');
+    assert.deepEqual(nodes(primary).filter(n=>n.type==='button').map(text),['Tasks','Repositories','Review inbox','Settings']);
+    const advanced=nodes(shell.tree).find(n=>n.type==='nav' && n.props['aria-label']==='Advanced tools');
+    assert.equal(nodes(advanced).filter(n=>n.type==='button').length,3);
+    assert.ok(nodes(advanced).some(n=>n.props['aria-keyshortcuts']==='Alt+2'));
+    assert.equal(document.documentElement.dataset.theme,'light');
+  });
+  button(shell.tree,'Review inbox').props.onClick(); shell.render();
+  check('Primary inbox changes the one existing task browser rather than mounting duplicate task clients', () => {
+    const clients=nodes(shell.tree).filter(n=>n.props.view && n.props.knownProjects);
+    assert.equal(clients.length,1); assert.equal(clients[0].props.view,'inbox'); assert.equal(clients[0].props.active,true);
+  });
+  button(shell.tree,'Repositories').props.onClick(); shell.render();
+  const repositories=nodes(shell.tree).find(n=>n.type?.name==='Repositories');
+  repositories.props.onNewTask('/approved-project'); shell.render();
+  check('Repository New task forwards its exact folder into the existing composer request', () => {
+    const client=nodes(shell.tree).find(n=>n.props.newTaskRequest);
+    assert.equal(client.props.newTaskRequest.workspace,'/approved-project'); assert.equal(client.props.workspace,'/approved-project');
+    assert.equal(client.props.view,'tasks'); assert.equal(client.props.active,true);
+  });
+  button(shell.tree,'Settings').props.onClick(); shell.render();
+  button(shell.tree,'Workspace settings').props.onClick();
+  check('Settings reuses workspace administration rather than adding a duplicate membership client', () => assert.equal(management,'workspace'));
+  shell.unmount(); storage.set('parallax-theme','dark');
+  const savedTheme=renderer(App,{}); savedTheme.render();
+  check('Existing dark theme preference survives the new light default',()=>assert.equal(document.documentElement.dataset.theme,'dark'));
+  savedTheme.unmount();
   mode = 'cloud'; delete require.cache[require.resolve(path.join(src, 'Connections.tsx'))];
   const HostedConnections = require(path.join(src, 'Connections.tsx')).Connections;
   const hosted = renderer(HostedConnections, props); hosted.render();

@@ -50,9 +50,9 @@
   padding: 90px 0 80px;
 }
 .hosted-eyebrow {
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 600;
-  letter-spacing: 1.6px;
+  letter-spacing: 0;
   color: var(--muted);
 }
 .hosted-intro h1 {

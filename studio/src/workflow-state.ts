@@ -14,16 +14,22 @@ export const workflowLabels: Record<string, string> = {
 };
 export function workflowGroup(
   status: string,
-): "approval" | "running" | "attention" | "finished" {
+  decisionAction?: string,
+): "approval" | "delivery" | "running" | "attention" | "finished" {
   if (status === "awaiting_approval") return "approval";
+  if (
+    status === "approved" ||
+    (status === "needs_attention" && decisionAction === "approve")
+  )
+    return "delivery";
   if (["queued", "preparing", "applying"].includes(status)) return "running";
   if (["interrupted", "needs_attention"].includes(status)) return "attention";
   return "finished";
 }
 export function workflowStep(status: string): number {
-  if (status === "applied") return 3;
+  if (status === "applied" || status === "published") return 3;
   if (status === "rejected") return 1;
-  if (status === "applying") return 2;
+  if (status === "applying" || status === "approved") return 2;
   if (status === "awaiting_approval") return 1;
   return 0;
 }
@@ -73,6 +79,54 @@ export function workflowReviewAccess(
   return (
     workflowAccess(authority, paired).review ||
     (!authority && !teamWorkspace && schemaVersion !== "2.0")
+  );
+}
+
+// A queue projection is not authorization. Actual approval still binds the
+// candidate digest, current evidence, online state and server-side permissions.
+export function workflowInReviewInbox(
+  workflow: {
+    status: string;
+    requester?: string;
+    reviewer?: string;
+    schema_version?: string;
+  },
+  authority: WorkflowAuthority | null,
+  paired: boolean,
+  teamWorkspace: boolean,
+): boolean {
+  if (
+    workflow.status !== "awaiting_approval" ||
+    !workflowReviewAccess(
+      authority,
+      paired,
+      teamWorkspace,
+      workflow.schema_version,
+    )
+  )
+    return false;
+  if (teamWorkspace || authority?.team)
+    return (
+      !!authority &&
+      !!workflow.requester &&
+      workflow.requester !== authority.actor &&
+      (!workflow.reviewer || workflow.reviewer === authority.actor)
+    );
+  return true;
+}
+
+export function workflowCanResume(
+  status: string,
+  runStatus?: string,
+  approved = false,
+): boolean {
+  return (
+    !approved &&
+    ["interrupted", "needs_attention"].includes(status) &&
+    (!runStatus ||
+      ["completed", "paused", "interrupted", "needs_attention"].includes(
+        runStatus,
+      ))
   );
 }
 

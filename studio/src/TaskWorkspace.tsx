@@ -3,7 +3,7 @@ import { api, apiUrl, messageOf, viaMachine } from "./api";
 import { PublicationPanel } from "./PublicationPanel";
 import { ProviderMark } from "./Brand";
 import { eventSummary } from "./RunWorkspace";
-import { parseDiff } from "./diff-model";
+import { parseDiff, type DiffFile } from "./diff-model";
 import {
   actorLabel,
   locateFinding,
@@ -15,7 +15,11 @@ import {
   type FindingDestination,
 } from "./task-review";
 import { WorkIcon } from "./WorkIcon";
-import { workflowGroup, workflowLabels } from "./workflow-state";
+import {
+  workflowCanResume,
+  workflowGroup,
+  workflowLabels,
+} from "./workflow-state";
 import { LABELS, type RunEvent, type RunResult } from "./types";
 import type { Workflow } from "./Workflows";
 import {
@@ -36,6 +40,81 @@ const clock = (at: string) =>
 const label = (v: string) => v.replaceAll("_", " ");
 
 type EvidenceTab = "changes" | "checks" | "findings" | "settings";
+
+/** Display-only: unknown or incomplete patches keep every recorded row visible. */
+export function collapsiblePatchHeaders(file?: DiffFile): number[] {
+  if (!file) return [];
+  const firstHunk = file.lines.findIndex((line) => line.kind === "hunk");
+  if (firstHunk < 1) return [];
+  const prefix = file.lines.slice(0, firstHunk);
+  const fileHeaders = /^index /.test(prefix[1]?.text || "")
+    ? prefix.slice(2)
+    : prefix.slice(1);
+  if (
+    !/^diff --git ("(?:[^"\\]|\\.)+"|a\/.+?) ("(?:[^"\\]|\\.)+"|b\/.+)$/.test(
+      prefix[0].text,
+    ) ||
+    fileHeaders.length !== 2 ||
+    !/^--- (?:a\/.+|\/dev\/null|"a\/(?:[^"\\]|\\.)+")$/.test(
+      fileHeaders[0].text,
+    ) ||
+    !/^\+\+\+ (?:b\/.+|\/dev\/null|"b\/(?:[^"\\]|\\.)+")$/.test(
+      fileHeaders[1].text,
+    ) ||
+    !prefix.every(
+      (line, i) =>
+        line.kind === "meta" &&
+        (i === 0 ||
+          /^index [a-f0-9]+\.\.[a-f0-9]+(?: [0-7]{6})?$/.test(line.text) ||
+          line.text.startsWith("--- ") ||
+          line.text.startsWith("+++ ")),
+    )
+  )
+    return [];
+  let oldRemaining = 0,
+    newRemaining = 0,
+    seenHunk = false,
+    seenContent = false;
+  for (const line of file.lines.slice(firstHunk)) {
+    if (line.kind === "hunk") {
+      if (seenHunk && (oldRemaining !== 0 || newRemaining !== 0)) return [];
+      const header = line.text.match(
+        /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(?: .*)?$/,
+      );
+      if (!header) return [];
+      const numbers = [
+        header[1],
+        header[2] ?? "1",
+        header[3],
+        header[4] ?? "1",
+      ].map(Number);
+      if (!numbers.every((n) => Number.isSafeInteger(n) && n >= 0)) return [];
+      if (
+        (numbers[0] === 0 && numbers[1] > 0) ||
+        (numbers[2] === 0 && numbers[3] > 0)
+      )
+        return [];
+      oldRemaining = numbers[1];
+      newRemaining = numbers[3];
+      seenHunk = true;
+    } else if (line.kind === "context") {
+      oldRemaining--;
+      newRemaining--;
+      seenContent = true;
+    } else if (line.kind === "addition") {
+      newRemaining--;
+      seenContent = true;
+    } else if (line.kind === "deletion") {
+      oldRemaining--;
+      seenContent = true;
+    } else if (line.text !== "\\ No newline at end of file") return [];
+    if (oldRemaining < 0 || newRemaining < 0) return [];
+  }
+  return seenContent && oldRemaining === 0 && newRemaining === 0
+    ? prefix.map((_, i) => i)
+    : [];
+}
+
 export function TaskWorkspace({
   visible,
   feedback,
@@ -106,11 +185,29 @@ export function TaskWorkspace({
   const [filePath, setFilePath] = useState("");
   const [fileQuery, setFileQuery] = useState("");
   const [diffPage, setDiffPage] = useState(0);
+  const [showPatchHeaders, setShowPatchHeaders] = useState(false);
   const [findingTarget, setFindingTarget] = useState<FindingDestination | null>(
     null,
   );
   const codeRef = useRef<HTMLDivElement>(null);
-  const [activityOpen, setActivityOpen] = useState(true);
+  const [activityOpen, setActivityOpen] = useState(() => {
+    try {
+      return localStorage.getItem("parallax-task-activity") === "open";
+    } catch {
+      return false;
+    }
+  });
+  const [correctionOpen, setCorrectionOpen] = useState(false);
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "parallax-task-activity",
+        activityOpen ? "open" : "closed",
+      );
+    } catch {
+      /* Disclosure remains usable with browser storage disabled. */
+    }
+  }, [activityOpen]);
   const [stream, setStream] = useState("connecting");
   const [revision, setRevision] = useState(0);
   const lastEvent = useRef(0);
@@ -186,6 +283,14 @@ export function TaskWorkspace({
   );
   const activeFile =
     visibleFiles.find((file) => file.path === filePath) || visibleFiles[0];
+  const headerRows = useMemo(
+    () => new Set(collapsiblePatchHeaders(activeFile)),
+    [activeFile],
+  );
+  useEffect(
+    () => setShowPatchHeaders(false),
+    [activeFile?.path, runId, workflow.candidate?.digest],
+  );
   useEffect(() => {
     if (findingTarget?.path === activeFile?.path)
       setDiffPage(findingTarget?.page || 0);
@@ -258,8 +363,17 @@ export function TaskWorkspace({
   const checkOutcomes = checkCounts(currentChecks);
   const finalReviewState = reviewPresentation(currentReview || {});
   const delivery = workflow.delivery;
+  const changedFileCount =
+    workflow.candidate?.changed_files?.length ?? run?.changed_files?.length;
+  const materialDelivery =
+    !!workflow.publication ||
+    ["applied", "published", "approved", "applying"].includes(
+      workflow.status,
+    ) ||
+    (!!delivery?.local && delivery.local !== "pending") ||
+    (!!delivery?.github && delivery.github !== "pending");
   const unbound = [
-    ...(run?.checks || []),
+    ...currentChecks,
     ...(currentReview ? [currentReview] : []),
   ].filter((row) => !observationOf(row)).length;
   const uncertainGates = (workflow.candidate?.gates || []).filter(
@@ -268,6 +382,17 @@ export function TaskWorkspace({
   const usageReports = Array.isArray(run?.usage?.reports)
     ? run.usage.reports
     : [];
+  const resumable = workflowCanResume(
+    workflow.status,
+    run && run.run_id === runId ? run.status : workflow.run_status,
+    workflow.schema_version === "2.0" && decision?.action === "approve",
+  );
+  const finalCheckLabel = currentChecks.length
+    ? Object.entries(checkOutcomes)
+        .filter(([, count]) => count > 0)
+        .map(([state, count]) => `${count} ${state}`)
+        .join(" · ")
+    : "No current final checks recorded";
   const relationship = relationKind(workflow);
   const locate = (finding: ReturnType<typeof normalizeFinding>) => {
     const destination = locateFinding(
@@ -284,6 +409,87 @@ export function TaskWorkspace({
     }
     setTab("changes");
   };
+  const followup = (
+    <div className="task-followup">
+      <label htmlFor="task-feedback">
+        {active ? "Direct the team" : "Follow up on this task"}
+      </label>
+      {selectedFindings.length > 0 && (
+        <p className="revision-selection-note">
+          {selectedFindings.length} review finding
+          {selectedFindings.length === 1 ? "" : "s"} selected for a candidate
+          revision.
+        </p>
+      )}
+      <textarea
+        id="task-feedback"
+        value={feedback}
+        onChange={(e) => onFeedback(e.target.value)}
+        rows={2}
+        maxLength={4000}
+        placeholder={
+          steerable
+            ? "Add context or adjust the direction…"
+            : "Describe what needs to change next…"
+        }
+      />
+      <div>
+        <span>
+          {steerable
+            ? "Delivered during execution"
+            : active
+              ? "Waiting for an active run"
+              : `A revision starts from the saved candidate with a new ${workflow.spec?.limits.minutes ? `${workflow.spec.limits.minutes} minute` : "execution"} budget. A new task starts from your current project.`}
+        </span>
+        <button
+          className="secondary-button"
+          disabled={
+            sending ||
+            !!busy ||
+            !canDeliver ||
+            !feedback.trim() ||
+            (active && !steerable) ||
+            (steerable && !online)
+          }
+          onClick={() => (steerable ? onSend() : onAgain(feedback))}
+        >
+          {sending
+            ? "Sending…"
+            : active
+              ? "Send"
+              : "New task from current project"}
+          <WorkIcon name="arrow" size={13} />
+        </button>
+        {!active &&
+          workflow.candidate &&
+          [
+            "awaiting_approval",
+            "rejected",
+            "approved",
+            "published",
+            "superseded",
+          ].includes(workflow.status) && (
+            <button
+              className="secondary-button"
+              disabled={!!busy || !online || !feedback.trim() || !canDeliver}
+              onClick={() => onRevise(selectedFindings)}
+            >
+              {busy === "revise" ? "Starting revision…" : "Revise candidate"}
+            </button>
+          )}
+      </div>
+      {workflow.schema_version === "2.0" && (
+        <button
+          className="secondary-button"
+          disabled={!feedback.trim() || !!busy}
+          onClick={onComment}
+        >
+          Save review comment
+        </button>
+      )}
+      {sent && <p role="status">{sent}</p>}
+    </div>
+  );
   return (
     <section className="task-workspace" aria-labelledby="selected-task-title">
       <header className="task-titlebar">
@@ -297,9 +503,27 @@ export function TaskWorkspace({
           </span>
         </div>
         <div className="task-title-row">
-          <h1 id="selected-task-title">{workflow.title}</h1>
+          <h1 id="selected-task-title" tabIndex={-1}>
+            {workflow.title}
+          </h1>
+        </div>
+        <details className="task-human-record">
+          <summary>Task details</summary>
+          <p className="task-project-location">
+            <code>{workflow.workspace}</code>
+          </p>
+          <div className="task-meta">
+            <span>
+              {workflow.template.name} <code>v{workflow.template.version}</code>
+            </span>
+            {runId && (
+              <button className="text-button" onClick={() => onInspect(runId)}>
+                Open agent graph <WorkIcon name="arrow" size={13} />
+              </button>
+            )}
+          </div>
           <button
-            className="icon-button"
+            className="text-button activity-toggle"
             title={activityOpen ? "Hide task activity" : "Show task activity"}
             aria-label={
               activityOpen ? "Hide task activity" : "Show task activity"
@@ -308,56 +532,43 @@ export function TaskWorkspace({
             onClick={() => setActivityOpen(!activityOpen)}
           >
             <WorkIcon name="stack" />
+            {activityOpen ? "Hide activity" : "Show activity"}
           </button>
-        </div>
-        <div className="task-meta">
-          <span>
-            {workflow.template.name} <code>v{workflow.template.version}</code>
-          </span>
-          <span>
-            {workflow.runtime_seconds
-              ? `${Math.max(1, Math.round(workflow.runtime_seconds))}s execution`
-              : "Waiting to start"}
-          </span>
-          {runId && (
-            <button className="text-button" onClick={() => onInspect(runId)}>
-              Open agent graph <WorkIcon name="arrow" size={13} />
-            </button>
-          )}
-        </div>
-        <dl className="task-human-meta" aria-label="Human review record">
-          <div>
-            <dt>Requester</dt>
-            <dd>{human(workflow.requester)}</dd>
-          </div>
-          <div>
-            <dt>Assigned reviewer</dt>
-            <dd>
-              {workflow.reviewer ? human(workflow.reviewer) : "Not assigned"}
-            </dd>
-          </div>
-          <div>
-            <dt>Human decision</dt>
-            <dd>
-              {decision ? (
-                <>
-                  {decision.action === "approve"
-                    ? "Approved"
-                    : decision.action === "reject"
-                      ? "Declined"
-                      : "Recorded decision"}
-                  {" by "}
-                  {human(decision.actor)}
-                  <time dateTime={decision.at || undefined}>
-                    {recordedTime(decision.at)}
-                  </time>
-                </>
-              ) : (
-                "No decision recorded"
-              )}
-            </dd>
-          </div>
-        </dl>
+
+          <dl className="task-human-meta" aria-label="Human review record">
+            <div>
+              <dt>Requester</dt>
+              <dd>{human(workflow.requester)}</dd>
+            </div>
+            <div>
+              <dt>Assigned reviewer</dt>
+              <dd>
+                {workflow.reviewer ? human(workflow.reviewer) : "Not assigned"}
+              </dd>
+            </div>
+            <div>
+              <dt>Human decision</dt>
+              <dd>
+                {decision ? (
+                  <>
+                    {decision.action === "approve"
+                      ? "Approved"
+                      : decision.action === "reject"
+                        ? "Declined"
+                        : "Recorded decision"}
+                    {" by "}
+                    {human(decision.actor)}
+                    <time dateTime={decision.at || undefined}>
+                      {recordedTime(decision.at)}
+                    </time>
+                  </>
+                ) : (
+                  "No decision recorded"
+                )}
+              </dd>
+            </div>
+          </dl>
+        </details>
       </header>
       {(workflow.parent_workflow_id || followups.length > 0) && (
         <nav className="task-relations" aria-label="Related tasks">
@@ -408,6 +619,183 @@ export function TaskWorkspace({
           </button>
         </div>
       )}
+      <footer className="task-decision">
+        <div className="decision-evidence">
+          <h2 className="next-action-title">Next action</h2>
+          {!online && (
+            <p className="decision-blocker">
+              Reconnect the worker before approving or delivering this
+              candidate.
+            </p>
+          )}
+          {workflow.status === "published" && (
+            <p className="decision-blocker">
+              Draft PR published. Inspect GitHub checks and review feedback
+              below.
+            </p>
+          )}
+          {["interrupted", "needs_attention"].includes(workflow.status) &&
+            !resumable &&
+            decision?.action !== "approve" && (
+              <p className="decision-blocker">
+                This execution cannot resume. Inspect the failure, then start a
+                fresh task from the current project.
+              </p>
+            )}
+          {workflow.candidate ? (
+            <>
+              <span className="decision-caption">
+                {workflow.status === "applied"
+                  ? "Applied to your project."
+                  : ready
+                    ? workflow.schema_version === "2.0"
+                      ? "Approve this candidate to permit delivery."
+                      : "Approval applies the complete candidate to your project."
+                    : workflow.status === "approved"
+                      ? "Approval recorded. Apply locally or inspect GitHub delivery below."
+                      : workflow.status === "published"
+                        ? "Draft PR delivery recorded; inspect its checks and feedback below."
+                        : approvalHint || "Recorded candidate evidence."}{" "}
+              </span>
+            </>
+          ) : (
+            <>
+              <strong>
+                {workflow.status === "preparing"
+                  ? "Team is preparing the candidate"
+                  : workflowLabels[workflow.status] || label(workflow.status)}
+              </strong>
+              <span className="decision-caption">
+                Review, checks, and your approval are required before
+                application.
+              </span>
+            </>
+          )}
+        </div>
+        <div className="decision-actions">
+          {canDeliver &&
+            ["interrupted", "needs_attention"].includes(workflow.status) &&
+            !resumable &&
+            decision?.action !== "approve" && (
+              <button
+                className="primary-button"
+                disabled={!!busy || !online}
+                onClick={() => onAgain()}
+              >
+                New task from current project
+              </button>
+            )}
+          {canDeliver &&
+            workflow.candidate &&
+            [
+              "awaiting_approval",
+              "rejected",
+              "approved",
+              "published",
+              "superseded",
+            ].includes(workflow.status) && (
+              <button
+                className="secondary-button"
+                onClick={() => {
+                  setCorrectionOpen(true);
+                  setActivityOpen(false);
+                  requestAnimationFrame(() =>
+                    document.getElementById("task-feedback")?.focus(),
+                  );
+                }}
+              >
+                Request revision
+              </button>
+            )}
+          {(workflow.status === "approved" ||
+            (workflow.schema_version === "2.0" &&
+              workflow.status === "needs_attention" &&
+              workflow.decision?.action === "approve")) &&
+            canDeliver && (
+              <button
+                className="primary-button"
+                disabled={!!busy || !online}
+                onClick={() => onAction("apply")}
+              >
+                {workflow.status === "needs_attention"
+                  ? "Retry local application"
+                  : "Apply locally"}
+              </button>
+            )}
+          {ready ? (
+            <>
+              <button
+                className="secondary-button"
+                disabled={!!busy || !online || !!error}
+                onClick={() => onAction("reject")}
+              >
+                Decline
+              </button>
+              <button
+                className="primary-button"
+                disabled={
+                  !!busy ||
+                  !online ||
+                  !!error ||
+                  run?.run_id !== runId ||
+                  run?.status !== "completed"
+                }
+                onClick={() => onAction("approve")}
+              >
+                <WorkIcon name="check" size={15} />
+                {busy === "approve"
+                  ? workflow.schema_version === "2.0"
+                    ? "Approving…"
+                    : "Applying…"
+                  : run?.status !== "completed"
+                    ? "Loading final evidence…"
+                    : workflow.schema_version === "2.0"
+                      ? "Approve candidate"
+                      : "Approve & apply"}
+              </button>
+            </>
+          ) : workflow.status === "applied" && runId ? (
+            <a
+              className="secondary-button"
+              href={apiUrl(`/runs/${runId}/receipt`)}
+              download
+            >
+              <WorkIcon name="download" size={15} />
+              Verification record
+            </a>
+          ) : resumable ? (
+            <button
+              className="primary-button"
+              disabled={!!busy || !online || !canDeliver}
+              onClick={() => onAction("resume")}
+            >
+              Resume task
+            </button>
+          ) : null}
+          {!ready &&
+            !["applied", "rejected", "cancelled", "applying"].includes(
+              workflow.status,
+            ) &&
+            workflow.decision?.action !== "approve" && (
+              <button
+                className="secondary-button"
+                disabled={!!busy || !online || !canDeliver}
+                onClick={() => onAction("cancel")}
+              >
+                Stop task
+              </button>
+            )}
+          {["rejected", "cancelled"].includes(workflow.status) && (
+            <button
+              className="secondary-button"
+              disabled={!!busy || !canDeliver}
+              onClick={() => onAgain()}
+            >
+              Use task again
+            </button>
+          )}
+        </div>
+      </footer>
       <section
         className="candidate-summary"
         aria-labelledby="candidate-summary-title"
@@ -430,10 +818,8 @@ export function TaskWorkspace({
             <dt>Changes</dt>
             <dd>
               <button className="text-button" onClick={() => setTab("changes")}>
-                {workflow.candidate?.changed_files?.length ??
-                  run?.changed_files?.length ??
-                  "Unrecorded"}{" "}
-                files
+                {changedFileCount ?? "Unrecorded"}{" "}
+                {changedFileCount === 1 ? "file" : "files"}
               </button>
             </dd>
           </div>
@@ -441,9 +827,7 @@ export function TaskWorkspace({
             <dt>Current final checks</dt>
             <dd>
               <button className="text-button" onClick={() => setTab("checks")}>
-                {currentChecks.length
-                  ? `${checkOutcomes.passed} passed · ${checkOutcomes.failed} failed · ${checkOutcomes.unavailable} unavailable · ${checkOutcomes.skipped} skipped · ${checkOutcomes.unrecorded} unrecorded`
-                  : "No current final checks recorded"}
+                {finalCheckLabel}
               </button>
             </dd>
           </div>
@@ -465,101 +849,184 @@ export function TaskWorkspace({
                 ? "Approved"
                 : decision?.action === "reject"
                   ? "Declined"
-                  : "Awaiting a recorded decision"}
-            </dd>
-          </div>
-          <div>
-            <dt>Local delivery</dt>
-            <dd>
-              {delivery?.local === "applied" || workflow.status === "applied"
-                ? "Applied"
-                : delivery?.local === "pending"
-                  ? "Not applied"
-                  : delivery?.local
-                    ? label(delivery.local)
-                    : workflow.schema_version === "2.0"
-                      ? "Unrecorded"
-                      : "Legacy combined approval and application"}
-            </dd>
-          </div>
-          <div>
-            <dt>GitHub delivery</dt>
-            <dd>
-              {workflow.publication
-                ? "Draft PR published"
-                : delivery?.github === "pending"
-                  ? "Not published"
-                  : delivery?.github
-                    ? label(delivery.github)
-                    : "Unrecorded"}
-            </dd>
-          </div>
-          <div>
-            <dt>Execution time</dt>
-            <dd>
-              {typeof workflow.runtime_seconds === "number"
-                ? `${workflow.runtime_seconds}s recorded`
-                : "Unrecorded"}
-            </dd>
-          </div>
-          <div>
-            <dt>Provider usage</dt>
-            <dd>
-              {usageReports.length
-                ? `${usageReports.length} usage reports; total cost unknown`
-                : "Usage unreported; cost unknown"}
+                  : workflow.status === "awaiting_approval"
+                    ? "Awaiting approval"
+                    : "No recorded decision"}
             </dd>
           </div>
         </dl>
-        <div className="candidate-uncertainty">
-          <strong>Evidence scope &amp; remaining uncertainty</strong>
+        {materialDelivery && (
+          <dl className="candidate-delivery-facts">
+            <div>
+              <dt>Local delivery</dt>
+              <dd>
+                {delivery?.local === "applied" || workflow.status === "applied"
+                  ? "Applied"
+                  : delivery?.local === "pending"
+                    ? "Not applied"
+                    : delivery?.local
+                      ? label(delivery.local)
+                      : workflow.schema_version === "2.0"
+                        ? "Unrecorded"
+                        : "Legacy combined approval and application"}
+              </dd>
+            </div>
+            <div>
+              <dt>GitHub delivery</dt>
+              <dd>
+                {workflow.publication
+                  ? "Draft PR published"
+                  : delivery?.github === "pending"
+                    ? "Not published"
+                    : delivery?.github
+                      ? label(delivery.github)
+                      : "Unrecorded"}
+              </dd>
+            </div>
+          </dl>
+        )}
+        <details className="candidate-run-details">
+          <summary>Run details and evidence scope</summary>
+          {!materialDelivery && (
+            <dl className="candidate-delivery-facts">
+              <div>
+                <dt>Local delivery</dt>
+                <dd>
+                  {delivery?.local === "applied" ||
+                  workflow.status === "applied"
+                    ? "Applied"
+                    : delivery?.local === "pending"
+                      ? "Not applied"
+                      : delivery?.local
+                        ? label(delivery.local)
+                        : workflow.schema_version === "2.0"
+                          ? "Unrecorded"
+                          : "Legacy combined approval and application"}
+                </dd>
+              </div>
+              <div>
+                <dt>GitHub delivery</dt>
+                <dd>
+                  {workflow.publication
+                    ? "Draft PR published"
+                    : delivery?.github === "pending"
+                      ? "Not published"
+                      : delivery?.github
+                        ? label(delivery.github)
+                        : "Unrecorded"}
+                </dd>
+              </div>
+            </dl>
+          )}
+          {workflow.candidate && (
+            <details className="decision-gate-details">
+              <summary>Candidate acceptance gates</summary>
+              <div className="decision-gates">
+                {workflow.candidate.gates.map((gate) => (
+                  <span key={gate.id} className={gatePresentation(gate).state}>
+                    <WorkIcon
+                      name={gate.status === "passed" ? "check" : "warning"}
+                      size={13}
+                    />
+                    {gate.label}: {gatePresentation(gate).label}
+                  </span>
+                ))}
+              </div>
+            </details>
+          )}
+          {runId && (
+            <a
+              className="text-button"
+              href={apiUrl(`/runs/${runId}/receipt`)}
+              download
+            >
+              Download verification record{" "}
+              <span>(recorded evidence may be partial)</span>
+            </a>
+          )}
+          <dl className="candidate-runtime-facts">
+            <div>
+              <dt>Execution time</dt>
+              <dd>
+                {typeof workflow.runtime_seconds === "number"
+                  ? `${workflow.runtime_seconds}s recorded`
+                  : "Unrecorded"}
+              </dd>
+            </div>
+            <div>
+              <dt>Provider usage</dt>
+              <dd>
+                {usageReports.length
+                  ? `${usageReports.length} usage reports; total cost unknown`
+                  : "Usage unreported; cost unknown"}
+              </dd>
+            </div>
+          </dl>
           <p>
             Checks establish only their recorded coverage. Review is separate
             from human approval; approval is separate from delivery.
           </p>
-          {!currentChecks.length && (
-            <p>
-              No current final command evidence is recorded.
-              {!!run?.checks.length &&
-                " Previous check outcomes remain in Checks; their association with this verification attempt is unrecorded or historical."}
-            </p>
-          )}
-          {finalReviewState.state !== "passed" && (
-            <p>{finalReviewState.detail}</p>
-          )}
-          {!!unbound && (
-            <p>
-              Artifact binding is unrecorded for {unbound} final observation
-              {unbound === 1 ? "" : "s"}. Older records do not establish exact
-              workspace provenance.
-            </p>
-          )}
-          {uncertainGates.map((gate) => (
-            <p key={gate.id}>
-              <strong>
-                {gate.label}: {gatePresentation(gate).label}.
-              </strong>{" "}
-              {gatePresentation(gate).detail}
-            </p>
-          ))}
-          {error && (
-            <p>
-              Evidence refresh is unavailable. Displayed results may be older
-              recorded evidence.
-            </p>
-          )}
-        </div>
-        {runId && (
-          <a
-            className="text-button"
-            href={apiUrl(`/runs/${runId}/receipt`)}
-            download
-          >
-            Download verification record{" "}
-            <span>(recorded evidence may be partial)</span>
-          </a>
+        </details>
+        {(!currentChecks.length ||
+          finalReviewState.state !== "passed" ||
+          !!unbound ||
+          uncertainGates.length > 0 ||
+          !!error) && (
+          <div className="candidate-uncertainty">
+            {!currentChecks.length && (
+              <p>
+                No current final command evidence is recorded.
+                {!!run?.checks.length &&
+                  " Previous check outcomes remain in Checks; their association with this verification attempt is unrecorded or historical."}
+              </p>
+            )}
+            {finalReviewState.state !== "passed" && (
+              <p>{finalReviewState.detail}</p>
+            )}
+            {!!unbound && (
+              <p>
+                Artifact binding is unrecorded for {unbound} final observation
+                {unbound === 1 ? "" : "s"}. Older records do not establish exact
+                workspace provenance.
+              </p>
+            )}
+            {uncertainGates.map((gate) => (
+              <p key={gate.id}>
+                <strong>
+                  {gate.label}: {gatePresentation(gate).label}.
+                </strong>{" "}
+                {gatePresentation(gate).detail}
+              </p>
+            ))}
+            {error && (
+              <p>
+                Evidence refresh is unavailable. Displayed results may be older
+                recorded evidence.
+              </p>
+            )}
+          </div>
         )}
       </section>
+      {workflow.github_target &&
+        ["approved", "published"].includes(workflow.status) && (
+          <details
+            className="task-delivery"
+            open={workflow.status === "approved"}
+          >
+            <summary>GitHub delivery and feedback</summary>
+            <PublicationPanel
+              workflow={workflow}
+              canDeliver={canDeliver}
+              onChanged={onRefresh}
+              onFeedback={(message) => {
+                setActivityOpen(true);
+                onFeedback((previous) =>
+                  previous ? previous + "\n\n" + message : message,
+                );
+              }}
+            />
+          </details>
+        )}
       <div className={`task-panels ${activityOpen ? "" : "activity-hidden"}`}>
         {activityOpen && (
           <div className="task-conversation">
@@ -717,89 +1184,7 @@ export function TaskWorkspace({
                 ))}
               </div>
             </div>
-            <div className="task-followup">
-              <label htmlFor="task-feedback">
-                {active ? "Direct the team" : "Follow up on this task"}
-              </label>
-              {selectedFindings.length > 0 && (
-                <p className="revision-selection-note">
-                  {selectedFindings.length} review finding
-                  {selectedFindings.length === 1 ? "" : "s"} selected for a
-                  candidate revision.
-                </p>
-              )}
-              <textarea
-                id="task-feedback"
-                value={feedback}
-                onChange={(e) => onFeedback(e.target.value)}
-                rows={2}
-                maxLength={4000}
-                placeholder={
-                  steerable
-                    ? "Add context or adjust the direction…"
-                    : "Describe what needs to change next…"
-                }
-              />
-              <div>
-                <span>
-                  {steerable
-                    ? "Delivered during execution"
-                    : active
-                      ? "Waiting for an active run"
-                      : `A revision starts from the saved candidate with a new ${workflow.spec?.limits.minutes ? `${workflow.spec.limits.minutes} minute` : "execution"} budget. A new task starts from your current project.`}
-                </span>
-                <button
-                  className="secondary-button"
-                  disabled={
-                    sending ||
-                    !!busy ||
-                    !canDeliver ||
-                    !feedback.trim() ||
-                    (active && !steerable) ||
-                    (steerable && !online)
-                  }
-                  onClick={() => (steerable ? onSend() : onAgain(feedback))}
-                >
-                  {sending
-                    ? "Sending…"
-                    : active
-                      ? "Send"
-                      : "New task from current project"}
-                  <WorkIcon name="arrow" size={13} />
-                </button>
-                {!active &&
-                  workflow.candidate &&
-                  [
-                    "awaiting_approval",
-                    "rejected",
-                    "approved",
-                    "published",
-                    "superseded",
-                  ].includes(workflow.status) && (
-                    <button
-                      className="secondary-button"
-                      disabled={
-                        !!busy || !online || !feedback.trim() || !canDeliver
-                      }
-                      onClick={() => onRevise(selectedFindings)}
-                    >
-                      {busy === "revise"
-                        ? "Starting revision…"
-                        : "Revise candidate"}
-                    </button>
-                  )}
-              </div>
-              {workflow.schema_version === "2.0" && (
-                <button
-                  className="secondary-button"
-                  disabled={!feedback.trim() || !!busy}
-                  onClick={onComment}
-                >
-                  Save review comment
-                </button>
-              )}
-              {sent && <p role="status">{sent}</p>}
-            </div>
+            {followup}
           </div>
         )}
         <div className="task-evidence">
@@ -884,7 +1269,9 @@ export function TaskWorkspace({
                       </a>
                     )}
                   </div>
-                  <div className="diff-workspace">
+                  <div
+                    className={`diff-workspace ${files.length === 1 && activeFile ? "single-file" : ""}`}
+                  >
                     <aside className="diff-files" aria-label="Changed files">
                       <label>
                         <WorkIcon name="search" size={13} />
@@ -918,7 +1305,21 @@ export function TaskWorkspace({
                       <div className="diff-document" key={activeFile.path}>
                         <div className="diff-file-heading">
                           <code>{activeFile.path}</code>
-                          <span>Unified diff</span>
+                          {headerRows.size > 0 && currentPage === 0 ? (
+                            <button
+                              className="text-button patch-header-toggle"
+                              aria-expanded={showPatchHeaders}
+                              onClick={() =>
+                                setShowPatchHeaders((previous) => !previous)
+                              }
+                            >
+                              {showPatchHeaders
+                                ? "Hide patch headers"
+                                : "Show patch headers"}
+                            </button>
+                          ) : (
+                            <span>Unified diff</span>
+                          )}
                         </div>
                         {pageCount > 1 && (
                           <div className="diff-pagination">
@@ -960,26 +1361,38 @@ export function TaskWorkspace({
                                   currentPage * pageSize,
                                   (currentPage + 1) * pageSize,
                                 )
-                                .map((line, i) => (
-                                  <tr
-                                    key={i}
-                                    data-patch-row={currentPage * pageSize + i}
-                                    tabIndex={
-                                      findingTarget?.path === activeFile.path &&
-                                      findingTarget.row ===
+                                .map((line, i) =>
+                                  !showPatchHeaders &&
+                                  headerRows.has(
+                                    currentPage * pageSize + i,
+                                  ) ? null : (
+                                    <tr
+                                      key={i}
+                                      data-patch-row={
                                         currentPage * pageSize + i
-                                        ? -1
-                                        : undefined
-                                    }
-                                    className={`patch-${line.kind}${findingTarget?.path === activeFile.path && findingTarget.row === currentPage * pageSize + i ? " finding-target" : ""}`}
-                                  >
-                                    <td className="line-number">{line.old}</td>
-                                    <td className="line-number">{line.next}</td>
-                                    <td className="code-line">
-                                      <pre>{line.text || " "}</pre>
-                                    </td>
-                                  </tr>
-                                ))}
+                                      }
+                                      tabIndex={
+                                        findingTarget?.path ===
+                                          activeFile.path &&
+                                        findingTarget.row ===
+                                          currentPage * pageSize + i
+                                          ? -1
+                                          : undefined
+                                      }
+                                      className={`patch-${line.kind}${findingTarget?.path === activeFile.path && findingTarget.row === currentPage * pageSize + i ? " finding-target" : ""}`}
+                                    >
+                                      <td className="line-number">
+                                        {line.old}
+                                      </td>
+                                      <td className="line-number">
+                                        {line.next}
+                                      </td>
+                                      <td className="code-line">
+                                        <pre>{line.text || " "}</pre>
+                                      </td>
+                                    </tr>
+                                  ),
+                                )}
                             </tbody>
                           </table>
                         </div>
@@ -1190,6 +1603,19 @@ export function TaskWorkspace({
           </div>
         </div>
       </div>
+      {!activityOpen && (
+        <details
+          className="task-correction"
+          open={correctionOpen || selectedFindings.length > 0}
+        >
+          <summary>
+            {canDeliver
+              ? "Request a correction or new task"
+              : "Comment on this task"}
+          </summary>
+          {followup}
+        </details>
+      )}
       {workflow.status === "awaiting_approval" &&
         members.length > 0 &&
         canDeliver && (
@@ -1213,153 +1639,6 @@ export function TaskWorkspace({
             </select>
           </label>
         )}
-      <PublicationPanel
-        workflow={workflow}
-        canDeliver={canDeliver}
-        onChanged={onRefresh}
-        onFeedback={(message) => {
-          setActivityOpen(true);
-          onFeedback((previous) =>
-            previous ? previous + "\n\n" + message : message,
-          );
-        }}
-      />
-      <footer className="task-decision">
-        <div className="decision-evidence">
-          {workflow.candidate ? (
-            <>
-              <div className="decision-gates">
-                {workflow.candidate.gates.map((gate) => (
-                  <span key={gate.id} className={gatePresentation(gate).state}>
-                    <WorkIcon
-                      name={gate.status === "passed" ? "check" : "warning"}
-                      size={13}
-                    />
-                    {gate.label}: {gatePresentation(gate).label}
-                  </span>
-                ))}
-              </div>
-              <span className="decision-caption">
-                {workflow.status === "applied"
-                  ? "Applied to your project."
-                  : ready
-                    ? workflow.schema_version === "2.0"
-                      ? "Approval permits delivery. Choose Apply locally or Publish draft PR separately."
-                      : "Approval applies the complete candidate to your project."
-                    : approvalHint || "Recorded candidate evidence."}{" "}
-                <code title={workflow.candidate.digest}>
-                  {workflow.candidate.digest.slice(0, 10)}
-                </code>
-              </span>
-            </>
-          ) : (
-            <>
-              <strong>
-                {workflow.status === "preparing"
-                  ? "Team is preparing the candidate"
-                  : workflowLabels[workflow.status] || label(workflow.status)}
-              </strong>
-              <span className="decision-caption">
-                Review, checks, and your approval are required before
-                application.
-              </span>
-            </>
-          )}
-        </div>
-        <div className="decision-actions">
-          {(workflow.status === "approved" ||
-            (workflow.schema_version === "2.0" &&
-              workflow.status === "needs_attention" &&
-              workflow.decision?.action === "approve")) &&
-            canDeliver && (
-              <button
-                className="primary-button"
-                disabled={!!busy || !online}
-                onClick={() => onAction("apply")}
-              >
-                {workflow.status === "needs_attention"
-                  ? "Retry local application"
-                  : "Apply locally"}
-              </button>
-            )}
-          {ready ? (
-            <>
-              <button
-                className="secondary-button"
-                disabled={!!busy || !online || !!error}
-                onClick={() => onAction("reject")}
-              >
-                Decline
-              </button>
-              <button
-                className="primary-button"
-                disabled={
-                  !!busy ||
-                  !online ||
-                  !!error ||
-                  run?.run_id !== runId ||
-                  run?.status !== "completed"
-                }
-                onClick={() => onAction("approve")}
-              >
-                <WorkIcon name="check" size={15} />
-                {busy === "approve"
-                  ? workflow.schema_version === "2.0"
-                    ? "Approving…"
-                    : "Applying…"
-                  : run?.status !== "completed"
-                    ? "Loading final evidence…"
-                    : workflow.schema_version === "2.0"
-                      ? "Approve candidate"
-                      : "Approve & apply"}
-              </button>
-            </>
-          ) : workflow.status === "applied" && runId ? (
-            <a
-              className="secondary-button"
-              href={apiUrl(`/runs/${runId}/receipt`)}
-              download
-            >
-              <WorkIcon name="download" size={15} />
-              Verification record
-            </a>
-          ) : ["interrupted", "needs_attention"].includes(workflow.status) &&
-            !(
-              workflow.schema_version === "2.0" &&
-              workflow.decision?.action === "approve"
-            ) ? (
-            <button
-              className="primary-button"
-              disabled={!!busy || !online || !canDeliver}
-              onClick={() => onAction("resume")}
-            >
-              Resume task
-            </button>
-          ) : null}
-          {!ready &&
-            !["applied", "rejected", "cancelled", "applying"].includes(
-              workflow.status,
-            ) &&
-            workflow.decision?.action !== "approve" && (
-              <button
-                className="secondary-button"
-                disabled={!!busy || !online || !canDeliver}
-                onClick={() => onAction("cancel")}
-              >
-                Stop task
-              </button>
-            )}
-          {["rejected", "cancelled"].includes(workflow.status) && (
-            <button
-              className="secondary-button"
-              disabled={!!busy || !canDeliver}
-              onClick={() => onAgain()}
-            >
-              Use task again
-            </button>
-          )}
-        </div>
-      </footer>
     </section>
   );
 }

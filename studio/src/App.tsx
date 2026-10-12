@@ -7,6 +7,7 @@ import {
 } from "react";
 import { api, apiUrl, messageOf, viaMachine } from "./api";
 import { ProviderMark } from "./Brand";
+import { Mark } from "./PublicChrome";
 import { RunWorkspace } from "./RunWorkspace";
 import { Connections as ConnectionsPanel } from "./Connections";
 import { ProjectReadiness } from "./ProjectReadiness";
@@ -28,6 +29,7 @@ import {
   VariantDetail,
 } from "./Exploration";
 import { Workflows } from "./Workflows";
+import { Repositories } from "./Repositories";
 import type { EvidenceTransport } from "./session";
 import { contextManifest, explorations } from "./run-inspection";
 import {
@@ -47,7 +49,14 @@ import {
   type RunSpec,
 } from "./types";
 
-type Tab = "workflows" | "team" | "run" | "review";
+type Tab =
+  | "workflows"
+  | "repositories"
+  | "inbox"
+  | "settings"
+  | "team"
+  | "run"
+  | "review";
 type ReviewTab = "findings" | "changes" | "checks" | "settings";
 type IconName =
   | "connection"
@@ -1191,6 +1200,9 @@ export default function App({
   accountControl,
   teamWorkspace = false,
   onReconnect,
+  workspaceName,
+  workspaceRole,
+  onManageWorkspace,
 }: {
   execution?: {
     id?: string;
@@ -1205,9 +1217,17 @@ export default function App({
   accountControl?: ReactNode;
   teamWorkspace?: boolean;
   onReconnect?: () => void;
+  workspaceName?: string;
+  workspaceRole?: string;
+  onManageWorkspace?: (section: "workspace" | "projects" | "github") => void;
 } = {}) {
   const hostedWorkspace = import.meta.env.MODE === "cloud";
+  const legacyTeamScope = useRef(teamWorkspace);
+  legacyTeamScope.current = teamWorkspace;
   const [tab, setTab] = useState<Tab>("workflows");
+  const [newTaskRequest, setNewTaskRequest] = useState<
+    { sequence: number; workspace: string } | undefined
+  >();
   const [reviewTab, setReviewTab] = useState<ReviewTab>("findings");
   const [providers, setProviders] = useState<Provider[]>([]);
   const [connections, setConnections] = useState<Connection[]>([]);
@@ -1239,7 +1259,7 @@ export default function App({
   const [steering, setSteering] = useState("");
   const [selectedTask, setSelectedTask] = useState<string | null>(null);
   const [theme, setTheme] = useState(
-    () => localStorage.getItem("parallax-theme") || "dark",
+    () => localStorage.getItem("parallax-theme") || "light",
   );
   const [motion, setMotion] = useState(
     () => localStorage.getItem("parallax-motion") || "system",
@@ -1483,7 +1503,11 @@ export default function App({
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [refreshProviders, execution?.online]);
   useEffect(() => {
-    if (!run?.run_id || tab === "workflows" || execution?.online === false)
+    if (
+      !run?.run_id ||
+      !["team", "run", "review"].includes(tab) ||
+      execution?.online === false
+    )
       return;
     activeId.current = run.run_id;
     cursor.current = 0;
@@ -1577,7 +1601,16 @@ export default function App({
     return "";
   }
 
+  function refuseTeamLegacyOperation() {
+    if (!legacyTeamScope.current) return false;
+    setError(
+      "Manage shared work in Tasks or Review inbox. Team execution uses the task workflow.",
+    );
+    return true;
+  }
+
   async function start() {
+    if (refuseTeamLegacyOperation()) return;
     setError("");
     if (
       mainRef.current?.querySelector('.check-editor input[aria-invalid="true"]')
@@ -1669,6 +1702,7 @@ export default function App({
   }
 
   async function action(kind: "pause" | "cancel" | "resume") {
+    if (refuseTeamLegacyOperation()) return;
     if (!run) return;
     setBusy(kind);
     setError("");
@@ -1697,6 +1731,7 @@ export default function App({
   }
 
   async function steer() {
+    if (refuseTeamLegacyOperation()) return;
     if (!run || !steering.trim()) return;
     setBusy("steer");
     setError("");
@@ -1715,6 +1750,7 @@ export default function App({
   }
 
   async function saveProfile() {
+    if (refuseTeamLegacyOperation()) return;
     const selectionError = participantValidationError();
     if (selectionError) {
       setError(selectionError);
@@ -1751,6 +1787,7 @@ export default function App({
   }
 
   async function deleteProfile() {
+    if (refuseTeamLegacyOperation()) return;
     setBusy("profile");
     setError("");
     try {
@@ -1810,21 +1847,19 @@ export default function App({
           aria-label="Parallax Studio home"
         >
           <span className="brand-mark">
-            <Icon name="orbit" size={28} />
+            <Mark size={28} />
           </span>
-          <span>
-            Parallax<small>STUDIO</small>
-          </span>
+          <span>Parallax</span>
         </a>
-        <div className="sidebar-group-label">WORKSPACE</div>
+        <div className="sidebar-group-label">Workspace</div>
         <nav aria-label="Studio navigation">
           {(
             [
-              { id: "workflows", name: "Tasks", icon: "review", key: "4" },
-              { id: "run", name: "Agent graph", icon: "run", key: "2" },
-              { id: "team", name: "Advanced run", icon: "plus", key: "1" },
-              { id: "review", name: "Run evidence", icon: "review", key: "3" },
-            ] as { id: Tab; name: string; icon: IconName; key: string }[]
+              { id: "workflows", name: "Tasks", icon: "review" },
+              { id: "repositories", name: "Repositories", icon: "folder" },
+              { id: "inbox", name: "Review inbox", icon: "check" },
+              { id: "settings", name: "Settings", icon: "settings" },
+            ] as { id: Tab; name: string; icon: IconName }[]
           ).map((item) => (
             <button
               key={item.id}
@@ -1833,18 +1868,48 @@ export default function App({
               aria-current={tab === item.id ? "page" : undefined}
               title={item.name}
               aria-label={item.name}
-              aria-keyshortcuts={`Alt+${item.key}`}
+              aria-keyshortcuts={item.id === "workflows" ? "Alt+4" : undefined}
             >
               <Icon name={item.icon} size={19} />
               <span>{item.name}</span>
-              <kbd>{item.key}</kbd>
-              {item.id === "run" && activeRun && <i className="nav-run-dot" />}
             </button>
           ))}
         </nav>
+        <details className="advanced-tools">
+          <summary>Advanced tools</summary>
+          <nav aria-label="Advanced tools">
+            {(
+              [
+                { id: "run", name: "Agent graph", icon: "run", key: "2" },
+                { id: "team", name: "Advanced run", icon: "plus", key: "1" },
+                {
+                  id: "review",
+                  name: "Run evidence",
+                  icon: "review",
+                  key: "3",
+                },
+              ] as { id: Tab; name: string; icon: IconName; key: string }[]
+            ).map((item) => (
+              <button
+                key={item.id}
+                className={`nav-item ${tab === item.id ? "selected" : ""}`}
+                onClick={() => setTab(item.id)}
+                aria-current={tab === item.id ? "page" : undefined}
+                aria-keyshortcuts={`Alt+${item.key}`}
+              >
+                <Icon name={item.icon} size={18} />
+                <span>{item.name}</span>
+                <kbd>{item.key}</kbd>
+                {item.id === "run" && activeRun && (
+                  <i className="nav-run-dot" />
+                )}
+              </button>
+            ))}
+          </nav>
+        </details>
         <div className="sidebar-provider-list">
           <div className="sidebar-group-label">
-            LOCAL PROVIDERS{" "}
+            Providers{" "}
             <span>
               {readyCount}/{providers.length || 4}
             </span>
@@ -1922,6 +1987,9 @@ export default function App({
       <div className="main-shell" inert={connectionsOpen || undefined}>
         <header className="topbar" inert={workspaceOverlay || undefined}>
           <div className="breadcrumb">
+            {workspaceName && (
+              <span className="scope-workspace">{workspaceName}</span>
+            )}
             <span>
               {shortPath(
                 (tab === "run" || tab === "review") && run
@@ -1937,7 +2005,13 @@ export default function App({
                   ? "New run"
                   : tab === "workflows"
                     ? "Tasks"
-                    : "Review"}
+                    : tab === "repositories"
+                      ? "Repositories"
+                      : tab === "inbox"
+                        ? "Review inbox"
+                        : tab === "settings"
+                          ? "Settings"
+                          : "Review"}
             </strong>
           </div>
           <div className="topbar-right">
@@ -1983,12 +2057,19 @@ export default function App({
               </button>
             </div>
           )}
-          <div className="task-host" hidden={tab !== "workflows"}>
+          <div
+            className="task-host"
+            hidden={tab !== "workflows" && tab !== "inbox"}
+          >
             <Workflows
+              view={tab === "inbox" ? "inbox" : "tasks"}
+              newTaskRequest={newTaskRequest}
               teamWorkspace={teamWorkspace}
               executionWorker={execution?.id}
               active={
-                tab === "workflows" && !connectionsOpen && !workspaceOverlay
+                (tab === "workflows" || tab === "inbox") &&
+                !connectionsOpen &&
+                !workspaceOverlay
               }
               workspace={spec.workspace}
               onWorkspace={(workspace) =>
@@ -2024,7 +2105,144 @@ export default function App({
               )}
             />
           </div>
+          {tab === "repositories" && (
+            <Repositories
+              active={!connectionsOpen && !workspaceOverlay}
+              worker={execution?.id}
+              paired={!!execution?.paired}
+              online={execution?.online !== false}
+              machineName={execution?.name || "your machine"}
+              workspace={spec.workspace}
+              canManage={!teamWorkspace || workspaceRole === "owner"}
+              onManage={onManageWorkspace}
+              onNewTask={(workspace) => {
+                setSpec((previous) => ({ ...previous, workspace }));
+                setNewTaskRequest((previous) => ({
+                  sequence: (previous?.sequence || 0) + 1,
+                  workspace,
+                }));
+                setTab("workflows");
+              }}
+            />
+          )}
+          {tab === "settings" && (
+            <section
+              className="studio-settings"
+              aria-labelledby="studio-settings-title"
+            >
+              <header className="studio-page-heading">
+                <div>
+                  <h1 id="studio-settings-title">Settings</h1>
+                  <p>
+                    Configure this workspace and the machine that runs your
+                    tasks.
+                  </p>
+                </div>
+              </header>
+              <section className="studio-setting-row">
+                <div>
+                  <h2>Provider connections</h2>
+                  <p>
+                    {readyCount} providers detected. Check credentials and
+                    available commands before starting work.
+                  </p>
+                </div>
+                <button
+                  className="secondary-button"
+                  onClick={() => setConnectionsOpen(true)}
+                >
+                  Manage connections
+                </button>
+              </section>
+              {onManageWorkspace && (
+                <section className="studio-setting-row">
+                  <div>
+                    <h2>Workspace and members</h2>
+                    <p>
+                      Switch workspaces, manage invitations, and inspect project
+                      permissions.
+                    </p>
+                  </div>
+                  <button
+                    className="secondary-button"
+                    onClick={() => onManageWorkspace("workspace")}
+                  >
+                    Workspace settings
+                  </button>
+                </section>
+              )}
+              <section className="studio-setting-row">
+                <div>
+                  <h2>Appearance</h2>
+                  <p>Your preference is saved on this browser.</p>
+                </div>
+                <button
+                  className="secondary-button"
+                  onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+                >
+                  Switch to {theme === "dark" ? "light" : "dark"} mode
+                </button>
+                <button
+                  className="secondary-button"
+                  aria-pressed={motion === "reduce"}
+                  onClick={() =>
+                    setMotion(motion === "reduce" ? "system" : "reduce")
+                  }
+                >
+                  Reduce motion
+                </button>
+              </section>
+              <section className="studio-setting-row">
+                <div>
+                  <h2>Saved recipes and advanced runs</h2>
+                  <p>
+                    {teamWorkspace
+                      ? "Shared recipes and execution controls are available in Tasks. Inspect saved agent activity and evidence in the advanced views."
+                      : "Configure reusable teams and checks in the existing advanced editor."}
+                  </p>
+                </div>
+                <button
+                  className="secondary-button"
+                  onClick={() => setTab("team")}
+                >
+                  Open advanced run
+                </button>
+                <button
+                  className="secondary-button"
+                  onClick={() => setTab("run")}
+                >
+                  Agent graph
+                </button>
+                <button
+                  className="secondary-button"
+                  onClick={() => setTab("review")}
+                >
+                  Run evidence
+                </button>
+              </section>
+            </section>
+          )}
           {tab === "team" && (
+            teamWorkspace ? (
+              <section className="panel review-placeholder">
+                <h1>Use the team task workflow</h1>
+                <p>
+                  {workspaceRole === "reviewer"
+                    ? "Open Review inbox to inspect candidates and record your review. Shared execution is managed from Tasks."
+                    : ["owner", "developer"].includes(workspaceRole || "")
+                      ? "Start and manage shared work in Tasks. Saved candidates, project permissions and human approval stay together."
+                      : "Open Tasks to inspect shared work. Your workspace permissions are confirmed before an action is available."}
+                </p>
+                <button
+                  className="primary-button"
+                  onClick={() =>
+                    setTab(workspaceRole === "reviewer" ? "inbox" : "workflows")
+                  }
+                >
+                  {workspaceRole === "reviewer" ? "Open review inbox" : "Open tasks"}
+                </button>
+              </section>
+            ) : (
             <>
               <div className="page-heading">
                 <div>
@@ -2456,6 +2674,7 @@ export default function App({
                 </button>
               </div>
             </>
+            )
           )}
           {tab === "run" && (
             <RunWorkspace
@@ -2473,7 +2692,8 @@ export default function App({
               onOverlayChange={setWorkspaceOverlay}
               onSelect={setSelectedTask}
               onChoose={(id) => void chooseRun(id)}
-              onNew={() => setTab("team")}
+              onNew={() => setTab(teamWorkspace ? "workflows" : "team")}
+              readOnly={teamWorkspace}
               onReload={() => void load()}
               onReview={(section) => {
                 if (section) setReviewTab(section);
@@ -2490,6 +2710,7 @@ export default function App({
               onSteering={setSteering}
               onSteer={() => void steer()}
               recovery={
+                !teamWorkspace &&
                 run &&
                 ["needs_attention", "interrupted"].includes(run.status) ? (
                   <Recovery
@@ -2677,7 +2898,7 @@ export default function App({
                       Back to workspace <Icon name="arrow" size={15} />
                     </button>
                   </div>
-                  <AlphaFeedback run={run} />
+                  {!teamWorkspace && <AlphaFeedback run={run} />}
                 </>
               ) : (
                 <section className="panel review-placeholder">
@@ -2695,9 +2916,9 @@ export default function App({
                   ) : (
                     <button
                       className="primary-button"
-                      onClick={() => setTab("team")}
+                      onClick={() => setTab(teamWorkspace ? "workflows" : "team")}
                     >
-                      Create a team run <Icon name="arrow" size={17} />
+                      {teamWorkspace ? "Open tasks" : "Create a team run"} <Icon name="arrow" size={17} />
                     </button>
                   )}
                 </section>
