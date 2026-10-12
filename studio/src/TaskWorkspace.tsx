@@ -142,6 +142,7 @@ export function TaskWorkspace({
   onComment,
   onInspect,
   renderEvidence,
+  measurements,
 }: {
   visible: boolean;
   feedback: string;
@@ -174,6 +175,7 @@ export function TaskWorkspace({
     run: RunResult,
     tab: "checks" | "findings" | "settings",
   ) => ReactNode;
+  measurements?: ReactNode;
 }) {
   const [selectedFindings, setSelectedFindings] = useState<
     { review: number; finding: number }[]
@@ -182,6 +184,7 @@ export function TaskWorkspace({
   const [events, setEvents] = useState<RunEvent[]>([]);
   const [error, setError] = useState("");
   const [tab, setTab] = useState<EvidenceTab>("changes");
+  const [measurementsStarted, setMeasurementsStarted] = useState(false);
   const [filePath, setFilePath] = useState("");
   const [fileQuery, setFileQuery] = useState("");
   const [diffPage, setDiffPage] = useState(0);
@@ -1244,7 +1247,7 @@ export function TaskWorkspace({
                 {findingTarget.notice}
               </p>
             )}
-            {tab === "changes" ? (
+            {tab === "settings" ? null : tab === "changes" ? (
               files.length ? (
                 <>
                   <div className="diff-toolbar">
@@ -1600,6 +1603,37 @@ export function TaskWorkspace({
                 </p>
               </div>
             )}
+            <div
+              className="evidence-scroll task-details-pane"
+              hidden={tab !== "settings"}
+            >
+              {tab === "settings" &&
+                (run ? (
+                  renderEvidence(run, "settings")
+                ) : (
+                  <p className="workflow-muted">
+                    {error
+                      ? "Run details are unavailable. Retry the connection above."
+                      : "Waiting for run details…"}
+                  </p>
+                ))}
+              {measurements && (
+                <details
+                  className="task-measurements"
+                  onToggle={(event) => {
+                    if (event.currentTarget.open) setMeasurementsStarted(true);
+                  }}
+                >
+                  <summary>
+                    Pilot measurements and human assessments
+                    <span className="measurement-task-context">
+                      {workflow.title}
+                    </span>
+                  </summary>
+                  {measurementsStarted && measurements}
+                </details>
+              )}
+            </div>
           </div>
         </div>
       </div>

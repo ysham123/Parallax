@@ -59,7 +59,15 @@ const EMPTY: Measurements = {
   repairs: "",
 };
 
-export function PilotMetrics({ workflow }: { workflow: Workflow | null }) {
+export function PilotMetrics({
+  workflow,
+  allowMeasure = false,
+  allowLabel = false,
+}: {
+  workflow: Workflow | null;
+  allowMeasure?: boolean;
+  allowLabel?: boolean;
+}) {
   const [values, setValues] = useState<Measurements>({ ...EMPTY });
   const [approach, setApproach] = useState("parallax");
   const [outcome, setOutcome] = useState("blocked");
@@ -85,6 +93,16 @@ export function PilotMetrics({ workflow }: { workflow: Workflow | null }) {
   const [retry, setRetry] = useState(0);
   const pending = useRef<{ signature: string; id: string } | null>(null);
   const pendingLabel = useRef<{ signature: string; id: string } | null>(null);
+  const mounted = useRef(true);
+  const activeWorkflow = useRef(workflow?.id ?? null);
+  activeWorkflow.current = workflow?.id ?? null;
+  const actionBusy = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   useEffect(() => {
     setValues({ ...EMPTY });
     setComparison(crypto.randomUUID());
@@ -182,8 +200,12 @@ export function PilotMetrics({ workflow }: { workflow: Workflow | null }) {
         });
     return () => abort.abort();
   }, [workflow?.id, workflow?.run_id, retry]);
-  const canMeasure = features?.includes("pilot-evaluation-v1") === true;
-  const canLabel = features?.includes("pilot-observations-v1") === true;
+  const supportsMeasure = features?.includes("pilot-evaluation-v1") === true;
+  const supportsLabel = features?.includes("pilot-observations-v1") === true;
+  const canMeasure = allowMeasure && supportsMeasure;
+  const canLabel = allowLabel && supportsLabel;
+  const permissions = useRef({ measure: false, label: false });
+  permissions.current = { measure: canMeasure, label: canLabel };
   const evidence = (
     reportedObservations ?? [
       ...(run?.checks || []),
@@ -245,10 +267,15 @@ export function PilotMetrics({ workflow }: { workflow: Workflow | null }) {
     </label>
   );
   async function download() {
+    if (!mounted.current || actionBusy.current) return;
+    const downloadWorkflow = activeWorkflow.current;
+    actionBusy.current = true;
     setBusy(true);
     setNotice("");
     try {
       const report = await api("/pilot/report");
+      if (!mounted.current || activeWorkflow.current !== downloadWorkflow)
+        return;
       const url = URL.createObjectURL(
         new Blob([JSON.stringify(report, null, 2)], {
           type: "application/json",
@@ -263,14 +290,23 @@ export function PilotMetrics({ workflow }: { workflow: Workflow | null }) {
         "Report downloaded. Participant-reported measurements are separate from recorded runtime evidence; missing cost remains unknown.",
       );
     } catch (error) {
-      setNotice(messageOf(error));
+      if (mounted.current && activeWorkflow.current === downloadWorkflow)
+        setNotice(messageOf(error));
     } finally {
-      setBusy(false);
+      actionBusy.current = false;
+      if (mounted.current) setBusy(false);
     }
   }
   async function measure(event: FormEvent) {
     event.preventDefault();
-    if (!workflow || busy || !canMeasure) return;
+    if (
+      !workflow ||
+      !mounted.current ||
+      activeWorkflow.current !== workflow.id ||
+      actionBusy.current ||
+      !permissions.current.measure
+    )
+      return;
     if (
       !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(comparison) ||
       (baseline && !/^[a-f0-9]{64}$/.test(baseline))
@@ -327,6 +363,7 @@ export function PilotMetrics({ workflow }: { workflow: Workflow | null }) {
     const signature = JSON.stringify(body);
     if (pending.current?.signature !== signature)
       pending.current = { signature, id: crypto.randomUUID() };
+    actionBusy.current = true;
     setBusy(true);
     setNotice("");
     try {
@@ -344,6 +381,7 @@ export function PilotMetrics({ workflow }: { workflow: Workflow | null }) {
     } catch (error) {
       setNotice(messageOf(error));
     } finally {
+      actionBusy.current = false;
       setBusy(false);
     }
   }
@@ -352,7 +390,15 @@ export function PilotMetrics({ workflow }: { workflow: Workflow | null }) {
     const selected = observations.find(
       (value) => value.observation!.id === selectedObservation,
     )?.observation;
-    if (!workflow || !selected || busy || !canLabel) return;
+    if (
+      !workflow ||
+      !selected ||
+      !mounted.current ||
+      activeWorkflow.current !== workflow.id ||
+      actionBusy.current ||
+      !permissions.current.label
+    )
+      return;
     const body = {
       workflow_id: workflow.id,
       observation_id: selected.id,
@@ -364,6 +410,7 @@ export function PilotMetrics({ workflow }: { workflow: Workflow | null }) {
     const signature = JSON.stringify(body);
     if (pendingLabel.current?.signature !== signature)
       pendingLabel.current = { signature, id: crypto.randomUUID() };
+    actionBusy.current = true;
     setBusy(true);
     setNotice("");
     try {
@@ -378,12 +425,15 @@ export function PilotMetrics({ workflow }: { workflow: Workflow | null }) {
     } catch (error) {
       setNotice(messageOf(error));
     } finally {
+      actionBusy.current = false;
       setBusy(false);
     }
   }
   return (
-    <details className="pilot-metrics">
-      <summary>Pilot measurements &amp; human assessments</summary>
+    <section
+      className="pilot-metrics"
+      aria-label="Pilot measurements and human assessments"
+    >
       <p>
         Runtime evidence and participant-reported measurements are recorded
         separately. Blank fields mean unknown, including provider cost. Count
@@ -394,12 +444,12 @@ export function PilotMetrics({ workflow }: { workflow: Workflow | null }) {
         disabled={busy}
         onClick={() => void download()}
       >
-        Download pilot report
+        Download worker pilot report
       </button>
       {features === null ? (
         <p role="status">Checking worker measurement capabilities…</p>
       ) : (
-        (!canMeasure || !canLabel) && (
+        (!supportsMeasure || !supportsLabel) && (
           <p className="pilot-update-notice">
             This worker does not support all versioned measurements and
             observation labels. Update the pilot worker, then{" "}
@@ -412,6 +462,16 @@ export function PilotMetrics({ workflow }: { workflow: Workflow | null }) {
             . Existing evidence remains available.
           </p>
         )
+      )}
+      {workflow && supportsMeasure && !allowMeasure && (
+        <p role="status">
+          Comparison recording is unavailable with your current access.
+        </p>
+      )}
+      {workflow && supportsLabel && !allowLabel && (
+        <p role="status">
+          Human assessment recording is unavailable with your current access.
+        </p>
       )}
       {workflow && canMeasure && (
         <form
@@ -731,6 +791,6 @@ export function PilotMetrics({ workflow }: { workflow: Workflow | null }) {
         </form>
       )}
       {notice && <p role="status">{notice}</p>}
-    </details>
+    </section>
   );
 }

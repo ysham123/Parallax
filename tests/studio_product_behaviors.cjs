@@ -89,6 +89,7 @@ global.window = {
 };
 global.document = { hidden: false, body: {}, documentElement: { dataset: {} }, getElementById: () => null };
 global.requestAnimationFrame = () => 1;
+global.cancelAnimationFrame = () => {};
 global.__PARALLAX_VERSION__ = 'test';
 function renderer(component, props) {
   return { component, props, slots: [], effects: [], index: 0, render() {
@@ -516,7 +517,7 @@ const taskProps = {
     if (p==='/pilot/observations') { capturedLabel=JSON.parse(init.body); return {}; }
     throw new Error('Unexpected request '+p);
   };
-  const metricsView = renderer(PilotMetrics,{workflow:{...base,run_id:'evidence-run'}}); metricsView.render(); await settle(metricsView);
+  const metricsView = renderer(PilotMetrics,{workflow:{...base,run_id:'evidence-run'},allowMeasure:true,allowLabel:true}); metricsView.render(); await settle(metricsView);
   const comparisonForm = () => nodes(metricsView.tree).find(n=>n.props['aria-label']==='Participant-reported comparison');
   comparisonForm().props.onSubmit({preventDefault(){}}); await settle(metricsView);
   check('Unknown manual time/counters/cost stay null and blocked attempts are preserved without invented success', () => {
@@ -550,7 +551,7 @@ const taskProps = {
     assert.match(text(metricsView.tree),/Compare unchanged rounding policy/);
   }); metricsView.unmount();
   responder = async () => ({pilot_features:[]});
-  const oldWorkerMetrics = renderer(PilotMetrics,{workflow:base}); oldWorkerMetrics.render(); await settle(oldWorkerMetrics);
+  const oldWorkerMetrics = renderer(PilotMetrics,{workflow:base,allowMeasure:true,allowLabel:true}); oldWorkerMetrics.render(); await settle(oldWorkerMetrics);
   check('Older workers explain the update requirement and expose no unsupported measurement mutations', () => {
     assert.match(text(oldWorkerMetrics.tree),/Update the pilot worker/);
     assert.equal(nodes(oldWorkerMetrics.tree).some(n=>n.type==='form'),false);

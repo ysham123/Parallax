@@ -120,20 +120,37 @@
 }
 
 .pilot-metrics {
-  padding: 12px 20px;
-  border-top: 1px solid var(--line);
-  font-size: 12px;
-  flex-shrink: 0;
+  padding: 12px 0;
+  font-size: 14px;
   min-height: 0;
-  max-height: 45%;
-  overflow-y: auto;
 }
-.pilot-metrics > summary {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  padding-block: 4px;
-  background: var(--background);
+.task-details-pane[hidden] {
+  display: none;
+}
+.task-measurements {
+  border-top: 1px solid var(--line);
+  margin-top: 18px;
+  padding-top: 14px;
+}
+.task-evidence .task-measurements > summary {
+  font-size: 14px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.measurement-task-context {
+  display: block;
+  margin: 4px 0 0 18px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.task-evidence .pilot-metrics p,
+.task-evidence .pilot-metrics summary,
+.task-evidence .pilot-metrics h3 {
+  font-size: 14px;
+}
+.task-measurements :is(summary, button, input, select, textarea):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
 }
 .pilot-metrics form {
   display: grid;
@@ -210,18 +227,8 @@
   .task-studio .primary-button,
   .task-studio .secondary-button,
   .task-studio .decision-actions .text-button,
-  .task-studio .mobile-task-bar .text-button,
   .task-studio .queue-dismiss {
     min-height: 44px;
-  }
-  .task-studio .mobile-task-bar {
-    min-height: 44px;
-  }
-  .task-studio.queue-open .task-main {
-    height: 44px;
-  }
-  .task-studio.queue-open .task-queue {
-    height: calc(100% - 44px);
   }
   .publication-panel {
     margin-inline: 8px;
@@ -262,7 +269,7 @@
   align-items: stretch;
   gap: 6px;
   margin: 8px 0;
-  font-size: 12px;
+  font-size: 14px;
 }
 .pilot-metrics input,
 .pilot-metrics select,

@@ -35,6 +35,8 @@ Compare two working compositions before another broad visual rebuild:
 
 Both share the existing original type, palette and offset-plane identity. The comparison concerns navigation and attention, not another color exercise. On mobile, use a compact scope header, task chooser and one work surface. Evidence should require as little scrolling as practical without hiding a failed gate or a consequential destination.
 
+The implemented canvas refinement uses an on-demand task browser within that direction. **Task list** and **Review queue** expose the existing search, project/status filters and archive; one toolbar retains New task where permitted. The browser opens alongside the candidate on wide screens and occupies the working surface on compact screens. Closing it returns the space to the same mounted task. Ordinary polling does not dismiss navigation. Pilot measurements live in the task's **Details** tab and load only when explicitly opened; worker report export remains in the task browser. This reduces permanent interface space without removing evidence or changing acceptance policy.
+
 ## Zero to first useful change
 
 | Stage | User decision and real behavior | Required distinction |

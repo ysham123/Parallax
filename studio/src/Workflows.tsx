@@ -255,6 +255,7 @@ export function Workflows({
   const [projectFilter, setProjectFilter] = useState("");
   const [composing, setComposing] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
+  const [reportScope, setReportScope] = useState<string | null>(null);
   const [parentTask, setParentTask] = useState<Workflow | null>(null);
   const taskWorkspace = parentTask?.workspace || workspace;
   const [sendingTasks, setSendingTasks] = useState<Set<string>>(new Set());
@@ -265,6 +266,12 @@ export function Workflows({
   );
   const firstLoad = useRef(true);
   const searchRef = useRef<HTMLInputElement>(null);
+  const queueToggleRef = useRef<HTMLButtonElement>(null);
+  const queueReturnRef = useRef<HTMLElement | null>(null);
+  const navigationFrame = useRef<number | null>(null);
+  const navigationRequest = useRef(0);
+  const queueOpenRef = useRef(queueOpen);
+  queueOpenRef.current = queueOpen;
   const taskMainRef = useRef<HTMLDivElement>(null);
   const connectionReturn = useRef<{
     opener: HTMLButtonElement;
@@ -681,6 +688,63 @@ export function Workflows({
         : "",
     );
   }, [taskWorkspace, githubBindings, executionWorker]);
+
+  function focusNavigation(destination: () => HTMLElement | null) {
+    if (!alive.current || !activeRef.current) return;
+    if (navigationFrame.current !== null)
+      cancelAnimationFrame(navigationFrame.current);
+    const origin = document.activeElement;
+    const scope = authorityScopeRef.current;
+    navigationFrame.current = requestAnimationFrame(() => {
+      navigationFrame.current = null;
+      if (
+        !alive.current ||
+        !activeRef.current ||
+        authorityScopeRef.current !== scope
+      )
+        return;
+      if (
+        document.activeElement &&
+        document.activeElement !== document.body &&
+        document.activeElement !== origin
+      )
+        return;
+      destination()?.focus();
+    });
+  }
+  function openQueue() {
+    if (!alive.current || !activeRef.current) return;
+    if (!queueOpenRef.current)
+      queueReturnRef.current = document.activeElement as HTMLElement | null;
+    setQueueOpen(true);
+    focusNavigation(() => (queueOpenRef.current ? searchRef.current : null));
+  }
+  function closeQueue() {
+    if (!alive.current || !activeRef.current) return;
+    setQueueOpen(false);
+    focusNavigation(() => {
+      if (queueOpenRef.current) return null;
+      const opener = queueReturnRef.current;
+      return opener !== document.body &&
+        opener?.isConnected &&
+        opener.getClientRects().length > 0 &&
+        !opener.closest("[hidden], [inert]")
+        ? opener
+        : queueToggleRef.current;
+    });
+  }
+  useEffect(() => {
+    return () => {
+      if (navigationFrame.current !== null) {
+        cancelAnimationFrame(navigationFrame.current);
+        navigationFrame.current = null;
+      }
+    };
+  }, [active, authorityScope]);
+  useEffect(() => {
+    navigationRequest.current++;
+    setBusy((current) => (current === "open" ? "" : current));
+  }, [authorityScope]);
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
       if (!activeRef.current) return;
@@ -693,20 +757,38 @@ export function Workflows({
         return;
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
-        setQueueOpen(true);
-        requestAnimationFrame(() => searchRef.current?.focus());
+        openQueue();
+      } else if (
+        event.key === "Escape" &&
+        queueOpenRef.current &&
+        event.target instanceof Element &&
+        event.target.closest(".task-queue")
+      ) {
+        event.preventDefault();
+        closeQueue();
       }
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   }, []);
 
-  async function choose(value: Workflow) {
+  async function choose(value: Workflow, explicit = true) {
+    const request = ++navigationRequest.current;
+    const scope = authorityScopeRef.current;
+    setBusy((current) => (current === "open" ? "" : current));
     setArchiveView(false);
     selectedId.current = value.id;
     setSelected(value);
     setComposing(false);
-    setQueueOpen(false);
+    if (explicit) {
+      setQueueOpen(false);
+      focusNavigation(() =>
+        selectedId.current === value.id && !queueOpenRef.current
+          ? document.getElementById("selected-task-title") ||
+            taskMainRef.current
+          : null,
+      );
+    }
     window.history.replaceState(
       null,
       "",
@@ -716,7 +798,13 @@ export function Workflows({
     try {
       await refresh();
     } catch (failure) {
-      setError(messageOf(failure));
+      if (
+        alive.current &&
+        navigationRequest.current === request &&
+        authorityScopeRef.current === scope &&
+        selectedId.current === value.id
+      )
+        setError(messageOf(failure));
     }
   }
   async function start() {
@@ -1041,15 +1129,28 @@ export function Workflows({
       await choose(recent);
       return;
     }
+    const request = ++navigationRequest.current;
+    const scope = authorityScopeRef.current;
+    const current = () =>
+      alive.current &&
+      navigationRequest.current === request &&
+      authorityScopeRef.current === scope &&
+      selectedId.current === id;
     selectedId.current = id;
     setBusy("open");
     setError("");
     try {
       const value = await api<Workflow>(`/workflows/${id}`);
-      if (alive.current && selectedId.current === id) {
+      if (current()) {
         setSelected(value);
         setComposing(false);
         setQueueOpen(false);
+        focusNavigation(() =>
+          current()
+            ? document.getElementById("selected-task-title") ||
+              taskMainRef.current
+            : null,
+        );
         window.history.replaceState(
           null,
           "",
@@ -1057,9 +1158,9 @@ export function Workflows({
         );
       }
     } catch (failure) {
-      setError(messageOf(failure));
+      if (current()) setError(messageOf(failure));
     } finally {
-      setBusy("");
+      if (current()) setBusy((value) => (value === "open" ? "" : value));
     }
   }
   async function updateReview(
@@ -1168,7 +1269,7 @@ export function Workflows({
       workflowInReviewInbox(w, caller, viaMachine(), teamWorkspace),
     );
     if (waiting.some((w) => w.id === selectedId.current)) return;
-    if (waiting[0]) void choose(waiting[0]);
+    if (waiting[0]) void choose(waiting[0], false);
     else {
       selectedId.current = null;
       setSelected(null);
@@ -1199,9 +1300,7 @@ export function Workflows({
       if (current) chooseRecipe(current);
     }
     if (projectFilter) onWorkspace(projectFilter);
-    requestAnimationFrame(() =>
-      document.getElementById("workflow-prompt")?.focus(),
-    );
+    focusNavigation(() => document.getElementById("workflow-prompt"));
   }
   useEffect(() => {
     if (
@@ -1226,9 +1325,7 @@ export function Workflows({
     setQueueOpen(false);
     setProjectFilter(newTaskRequest.workspace);
     setNotice("");
-    requestAnimationFrame(() =>
-      document.getElementById("workflow-prompt")?.focus(),
-    );
+    focusNavigation(() => document.getElementById("workflow-prompt"));
   }, [newTaskRequest, access.deliver, busy, view]);
   const ready =
     !!selected &&
@@ -1258,26 +1355,52 @@ export function Workflows({
     );
   return (
     <div className={`task-studio ${queueOpen ? "queue-open" : ""}`}>
-      <aside className="task-queue" aria-label="Project tasks">
-        <div className="queue-heading">
-          <h2>{view === "inbox" ? "Review inbox" : "Task browser"}</h2>
-          <button
-            className="icon-button queue-dismiss"
-            aria-label="Hide task list"
-            onClick={() => setQueueOpen(false)}
-          >
-            <WorkIcon name="close" />
-          </button>
-        </div>
+      <div className="task-browser-bar">
+        <button
+          ref={queueToggleRef}
+          className="text-button task-browser-toggle"
+          aria-label={view === "inbox" ? "Review queue" : "Task list"}
+          aria-expanded={queueOpen}
+          aria-controls="project-task-browser"
+          onClick={() => (queueOpen ? closeQueue() : openQueue())}
+        >
+          <WorkIcon name="stack" />
+          {view === "inbox" ? "Review queue" : "Task list"}
+          <span className="task-browser-count">
+            {historyState === "ready" && online ? visible.length : "—"}
+          </span>
+        </button>
+        <span className="task-browser-summary">
+          {historyState === "ready" && online
+            ? `${approvalCount} awaiting approval · ${runningCount} in progress`
+            : "Task counts unavailable"}
+        </span>
         {view === "tasks" && access.deliver && (
           <button
             className="new-task-button"
-            disabled={!access.deliver}
+            disabled={!!busy || !access.deliver}
             onClick={newTask}
           >
             <WorkIcon name="plus" /> New task
           </button>
         )}
+      </div>
+      <aside
+        id="project-task-browser"
+        className="task-queue"
+        aria-label="Project tasks"
+        hidden={!queueOpen}
+      >
+        <div className="queue-heading">
+          <h2>{view === "inbox" ? "Review inbox" : "Task browser"}</h2>
+          <button
+            className="icon-button queue-dismiss"
+            aria-label="Hide task list"
+            onClick={closeQueue}
+          >
+            <WorkIcon name="close" />
+          </button>
+        </div>
         <label className="queue-search">
           <WorkIcon name="search" />
           <input
@@ -1342,6 +1465,7 @@ export function Workflows({
                 setArchiveView(true);
                 setComposing(false);
                 setQueueOpen(false);
+                focusNavigation(() => taskMainRef.current);
               }}
             >
               <WorkIcon name="stack" />
@@ -1426,6 +1550,22 @@ export function Workflows({
               ))}
             </ul>
           )}
+          <details
+            key={`report:${authorityScope}`}
+            className="queue-report-tools"
+            onToggle={(event) => {
+              if (event.currentTarget.open) setReportScope(authorityScope);
+            }}
+          >
+            <summary>Pilot report</summary>
+            {reportScope === authorityScope && (
+              <PilotMetrics
+                workflow={null}
+                allowMeasure={false}
+                allowLabel={false}
+              />
+            )}
+          </details>
         </div>
         <div className="queue-footer">
           <span>
@@ -1442,27 +1582,6 @@ export function Workflows({
         </div>
       </aside>
       <div className="task-main" ref={taskMainRef} tabIndex={-1}>
-        <div className="mobile-task-bar">
-          <button
-            className="text-button"
-            onClick={() => setQueueOpen(!queueOpen)}
-          >
-            <WorkIcon name="stack" />{" "}
-            {view === "inbox" ? "Review inbox" : "Tasks"}{" "}
-            <span>
-              {historyState === "ready" && online ? history.length : "—"}
-            </span>
-          </button>
-          {view === "tasks" && access.deliver && (
-            <button
-              className="text-button"
-              disabled={!access.deliver}
-              onClick={newTask}
-            >
-              <WorkIcon name="plus" /> New task
-            </button>
-          )}
-        </div>
         {viaMachine() && authorityLoaded && !caller && (
           <div className="task-alert" role="alert">
             Update Parallax on this machine to use versioned tasks and separate
@@ -1609,11 +1728,10 @@ export function Workflows({
                     className="text-button"
                     onClick={() => {
                       setComposing(false);
-                      requestAnimationFrame(() =>
-                        (
+                      focusNavigation(
+                        () =>
                           document.getElementById("selected-task-title") ||
-                          document.getElementById("main")
-                        )?.focus(),
+                          taskMainRef.current,
                       );
                     }}
                   >
@@ -2174,6 +2292,24 @@ export function Workflows({
             }
             onInspect={onInspect}
             renderEvidence={renderEvidence}
+            measurements={
+              <PilotMetrics
+                key={`metrics:${selected.id}`}
+                workflow={selected}
+                allowMeasure={
+                  active &&
+                  online &&
+                  access.deliver &&
+                  (!paired || approvedProjects.includes(selected.workspace))
+                }
+                allowLabel={
+                  active &&
+                  online &&
+                  access.review &&
+                  (!paired || approvedProjects.includes(selected.workspace))
+                }
+              />
+            }
           />
         ) : !archiveView && !composing && loading ? (
           <div className="task-loading" role="status">
@@ -2181,20 +2317,6 @@ export function Workflows({
             <p>Opening your workspace…</p>
           </div>
         ) : null}
-        {!archiveView && (
-          <PilotMetrics
-            key={`metrics:${selected?.id || "report"}`}
-            workflow={selected}
-          />
-        )}
-        <footer className="task-statusbar">
-          <span>
-            {historyState === "ready" && online
-              ? `${approvalCount} awaiting approval · ${runningCount} in progress`
-              : "Task counts unavailable"}
-          </span>
-          <span>Parallax v{__PARALLAX_VERSION__}</span>
-        </footer>
       </div>
     </div>
   );

@@ -108,6 +108,7 @@ window.addEventListener = (name, listener) => { const set=listeners.get(name)||n
 window.removeEventListener = (name, listener) => listeners.get(name)?.delete(listener);
 window.matchMedia = () => ({ matches:false, addEventListener(){}, removeEventListener(){} });
 global.requestAnimationFrame = () => 1;
+global.cancelAnimationFrame = () => {};
 global.EventSource = class EventSource { close() {} };
 const { INITIAL_SPEC, PROVIDERS } = require(path.join(src,'types.ts'));
 const catalog=PROVIDERS.map(provider=>({id:provider,provider,label:provider,status:'ready',authenticated:true,executable:'/fixture/agent',

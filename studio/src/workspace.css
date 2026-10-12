@@ -41,13 +41,26 @@
   width: calc(100% - 218px);
 }
 .studio-workspace .topbar {
-  height: 64px;
+  height: auto;
   min-height: 64px;
-  padding: 0 24px;
+  padding: 10px 24px;
+  flex-wrap: wrap;
+  gap: 8px 16px;
   border-bottom: 1px solid var(--line-soft);
 }
+.studio-workspace .topbar-right {
+  max-width: 100%;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.studio-workspace .topbar-right > * { flex-shrink: 0; }
+.studio-workspace .topbar .workspace-controls { max-width: 100%; }
 .studio-workspace .breadcrumb {
   font-size: 13px;
+  min-width: 0;
+  flex-wrap: wrap;
+  overflow-wrap: anywhere;
 }
 .studio-workspace .breadcrumb strong {
   font-size: 13px;

@@ -90,6 +90,7 @@ global.window = {
 global.document = { hidden: false, body: {}, documentElement: { dataset: {} }, getElementById: () => null };
 global.localStorage = {getItem: () => null, setItem() {}};
 global.requestAnimationFrame = () => 1;
+global.cancelAnimationFrame = () => {};
 global.__PARALLAX_VERSION__ = 'test';
 function renderer(component, props) {
   return { component, props, slots: [], effects: [], index: 0, render() {

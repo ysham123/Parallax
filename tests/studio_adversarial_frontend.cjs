@@ -88,6 +88,7 @@ global.window = {
 };
 global.document = { hidden: false, body: {}, getElementById: () => null };
 global.requestAnimationFrame = () => 1;
+global.cancelAnimationFrame = () => {};
 global.__PARALLAX_VERSION__ = 'test';
 function renderer(component, props) {
   return { component, props, slots: [], effects: [], index: 0, render() {
@@ -216,7 +217,7 @@ function check(label, assertion) { assertion(); passed++; console.log('PASS', la
     if (p === '/pilot/report') return {};
     if (++measurements === 1) throw new Error('timeout'); return {};
   };
-  const metrics = renderer(PilotMetrics, { workflow: {...a,run_id:undefined} }); metrics.render(); await settle(metrics);
+  const metrics = renderer(PilotMetrics, { workflow: {...a,run_id:undefined},allowMeasure:true,allowLabel:true }); metrics.render(); await settle(metrics);
   nodes(metrics.tree).find(n => n.type === 'input' && n.props.type === 'number').props.onChange({ target: { value: '42' } }); metrics.render();
   nodes(metrics.tree).find(n => n.type === 'form').props.onSubmit({ preventDefault() {} }); await settle(metrics);
   nodes(metrics.tree).find(n => n.type === 'form').props.onSubmit({ preventDefault() {} }); await settle(metrics);
