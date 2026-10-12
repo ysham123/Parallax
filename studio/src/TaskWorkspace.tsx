@@ -31,6 +31,7 @@ import {
   gatePresentation,
   observationOf,
   reviewPresentation,
+  runEvidenceRead,
 } from "./evidence-presentation";
 
 const text = (v: unknown, fallback = "") =>
@@ -180,9 +181,19 @@ export function TaskWorkspace({
   const [selectedFindings, setSelectedFindings] = useState<
     { review: number; finding: number }[]
   >([]);
-  const [run, setRun] = useState<RunResult | null>(null);
-  const [events, setEvents] = useState<RunEvent[]>([]);
-  const [error, setError] = useState("");
+  const [runSnapshot, setRunSnapshot] = useState<{
+    identity: string;
+    value: RunResult;
+  } | null>(null);
+  const [eventSnapshot, setEventSnapshot] = useState<{
+    identity: string;
+    values: RunEvent[];
+  } | null>(null);
+  const [readSnapshot, setReadSnapshot] = useState<{
+    identity: string;
+    loading: boolean;
+    error: string;
+  } | null>(null);
   const [tab, setTab] = useState<EvidenceTab>("changes");
   const [measurementsStarted, setMeasurementsStarted] = useState(false);
   const [filePath, setFilePath] = useState("");
@@ -193,6 +204,11 @@ export function TaskWorkspace({
     null,
   );
   const codeRef = useRef<HTMLDivElement>(null);
+  const retryButtonRef = useRef<HTMLButtonElement>(null);
+  const retryReturn = useRef<{
+    identity: string;
+    opener: HTMLButtonElement;
+  } | null>(null);
   const [activityOpen, setActivityOpen] = useState(() => {
     try {
       return localStorage.getItem("parallax-task-activity") === "open";
@@ -215,14 +231,61 @@ export function TaskWorkspace({
   const [revision, setRevision] = useState(0);
   const lastEvent = useRef(0);
   const runId = workflow.run_id;
+  const evidenceIdentity = JSON.stringify([
+    workflow.id,
+    runId,
+    workflow.candidate?.digest,
+    viewerActor,
+  ]);
+  const eventIdentity = JSON.stringify([workflow.id, runId, viewerActor]);
+  const identityRef = useRef(evidenceIdentity);
+  identityRef.current = evidenceIdentity;
+  const run =
+    runSnapshot?.identity === evidenceIdentity ? runSnapshot.value : null;
+  const events =
+    eventSnapshot?.identity === eventIdentity ? eventSnapshot.values : [];
+  const read =
+    readSnapshot?.identity === evidenceIdentity ? readSnapshot : null;
+  const error = read?.error || "";
+  const evidenceRead = runEvidenceRead({
+    requested: !!runId,
+    online,
+    loaded: !!run,
+    loading: read?.loading ?? true,
+    error,
+  });
+  useEffect(() => {
+    const pending = retryReturn.current;
+    if (!pending) return;
+    if (!visible || !online || pending.identity !== evidenceIdentity) {
+      retryReturn.current = null;
+      return;
+    }
+    if (error || read?.loading || !run) return;
+    retryReturn.current = null;
+    const frame = requestAnimationFrame(() => {
+      if (identityRef.current !== pending.identity) return;
+      const focused = document.activeElement;
+      if (focused && focused !== document.body && focused !== pending.opener)
+        return;
+      const target = document.getElementById(`evidence-tab-${tab}`);
+      if (
+        target?.getClientRects().length &&
+        !target.closest("[hidden], [inert]")
+      )
+        target.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [evidenceIdentity, visible, online, error, read?.loading, run, tab]);
   useEffect(() => {
     setSelectedFindings([]);
     setFindingTarget(null);
-    setRun(null);
-  }, [runId, workflow.candidate?.digest]);
+  }, [evidenceIdentity]);
+  useEffect(() => {
+    lastEvent.current = 0;
+  }, [eventIdentity]);
   useEffect(() => {
     if (!online) {
-      setError("");
       setStream("offline");
       return;
     }
@@ -232,16 +295,35 @@ export function TaskWorkspace({
     const load = async () => {
       if (fetching || abort.signal.aborted) return;
       fetching = true;
+      setReadSnapshot((previous) => ({
+        identity: evidenceIdentity,
+        loading: true,
+        error: previous?.identity === evidenceIdentity ? previous.error : "",
+      }));
       try {
         const result = await api<RunResult>(`/runs/${runId}`, {
           signal: abort.signal,
         });
-        if (!abort.signal.aborted) {
-          setRun(result);
-          setError("");
+        if (!abort.signal.aborted && identityRef.current === evidenceIdentity) {
+          if (result.run_id !== runId)
+            throw new Error("Returned run evidence does not match this task.");
+          const retry = retryButtonRef.current;
+          if (retry && document.activeElement === retry)
+            retryReturn.current = { identity: evidenceIdentity, opener: retry };
+          setRunSnapshot({ identity: evidenceIdentity, value: result });
+          setReadSnapshot({
+            identity: evidenceIdentity,
+            loading: false,
+            error: "",
+          });
         }
       } catch (failure) {
-        if (!abort.signal.aborted) setError(messageOf(failure));
+        if (!abort.signal.aborted && identityRef.current === evidenceIdentity)
+          setReadSnapshot({
+            identity: evidenceIdentity,
+            loading: false,
+            error: messageOf(failure),
+          });
       } finally {
         fetching = false;
       }
@@ -263,13 +345,21 @@ export function TaskWorkspace({
       try {
         const next = JSON.parse(message.data) as RunEvent;
         if (
+          abort.signal.aborted ||
+          identityRef.current !== evidenceIdentity ||
           !next.kind ||
           next.run_id !== runId ||
           next.sequence <= lastEvent.current
         )
           return;
         lastEvent.current = next.sequence;
-        setEvents((previous) => [...previous, next].slice(-500));
+        setEventSnapshot((previous) => ({
+          identity: eventIdentity,
+          values: [
+            ...(previous?.identity === eventIdentity ? previous.values : []),
+            next,
+          ].slice(-500),
+        }));
       } catch {
         setStream("reconnecting");
       }
@@ -279,7 +369,7 @@ export function TaskWorkspace({
       window.clearInterval(timer);
       source.close();
     };
-  }, [runId, revision, visible, online, workflow.candidate?.digest]);
+  }, [evidenceIdentity, eventIdentity, revision, visible, online]);
   const files = useMemo(() => parseDiff(run?.diff || ""), [run?.diff]);
   const visibleFiles = files.filter((file) =>
     file.path.toLowerCase().includes(fileQuery.toLowerCase()),
@@ -364,7 +454,31 @@ export function TaskWorkspace({
     currentAttempt,
   );
   const checkOutcomes = checkCounts(currentChecks);
-  const finalReviewState = reviewPresentation(currentReview || {});
+  const recordedReviewState = reviewPresentation(currentReview || {});
+  const lastLoaded = !!run && (!online || !!error);
+  const showReadNotice =
+    evidenceRead.state !== "available" &&
+    (evidenceRead.state !== "refreshing" || !!error);
+  const finalReviewState = run
+    ? {
+        ...recordedReviewState,
+        label: `${lastLoaded ? "Last loaded: " : ""}${recordedReviewState.label}`,
+      }
+    : {
+        state:
+          evidenceRead.state === "loading"
+            ? "loading"
+            : evidenceRead.state === "unrecorded"
+              ? "unrecorded"
+              : "unavailable",
+        label:
+          evidenceRead.state === "loading"
+            ? "Loading review evidence"
+            : evidenceRead.state === "unrecorded"
+              ? "Unrecorded"
+              : "Review evidence unavailable",
+        detail: evidenceRead.detail,
+      };
   const delivery = workflow.delivery;
   const changedFileCount =
     workflow.candidate?.changed_files?.length ?? run?.changed_files?.length;
@@ -390,12 +504,27 @@ export function TaskWorkspace({
     run && run.run_id === runId ? run.status : workflow.run_status,
     workflow.schema_version === "2.0" && decision?.action === "approve",
   );
-  const finalCheckLabel = currentChecks.length
+  const recordedCheckLabel = currentChecks.length
     ? Object.entries(checkOutcomes)
         .filter(([, count]) => count > 0)
         .map(([state, count]) => `${count} ${state}`)
         .join(" · ")
     : "No current final checks recorded";
+  const finalCheckLabel = run
+    ? `${lastLoaded ? "Last loaded: " : ""}${recordedCheckLabel}`
+    : evidenceRead.state === "loading"
+      ? "Loading check evidence"
+      : evidenceRead.state === "unrecorded"
+        ? "No run evidence recorded"
+        : "Check evidence unavailable";
+  const changedFileLabel =
+    typeof changedFileCount === "number"
+      ? `${changedFileCount} ${changedFileCount === 1 ? "file" : "files"}`
+      : !run && evidenceRead.state === "loading"
+        ? "Loading change evidence"
+        : !run && evidenceRead.state === "unavailable"
+          ? "Change evidence unavailable"
+          : "Changes unrecorded";
   const relationship = relationKind(workflow);
   const locate = (finding: ReturnType<typeof normalizeFinding>) => {
     const destination = locateFinding(
@@ -613,8 +742,11 @@ export function TaskWorkspace({
       )}
       {error && (
         <div className="task-alert" role="alert">
-          <p>Evidence could not refresh: {error}</p>
+          <p>
+            {run ? "Evidence refresh failed" : "Evidence unavailable"}: {error}
+          </p>
           <button
+            ref={retryButtonRef}
             className="text-button"
             onClick={() => setRevision((n) => n + 1)}
           >
@@ -803,31 +935,12 @@ export function TaskWorkspace({
         className="candidate-summary"
         aria-labelledby="candidate-summary-title"
       >
-        <header>
-          <h2 id="candidate-summary-title">Candidate result</h2>
-          {workflow.candidate && (
-            <code title={workflow.candidate.digest}>
-              {workflow.candidate.digest.slice(0, 12)}
-            </code>
-          )}
-        </header>
-        <p>
-          {workflow.candidate?.summary ||
-            run?.summary ||
-            "No candidate result has been recorded yet."}
-        </p>
+        <h2 id="candidate-summary-title" className="sr-only">
+          Candidate evidence
+        </h2>
         <dl className="candidate-summary-facts">
           <div>
-            <dt>Changes</dt>
-            <dd>
-              <button className="text-button" onClick={() => setTab("changes")}>
-                {changedFileCount ?? "Unrecorded"}{" "}
-                {changedFileCount === 1 ? "file" : "files"}
-              </button>
-            </dd>
-          </div>
-          <div>
-            <dt>Current final checks</dt>
+            <dt>Final checks</dt>
             <dd>
               <button className="text-button" onClick={() => setTab("checks")}>
                 {finalCheckLabel}
@@ -845,7 +958,7 @@ export function TaskWorkspace({
               </button>
             </dd>
           </div>
-          <div>
+          <div className="candidate-human-decision">
             <dt>Human decision</dt>
             <dd>
               {decision?.action === "approve"
@@ -889,7 +1002,40 @@ export function TaskWorkspace({
           </dl>
         )}
         <details className="candidate-run-details">
-          <summary>Run details and evidence scope</summary>
+          <summary>Candidate details</summary>
+          <div className="candidate-record-summary">
+            <h3>Candidate result</h3>
+            <p>
+              {workflow.candidate?.summary ||
+                run?.summary ||
+                (!run && evidenceRead.state === "loading"
+                  ? "Loading saved run evidence…"
+                  : !run && evidenceRead.state === "unavailable"
+                    ? "The saved run result is unavailable."
+                    : "No candidate result has been recorded yet.")}
+            </p>
+            <dl className="candidate-record-facts">
+              <div>
+                <dt>Changes</dt>
+                <dd>
+                  <button
+                    className="text-button"
+                    onClick={() => setTab("changes")}
+                  >
+                    {changedFileLabel}
+                  </button>
+                </dd>
+              </div>
+              {workflow.candidate && (
+                <div>
+                  <dt>Candidate digest</dt>
+                  <dd>
+                    <code>{workflow.candidate.digest}</code>
+                  </dd>
+                </div>
+              )}
+            </dl>
+          </div>
           {!materialDelivery && (
             <dl className="candidate-delivery-facts">
               <div>
@@ -959,9 +1105,13 @@ export function TaskWorkspace({
             <div>
               <dt>Provider usage</dt>
               <dd>
-                {usageReports.length
-                  ? `${usageReports.length} usage reports; total cost unknown`
-                  : "Usage unreported; cost unknown"}
+                {!run && evidenceRead.state === "loading"
+                  ? "Loading usage evidence; cost unknown"
+                  : !run && evidenceRead.state === "unavailable"
+                    ? "Usage evidence unavailable; cost unknown"
+                    : usageReports.length
+                      ? `${usageReports.length} usage reports; total cost unknown`
+                      : "Usage unreported; cost unknown"}
               </dd>
             </div>
           </dl>
@@ -970,20 +1120,22 @@ export function TaskWorkspace({
             from human approval; approval is separate from delivery.
           </p>
         </details>
-        {(!currentChecks.length ||
+        {(showReadNotice ||
+          !currentChecks.length ||
           finalReviewState.state !== "passed" ||
           !!unbound ||
           uncertainGates.length > 0 ||
           !!error) && (
           <div className="candidate-uncertainty">
-            {!currentChecks.length && (
+            {showReadNotice && <p role="status">{evidenceRead.detail}</p>}
+            {!!run && !currentChecks.length && (
               <p>
                 No current final command evidence is recorded.
                 {!!run?.checks.length &&
                   " Previous check outcomes remain in Checks; their association with this verification attempt is unrecorded or historical."}
               </p>
             )}
-            {finalReviewState.state !== "passed" && (
+            {!!run && finalReviewState.state !== "passed" && (
               <p>{finalReviewState.detail}</p>
             )}
             {!!unbound && (
@@ -1001,12 +1153,6 @@ export function TaskWorkspace({
                 {gatePresentation(gate).detail}
               </p>
             ))}
-            {error && (
-              <p>
-                Evidence refresh is unavailable. Displayed results may be older
-                recorded evidence.
-              </p>
-            )}
           </div>
         )}
       </section>
@@ -1197,7 +1343,7 @@ export function TaskWorkspace({
             aria-label="Task evidence"
           >
             {[
-              ["changes", "Changes", "code", files.length],
+              ["changes", "Changes", "code", run ? files.length : undefined],
               ["checks", "Checks", "check", run?.checks.length],
               ["findings", "Reviews", "review", run?.reviews.length],
               ["settings", "Details", "settings", undefined],

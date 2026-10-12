@@ -1,6 +1,6 @@
 # Frontend redesign validation
 
-October 11, 2026. Research and compared prototypes preceded implementation. This is a locally verified development preview; it has not been pushed, merged or deployed as the redesigned production website.
+Updated October 12, 2026. Research and compared prototypes preceded implementation. This is a locally verified development preview; it has not been pushed, merged or deployed as the redesigned production website.
 
 ## Result
 
@@ -63,7 +63,23 @@ At 1440×1000, the default task canvas grew from 964 to 1222 CSS pixels, while t
 
 The fixtures use simulated providers, identities and GitHub. Browser inspection forbids non-GET/HEAD requests and does not select Start, approval, application, publication, pairing, measurement submission or report download. Artifacts are retained under `output/playwright/round5` and the independent report under `output/redesign/round5`. These checks do not establish live acceptance, scale or complete accessibility conformance.
 
-## Loading evidence
+## Mobile evidence and read recovery
+
+This slice compared a compact decision/evidence summary with moving the decision below the patch. The compact summary was selected to keep blockers and permitted actions visible before inspection. Final checks, independent review and human decision remain above the evidence tabs. Candidate narrative, full digest, file count and supporting run records move into **Candidate details**. Current failures, uncertainty and material delivery facts remain outside it. Code font size and exact patch rows are preserved.
+
+Against the same settled Owner fixture, the first hunk moved from 810.97 to 660.77 CSS pixels at 390px width and from 821.97 to 680.27 at 320px. This is 150.20 and 141.70 pixels earlier, respectively. The 390px view fits all four sample patch rows; the 320px view exposes the hunk and two rows, with the rest reachable by scrolling. These are measurements of this fixture, not proof that all patches fit above the fold or that users work faster.
+
+The bounded independent browser pass covered both themes at 1440, 1024, 390 and 320px without document overflow or header overlap. Candidate details works by keyboard and retains its state through evidence-tab navigation. Task and measurement components remain mounted, preserving entered values. Reviewer evidence and permitted approval remain accessible without creation or delivery controls. No approval or other consequential action was selected.
+
+Run read state is now separate from recorded outcomes. Initial loading does not invent missing checks, review verdicts or a zero-file patch. Initial failure and mismatched run identity report unavailable evidence. A failed refresh retains qualified last-loaded evidence and blocks approval, including while Retry is pending. Ordinary background polling preserves stable labels and layout. Snapshots bind synchronously to workflow, run, candidate digest and viewer, and delayed responses cannot cross those identities. Successful retry restores a disappearing Retry button's focus to the active evidence tab, while preserving deliberate focus moves. Existing legacy saved-gate approval semantics remain unchanged.
+
+The new evidence suite passes **27 focused checks**, including actual handlers with controlled deferred responses, identity replacement before effects, current verification attempts, offline state, retry focus cancellation and legacy compatibility. Full frontend and hosted suites, TypeScript, local/cloud/hosted builds, release consistency and whitespace checks passed. Navigation tests now locate the Changes fact without relying on its former text adjacency; fake product run responses use the real `run_id` contract. No backend implementation changed.
+
+Root browser checks deliberately held or replaced only run GET responses. They verified initial loading/failure/retry/success, stable ordinary polling, failed refresh and pending retry, focus return/no focus theft, wrong-run rejection and loaded-but-unrecorded presentation. The empty successful body is an intentionally inconsistent modern presentation fixture, not an acceptance test. It cannot establish server approval behavior. After visual review found the premature zero-file badge, the final build received a bounded loading/count/recovery smoke check on a new frozen fixture; the independent full layout matrix used the preceding build, whose healthy layout is unchanged.
+
+All browser contexts used GET/HEAD guards. Read-only inspection of both disposable worker/relay databases confirmed awaiting-approval candidates, no human decision or publication, zero workflow operations and zero setup observations. Plans, sanitized request logs, screenshots and reports remain under `output/redesign/round6` and `output/playwright/round6`. Providers, accounts and GitHub are simulated; this pass does not establish live acceptance, browser zoom behavior, complete accessibility conformance or customer outcomes.
+
+## Public bundle loading
 
 The initial redesign build placed about 711 kB of JavaScript in one bundle. The final setup build's public page requests two JavaScript assets totaling about 246 kB before compression, while Studio and graph chunks load for the working interface. Browser resource inspection confirmed that the public page did not request those chunks or `/api/session`. These are build/network observations, not a production speed, conversion or productivity claim.
 

@@ -37,6 +37,8 @@ Both share the existing original type, palette and offset-plane identity. The co
 
 The implemented canvas refinement uses an on-demand task browser within that direction. **Task list** and **Review queue** expose the existing search, project/status filters and archive; one toolbar retains New task where permitted. The browser opens alongside the candidate on wide screens and occupies the working surface on compact screens. Closing it returns the space to the same mounted task. Ordinary polling does not dismiss navigation. Pilot measurements live in the task's **Details** tab and load only when explicitly opened; worker report export remains in the task browser. This reduces permanent interface space without removing evidence or changing acceptance policy.
 
+The mobile evidence refinement keeps three facts above the patch: **Final checks, Independent review, Human decision**. **Candidate details** holds the narrative, full candidate digest, file count, run information and verification record. Current failures, uncertainty and material delivery status remain outside that disclosure. Pending reads say loading; failed reads say unavailable; missing records are described only after a successful read. Failed refreshes qualify retained evidence as last loaded and block approval through retry. Changing the workflow, run, candidate or viewer invalidates the displayed snapshot immediately. These changes improve presentation and recovery without changing the server's acceptance policy or legacy compatibility.
+
 ## Zero to first useful change
 
 | Stage | User decision and real behavior | Required distinction |

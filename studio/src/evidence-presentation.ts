@@ -1,5 +1,68 @@
 import type { Data, EvidenceObservation } from "./types";
 
+export type RunEvidenceRead = {
+  state: "loading" | "refreshing" | "available" | "unavailable" | "unrecorded";
+  label: string;
+  detail: string;
+};
+
+/** Read availability is separate from recorded check/review outcomes. */
+export function runEvidenceRead({
+  requested,
+  online,
+  loaded,
+  loading,
+  error,
+}: {
+  requested: boolean;
+  online: boolean;
+  loaded: boolean;
+  loading: boolean;
+  error: string;
+}): RunEvidenceRead {
+  if (!requested)
+    return {
+      state: "unrecorded",
+      label: "No run evidence recorded",
+      detail: "This task has no saved execution run yet.",
+    };
+  if (!online)
+    return {
+      state: "unavailable",
+      label: "Evidence unavailable offline",
+      detail: loaded
+        ? "The worker is offline. Showing last loaded recorded evidence."
+        : "Reconnect the worker to load this task's run evidence.",
+    };
+  if (loading)
+    return {
+      state: loaded ? "refreshing" : "loading",
+      label: loaded
+        ? "Refreshing recorded evidence"
+        : error
+          ? "Retrying evidence read"
+          : "Loading run evidence",
+      detail: loaded
+        ? "Checking for updated evidence. Displayed results are the last loaded record."
+        : "Run evidence is loading; missing check or review records have not been established.",
+    };
+  if (error)
+    return {
+      state: "unavailable",
+      label: "Evidence unavailable",
+      detail: loaded
+        ? "Evidence refresh failed. Showing last loaded recorded evidence; approval remains blocked."
+        : "Run evidence could not be loaded. Its check and review outcomes are unavailable.",
+    };
+  return loaded
+    ? { state: "available", label: "Evidence loaded", detail: "" }
+    : {
+        state: "loading",
+        label: "Loading run evidence",
+        detail: "Waiting for this run's evidence response.",
+      };
+}
+
 export type EvidenceState =
   | "passed"
   | "failed"

@@ -314,7 +314,7 @@ const taskProps = {
   identity.unmount();
 
   const secondFile = ['diff --git a/src/long.py b/src/long.py','--- a/src/long.py','+++ b/src/long.py','@@ -1,500 +1,500 @@',...Array.from({length:500},(_,i)=>' line'+(i+1))].join('\n');
-  const run = {id:'run-A',status:'completed',tasks:[],errors:[],reviews:[{provider:'claude',findings:[{title:'Late page finding',body:'Preserve behavior',priority:'P1',code_location:{path:'src/long.py',line_range:{start:470,end:470}}},{title:'Missing file',file:'outside.py',line:2}]}],checks:[],spec:{},
+  const run = {run_id:'run-A',status:'completed',tasks:[],errors:[],reviews:[{provider:'claude',findings:[{title:'Late page finding',body:'Preserve behavior',priority:'P1',code_location:{path:'src/long.py',line_range:{start:470,end:470}}},{title:'Missing file',file:'outside.py',line:2}]}],checks:[],spec:{},
     diff:'diff --git a/first.py b/first.py\n--- a/first.py\n+++ b/first.py\n@@ -1 +1 @@\n-old\n+new\n'+secondFile};
   responder = async p => p === '/runs/run-A' ? run : (()=>{throw new Error('Unexpected request '+p)})();
   const findings = renderer(TaskWorkspace,{...taskProps,workflow:{...base,run_id:'run-A'},onRevise:value=>{captured=value;}}); findings.render(); await settle(findings);
@@ -342,7 +342,7 @@ const taskProps = {
   responder = p => p === '/runs/old' ? oldRun.promise : p === '/runs/new' ? newRun.promise : Promise.reject(new Error('Unexpected request '+p));
   const stale = renderer(TaskWorkspace,{...taskProps,workflow:{...base,run_id:'old'}}); stale.render();
   stale.props.workflow = {...base,id:'new-workflow',run_id:'new',title:'New selected task'}; stale.render();
-  newRun.resolve({...run,id:'new',diff:secondFile}); await settle(stale); oldRun.resolve({...run,id:'old',diff:run.diff}); await settle(stale);
+  newRun.resolve({...run,run_id:'new',diff:secondFile}); await settle(stale); oldRun.resolve({...run,run_id:'old',diff:run.diff}); await settle(stale);
   check('Stale evidence response cannot replace the current task after run selection changes', () => assert.equal(text(stale.tree).includes('first.py'),false));
   stale.unmount();
 

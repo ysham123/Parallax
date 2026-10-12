@@ -322,7 +322,9 @@ const taskProps = {
   check('Text patch opens on its hunk, retains original row identities and names a single changed file correctly',()=>{
     assert.equal(nodes(patchView.tree).filter(n=>n.type==='tr' && n.props.className==='patch-meta').length,0);
     const addition=nodes(patchView.tree).find(n=>n.type==='tr' && n.props.className==='patch-addition'); assert.equal(addition.props['data-patch-row'],6);
-    const summary=nodes(patchView.tree).find(n=>n.props.className==='candidate-summary'); assert.match(text(summary),/Changes1 fileCurrent/); assert.doesNotMatch(text(summary),/1 files/);
+    const summary=nodes(patchView.tree).find(n=>n.props.className==='candidate-summary');
+    const changes=nodes(summary).find(n=>n.type==='div' && nodes(n).some(v=>v.type==='dt' && text(v)==='Changes'));
+    assert.equal(text(nodes(changes).find(n=>n.type==='dd')),'1 file'); assert.doesNotMatch(text(summary),/1 files/);
     assert.equal(button(patchView.tree,'Show patch headers').props['aria-expanded'],false);
     assert.ok(nodes(patchView.tree).some(n=>n.props.className==='diff-workspace single-file'));
   });
