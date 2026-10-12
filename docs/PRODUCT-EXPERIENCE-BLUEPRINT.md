@@ -45,7 +45,7 @@ The mobile evidence refinement keeps three facts above the patch: **Final checks
 | --- | --- | --- |
 | Obtain software | Choose the actual compatible release and installation route. | Public 1.3 local tools, supplied 1.4 preview and unpublished Mac app are distinct. A documentation link is not a working preview download. |
 | Choose execution | Open local Studio, or expressly pair a user-owned machine into a hosted workspace. | An account does not provide compute or silently share an existing personal computer. |
-| Choose project | Use an existing machine-approved Git folder; teams grant project membership separately. | A project folder is not GitHub authorization. Add repository currently manages access; it does not clone. |
+| Choose project | Use an existing machine-approved Git folder; teams grant project membership separately. | Manage project access changes workspace permissions. Connect GitHub delivery binds a remote destination to this exact folder; neither action clones source. |
 | Inspect setup | Observe supported provider connections and configure real project checks. | Assessment does not run checks, establish credit/quota or prove inference. Credentials stay on the machine. |
 | Delegate | Describe a bounded outcome, acceptance criteria and explicit execution budget. | Start is deliberate. Setup navigation does not execute agents. One-off settings need not become a saved recipe. |
 | Inspect | Read the actual diff, baseline/final checks, fresh independent review and uncertainty. | Reviewed, checked, approved, locally applied and published are different facts. |
@@ -67,6 +67,8 @@ The first implementation slice improves the existing pre-pairing instructions an
 | GitHub | App authorization binds selected installation/repository/base to an existing approved project. | Keep sign-in, cloning and delivery permission distinct. A future clone flow requires worker-side authorization and implementation. |
 
 GitHub delivery requires the captured baseline tree to match the selected remote base before execution and publication. Dirty-tree work can remain local. Publication uses a dedicated branch and draft PR; externally changed heads block updates. These are meaningful product constraints that belong near the relevant choice, with details available for diagnosis.
+
+Connection setup now opens inside the chosen repository. It keeps the worker and folder visible, distinguishes unavailable setup from an unconfigured App, and shows repository/base choices after authorization. Returning from GitHub restores only matching, currently authorized navigation context. Safe binding retries preserve one durable operation rather than creating another connection after interruption. A successful save refreshes the task composer's delivery choices without starting work. Source cloning, worker-approved destination selection and adding new worker roots remain separate implementation work.
 
 ## Personal and team journeys
 

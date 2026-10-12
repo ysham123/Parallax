@@ -113,3 +113,44 @@
     padding: 18px;
   }
 }
+
+.repository-connection-panel {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--line);
+  padding: 24px 0 0;
+  max-width: 720px;
+}
+.repository-connection-panel > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.repository-connection-panel h3 { margin: 0; font-size: 18px; }
+.repository-connection-panel h4 { font-size: 16px; margin: 0 0 8px; }
+.repository-connection-panel .text-button { min-height: 44px; font-size: 14px; }
+.github-connection { font-size: 14px; line-height: 1.55; }
+.github-connection p { max-width: 68ch; }
+.github-connection-target { display: grid; grid-template-columns: minmax(100px, .6fr) minmax(0, 1.4fr); gap: 16px; margin: 20px 0; }
+.github-connection-target dt { color: var(--muted); font-size: 12px; }
+.github-connection-target dd { margin: 4px 0 0; overflow-wrap: anywhere; }
+.github-connection-target code { font-size: 12px; }
+.github-connection-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
+.github-connection a { color: var(--accent); text-underline-offset: 3px; }
+.github-connection-actions a { padding: 10px 0; }
+.github-authorization { border-bottom: 1px solid var(--line); padding-bottom: 12px; margin-bottom: 20px; }
+.github-authorization > p:last-child { color: var(--muted); font-size: 13px; }
+.github-connection fieldset { border: 0; margin: 0; padding: 0; display: grid; gap: 16px; min-width: 0; }
+.github-connection legend { font-weight: 600; margin-bottom: 16px; }
+.github-connection label { display: grid; gap: 6px; font-size: 14px; }
+.github-connection input, .github-connection select { min-height: 44px; min-width: 0; width: 100%; font: inherit; color: var(--text); background: var(--input); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; }
+.github-connection fieldset > button { justify-self: start; }
+.repositories-page .github-connection :is(input, select, button, a) { font-size: 14px; }
+.github-connection [role="alert"] { color: var(--danger); overflow-wrap: anywhere; }
+.github-connection [role="status"] { color: var(--muted); }
+.github-connection .github-connection-success { color: var(--text); border-left: 2px solid var(--accent); padding-left: 16px; }
+@media (max-width: 700px) {
+  .repository-connection-panel { padding-top: 20px; }
+  .github-connection-target { grid-template-columns: 1fr; gap: 12px; }
+}

@@ -37,6 +37,11 @@ import {
 } from "./session";
 import "./hosted.css";
 import "./public.css";
+import {
+  githubReturn,
+  clearGitHubReturn,
+  type GitHubProject,
+} from "./github-connection-state";
 
 type View =
   | { kind: "checking" }
@@ -93,6 +98,12 @@ function CloudWorkspace() {
     sequence: number;
     section: "workspace" | "projects" | "github";
   }>();
+  const [repositoryRequest, setRepositoryRequest] = useState<{
+    scope: string;
+    sequence: number;
+    target?: GitHubProject;
+  }>();
+  const returnedGitHub = useRef(false);
   // Set while a workspace with no machines is onboarding, so a newly paired machine is
   // announced in place and Studio opens only when the user chooses it.
   const [onboarding, setOnboarding] = useState(false);
@@ -306,6 +317,45 @@ function CloudWorkspace() {
     setSelected(id);
   }
 
+  useEffect(() => {
+    if (
+      returnedGitHub.current ||
+      !session?.account?.id ||
+      !machinesLoaded ||
+      new URLSearchParams(location.search).get("github_connected") !== "1"
+    )
+      return;
+    returnedGitHub.current = true;
+    const saved = githubReturn({
+      actor: session.account.id,
+      workspace: session.workspace.id,
+    });
+    if (!saved) return;
+    clearGitHubReturn();
+    const machine = machines.find(
+      (value) =>
+        value.id === saved.target.worker &&
+        value.online &&
+        value.workspaces.includes(saved.target.path),
+    );
+    if (
+      !machine ||
+      (session.workspace.kind === "team" && session.workspace.role !== "owner")
+    ) {
+      setError(
+        "GitHub authorization returned. Reconnect the approved machine or ask an Owner to continue from Repositories.",
+      );
+      return;
+    }
+    select(machine.id);
+    setRepositoryRequest((previous) => ({
+      scope,
+      sequence: (previous?.sequence || 0) + 1,
+      target: saved.target,
+    }));
+    window.history.replaceState(null, "", "/studio");
+  }, [scope, machinesLoaded, machines, session]);
+
   async function signOut() {
     exiting.current = true;
     let response: Response;
@@ -399,6 +449,12 @@ function CloudWorkspace() {
         session={active}
         machines={machines}
         onSwitch={() => void checkSession(true)}
+        onRepositories={() =>
+          setRepositoryRequest((previous) => ({
+            scope,
+            sequence: (previous?.sequence || 0) + 1,
+          }))
+        }
         openRequest={
           workspaceSettingsRequest?.scope === scope
             ? workspaceSettingsRequest
@@ -486,6 +542,9 @@ function CloudWorkspace() {
           actor: active.account?.id,
           workspace: active.workspace.id,
         }}
+        repositoryRequest={
+          repositoryRequest?.scope === scope ? repositoryRequest : undefined
+        }
         onManageWorkspace={(section) =>
           setWorkspaceSettingsRequest((previous) => ({
             scope,

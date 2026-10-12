@@ -132,9 +132,11 @@ export function Workflows({
   renderCheck,
   view = "tasks",
   newTaskRequest,
+  githubConnectionRevision = 0,
 }: {
   view?: "tasks" | "inbox";
   newTaskRequest?: { sequence: number; workspace: string };
+  githubConnectionRevision?: number;
   teamWorkspace?: boolean;
   executionWorker?: string;
   accountIdentity?: { actor?: string; workspace: string };
@@ -239,6 +241,7 @@ export function Workflows({
       base: string;
     }[]
   >([]);
+  const githubReadVersion = useRef(0);
   const [githubBinding, setGithubBinding] = useState("");
   const [filter, setFilter] = useState("all");
   const [busy, setBusy] = useState("");
@@ -611,11 +614,12 @@ export function Workflows({
     const abort = new AbortController();
     setSetupError("");
     if (viaMachine()) {
+      const githubRequest = ++githubReadVersion.current;
       void relayApi<typeof githubBindings>("/github/bindings", {
         signal: abort.signal,
       })
         .then((v) => {
-          if (!abort.signal.aborted) setGithubBindings(v);
+          if (!abort.signal.aborted && githubReadVersion.current === githubRequest) setGithubBindings(v);
         })
         .catch(() => {});
       void relayApi<typeof members>("/workspaces/members", {
@@ -674,6 +678,18 @@ export function Workflows({
     assessmentSequence.current++;
     setReadiness(null);
   }, [assessmentKey]);
+  useEffect(() => {
+    if (!paired || !online || !githubConnectionRevision) return;
+    const abort = new AbortController();
+    const request = ++githubReadVersion.current;
+    void relayApi<typeof githubBindings>("/github/bindings", { signal: abort.signal })
+      .then(value => { if (!abort.signal.aborted && githubReadVersion.current === request) setGithubBindings(value); })
+      .catch(failure => {
+        if (!abort.signal.aborted && githubReadVersion.current === request)
+          setError(`The connection was saved, but delivery destinations could not refresh: ${messageOf(failure)}. Reload Studio before selecting GitHub delivery.`);
+      });
+    return () => abort.abort();
+  }, [githubConnectionRevision, authorityScope, online, paired]);
   useEffect(() => {
     setGithubBinding((current) =>
       githubBindingsForProject(

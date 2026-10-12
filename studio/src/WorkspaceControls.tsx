@@ -7,7 +7,6 @@ import "./pilot.css";
 
 type Space = { id: string; name: string; kind: string; role: string };
 type Member = { account: string; role: string; login: string; name: string };
-type Repo = { id: number; full_name: string; default_branch: string };
 type ProjectBinding = {
   id: string;
   worker: string;
@@ -33,10 +32,12 @@ export function WorkspaceControls({
   machines,
   onSwitch,
   openRequest,
+  onRepositories,
 }: {
   session: Session;
   machines: ExecutionMachine[];
   onSwitch: () => void;
+  onRepositories?: () => void;
   openRequest?: {
     sequence: number;
     section: "workspace" | "projects" | "github";
@@ -66,13 +67,6 @@ export function WorkspaceControls({
   const pendingPolicies = useRef(
     new Map<string, { signature: string; id: string }>(),
   );
-  const [configured, setConfigured] = useState(false);
-  const [installationUrl, setInstallationUrl] = useState("");
-  const [installations, setInstallations] = useState<number[]>([]);
-  const [installation, setInstallation] = useState(0);
-  const [repos, setRepos] = useState<Repo[]>([]);
-  const [repo, setRepo] = useState(0);
-  const [base, setBase] = useState("main");
   const team = session.workspace.kind === "team";
   const owner = !team || session.workspace.role === "owner";
   const projects = machines.flatMap((m) =>
@@ -221,23 +215,6 @@ export function WorkspaceControls({
             setError(messageOf(e));
           }
         });
-    relayApi<{ configured: boolean; installation_url: string }>(
-      "/github/config",
-      { signal: abort.signal },
-    )
-      .then((c) => {
-        if (!abort.signal.aborted) {
-          setConfigured(c.configured);
-          setInstallationUrl(c.installation_url || "");
-        }
-      })
-      .catch(() => {});
-    if (owner)
-      relayApi<number[]>("/github/installations", { signal: abort.signal })
-        .then((v) => {
-          if (!abort.signal.aborted) setInstallations(v);
-        })
-        .catch(() => {});
     return () => abort.abort();
   }, [session.workspace.id, session.account?.id, team, owner]);
   if (!session.account) return null;
@@ -641,113 +618,24 @@ export function WorkspaceControls({
               <h3 tabIndex={-1} data-workspace-section="github">
                 GitHub delivery
               </h3>
-              {!configured ? (
-                <p>
-                  The deployment operator must configure the GitHub App before
-                  live draft PR delivery.
-                </p>
-              ) : (
-                <>
-                  {installationUrl && (
-                    <a href={installationUrl} target="_blank" rel="noreferrer">
-                      Install the Parallax GitHub App
-                    </a>
-                  )}
-                  <button
-                    onClick={() =>
-                      void run(async () => {
-                        const c = await relayApi<{ url: string }>(
-                          "/github/connect/start",
-                          { method: "POST" },
-                        );
-                        location.assign(c.url);
-                      })
-                    }
-                  >
-                    Authorize GitHub delivery
-                  </button>
-                  <p>
-                    GitHub delivery authorization is separate from signing in to
-                    Parallax.
-                  </p>
-                  <label>
-                    Installation
-                    <select
-                      value={installation}
-                      onChange={(e) => {
-                        const id = Number(e.target.value);
-                        setInstallation(id);
-                        setRepo(0);
-                        setRepos([]);
-                        if (id)
-                          void run(async () =>
-                            setRepos(
-                              await relayApi<Repo[]>(
-                                `/github/installations/${id}/repositories`,
-                              ),
-                            ),
-                          );
-                      }}
-                    >
-                      <option value={0}>Choose installation</option>
-                      {installations.map((i) => (
-                        <option key={i} value={i}>
-                          {i}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Repository
-                    <select
-                      value={repo}
-                      onChange={(e) => {
-                        const id = Number(e.target.value);
-                        setRepo(id);
-                        setBase(
-                          repos.find((r) => r.id === id)?.default_branch ||
-                            "main",
-                        );
-                      }}
-                    >
-                      <option value={0}>Choose selected repository</option>
-                      {repos.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {r.full_name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Remote base branch
-                    <input
-                      value={base}
-                      onChange={(e) => setBase(e.target.value)}
-                    />
-                  </label>
-                  <button
-                    disabled={!repo || !installation || !selectedProject}
-                    onClick={() =>
-                      void run(async () => {
-                        await relayApi("/github/bindings", {
-                          method: "POST",
-                          body: JSON.stringify({
-                            installation,
-                            repository: repo,
-                            worker: selectedProject!.worker,
-                            project: selectedProject!.path,
-                            base,
-                          }),
-                        });
-                        setNotice(
-                          "Repository bound. Choose GitHub delivery when starting a fresh task.",
-                        );
-                      })
-                    }
-                  >
-                    Bind repository
-                  </button>
-                </>
+              <p>
+                Connect GitHub delivery from an approved project in
+                Repositories. GitHub sign-in and delivery authorization are
+                separate.
+              </p>
+              {onRepositories && (
+                <button
+                  disabled={!machines.length}
+                  onClick={() => {
+                    closePanel(false);
+                    onRepositories();
+                  }}
+                >
+                  Open repositories
+                </button>
+              )}
+              {!machines.length && (
+                <p>Pair a machine with an approved project folder first.</p>
               )}
             </>
           )}

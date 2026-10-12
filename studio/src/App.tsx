@@ -30,6 +30,7 @@ import {
 } from "./Exploration";
 import { Workflows } from "./Workflows";
 import { Repositories } from "./Repositories";
+import type { GitHubProject } from "./github-connection-state";
 import type { EvidenceTransport } from "./session";
 import { contextManifest, explorations } from "./run-inspection";
 import {
@@ -1204,6 +1205,7 @@ export default function App({
   workspaceRole,
   accountIdentity,
   onManageWorkspace,
+  repositoryRequest,
 }: {
   execution?: {
     id?: string;
@@ -1222,11 +1224,19 @@ export default function App({
   workspaceRole?: string;
   accountIdentity?: { actor?: string; workspace: string };
   onManageWorkspace?: (section: "workspace" | "projects" | "github") => void;
+  repositoryRequest?: { sequence: number; target?: GitHubProject };
 } = {}) {
   const hostedWorkspace = import.meta.env.MODE === "cloud";
   const legacyTeamScope = useRef(teamWorkspace);
   legacyTeamScope.current = teamWorkspace;
   const [tab, setTab] = useState<Tab>("workflows");
+  const [githubConnectionRevision, setGithubConnectionRevision] = useState(0);
+  const openedRepositories = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (!repositoryRequest || openedRepositories.current === repositoryRequest.sequence) return;
+    openedRepositories.current = repositoryRequest.sequence;
+    setTab("repositories");
+  }, [repositoryRequest]);
   const [newTaskRequest, setNewTaskRequest] = useState<
     { sequence: number; workspace: string } | undefined
   >();
@@ -2066,6 +2076,7 @@ export default function App({
             <Workflows
               view={tab === "inbox" ? "inbox" : "tasks"}
               newTaskRequest={newTaskRequest}
+              githubConnectionRevision={githubConnectionRevision}
               teamWorkspace={teamWorkspace}
               executionWorker={execution?.id}
               accountIdentity={accountIdentity}
@@ -2118,6 +2129,9 @@ export default function App({
               workspace={spec.workspace}
               canManage={!teamWorkspace || workspaceRole === "owner"}
               onManage={onManageWorkspace}
+              accountIdentity={accountIdentity}
+              connectionRequest={repositoryRequest}
+              onBindingUpdated={() => setGithubConnectionRevision(value => value + 1)}
               onNewTask={(workspace) => {
                 setSpec((previous) => ({ ...previous, workspace }));
                 setNewTaskRequest((previous) => ({

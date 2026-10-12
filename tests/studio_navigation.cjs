@@ -183,37 +183,40 @@ const taskProps = {
     assert.deepEqual(authorizedProjects({workspace:'/local',authority:null},false),['/local']);
     assert.deepEqual(repositoryBindings([{id:'wrong',project:'/approved',worker:'other'},{id:'right',project:'/approved',worker:'current'},{id:'history',project:'/history',worker:'current'}],['/approved'],'current').map(b=>b.id),['right']);
   });
-  const repoProps = {active:true, worker:'current', paired:true, online:true, workspace:'/history', machineName:'Worker A', canManage:true, onNewTask() {}, onManage() {}};
+  const repoProps = {active:true, worker:'current', accountIdentity:{actor:'me',workspace:'space'}, paired:true, online:true, workspace:'/history', machineName:'Worker A', canManage:true, onNewTask() {}, onManage() {}};
   let chosen='', managed='';
-  responder = async p => p === '/context' ? {workspace:'/history',authority:{actor:'me',role:'owner',team:true,projects:['/approved']}}
+  responder = async p => p === '/context' ? {workspace:'/history',authority:{workspace:'space',actor:'me',role:'owner',team:true,projects:['/approved']}}
     : p === '/github/bindings' ? [{id:'wrong',project:'/approved',worker:'other',full_name:'wrong/repo',base:'main'},{id:'right',project:'/approved',worker:'current',full_name:'right/repo',base:'main'}]
       : Promise.reject(new Error('Unexpected read '+p));
   const repos = renderer(Repositories,{...repoProps,onNewTask:p=>{chosen=p;},onManage:s=>{managed=s;}});
   repos.render();
   check('Repository setup actions wait for current authority, even with an Owner session prop', () => {
-    assert.equal(button(repos.tree,'Add repository'),undefined);
+    assert.equal(button(repos.tree,'Manage project access'),undefined);
     assert.equal(button(repos.tree,'New task'),undefined);
   });
   await settle(repos);
   check('Repository view projects current worker paths and reuses explicit setup entry points', () => {
     assert.match(text(repos.tree),/\/approved|right\/repo/); assert.doesNotMatch(text(repos.tree),/\/history|wrong\/repo/);
     button(repos.tree,'New task').props.onClick(); assert.equal(chosen,'/approved');
-    button(repos.tree,'Add repository').props.onClick(); assert.equal(managed,'projects');
-    button(repos.tree,'Connect GitHub delivery').props.onClick(); assert.equal(managed,'github');
+    button(repos.tree,'Manage project access').props.onClick(); assert.equal(managed,'projects');
+    button(repos.tree,'Connect GitHub delivery').props.onClick({currentTarget:null}); repos.render();
+    const connection=nodes(repos.tree).find(n=>n.type?.name==='GitHubConnection');
+    assert.deepEqual(connection.props.target,{worker:'current',path:'/approved',machineName:'Worker A'});
+    assert.deepEqual(connection.props.identity,{actor:'me',workspace:'space'});
     assert.equal(calls.some(c=>c.init?.method && c.init.method !== 'GET'),false);
   });
   repos.props.online=false; repos.render(); await settle(repos);
   check('An offline worker exposes neither stale repository paths nor setup/delivery actions', () => {
     assert.match(text(repos.tree),/Worker offline/); assert.doesNotMatch(text(repos.tree),/\/approved|right\/repo/);
-    assert.equal(button(repos.tree,'Add repository'),undefined); assert.equal(button(repos.tree,'New task'),undefined);
+    assert.equal(button(repos.tree,'Manage project access'),undefined); assert.equal(button(repos.tree,'New task'),undefined);
   }); repos.unmount();
-  responder = async p => p === '/context' ? {authority:{actor:'me',role:'developer',team:true,projects:['/approved']}} : [];
+  responder = async p => p === '/context' ? {authority:{workspace:'space',actor:'me',role:'developer',team:true,projects:['/approved']}} : [];
   const downgraded = renderer(Repositories,repoProps); downgraded.render(); await settle(downgraded);
   check('Current Developer permission cannot inherit repository administration from an older Owner prop', () => {
-    assert.ok(button(downgraded.tree,'New task')); assert.equal(button(downgraded.tree,'Add repository'),undefined);
+    assert.ok(button(downgraded.tree,'New task')); assert.equal(button(downgraded.tree,'Manage project access'),undefined);
     assert.equal(button(downgraded.tree,'Connect GitHub delivery'),undefined);
   }); downgraded.unmount();
-  responder = async p => p === '/context' ? {authority:{actor:'me',role:'owner',team:true,projects:['/approved']}} : Promise.reject(new Error('Installation was removed'));
+  responder = async p => p === '/context' ? {authority:{workspace:'space',actor:'me',role:'owner',team:true,projects:['/approved']}} : Promise.reject(new Error('Installation was removed'));
   const githubFail = renderer(Repositories,repoProps); githubFail.render(); await settle(githubFail);
   check('Failed GitHub lookup keeps local project access and preserves an inspectable reason', () => {
     assert.ok(button(githubFail.tree,'New task')); assert.match(text(githubFail.tree),/Connection status unavailable/);
@@ -223,8 +226,8 @@ const taskProps = {
   responder = p => p === '/context' ? (++contextReads === 1 ? old.promise : newer.promise) : Promise.resolve([]);
   const crossing=renderer(Repositories,{...repoProps,worker:'old'}); crossing.render();
   crossing.props={...repoProps,worker:'new',machineName:'Worker B'}; crossing.render();
-  newer.resolve({authority:{actor:'me',role:'owner',team:true,projects:['/new-project']}}); await settle(crossing);
-  old.resolve({authority:{actor:'me',role:'owner',team:true,projects:['/old-project']}}); await settle(crossing);
+  newer.resolve({authority:{workspace:'space',actor:'me',role:'owner',team:true,projects:['/new-project']}}); await settle(crossing);
+  old.resolve({authority:{workspace:'space',actor:'me',role:'owner',team:true,projects:['/old-project']}}); await settle(crossing);
   check('Late repository permission cannot cross the selected worker boundary', () => {
     assert.match(text(crossing.tree),/\/new-project/); assert.doesNotMatch(text(crossing.tree),/\/old-project/);
   }); crossing.unmount();
@@ -232,13 +235,13 @@ const taskProps = {
   const local=renderer(Repositories,{...repoProps,paired:false,worker:undefined,onManage:undefined}); local.render(); await settle(local);
   check('Plain local Studio uses its actual folder and explains launcher selection without a fake picker', () => {
     assert.match(text(local.tree),/\/local|Parallax launcher/); assert.ok(button(local.tree,'New task'));
-    assert.equal(button(local.tree,'Add repository'),undefined);
+    assert.equal(button(local.tree,'Manage project access'),undefined);
   }); local.unmount();
   responder=async()=>({workspace:'/leaked',authority:null});
   const noAuthority=renderer(Repositories,repoProps); noAuthority.render(); await settle(noAuthority);
   check('Missing paired authority fails closed rather than falling back to the context folder', () => {
     assert.match(text(noAuthority.tree),/permissions are unavailable/); assert.doesNotMatch(text(noAuthority.tree),/\/leaked/);
-    assert.equal(button(noAuthority.tree,'New task'),undefined); assert.equal(button(noAuthority.tree,'Add repository'),undefined);
+    assert.equal(button(noAuthority.tree,'New task'),undefined); assert.equal(button(noAuthority.tree,'Manage project access'),undefined);
   }); noAuthority.unmount();
   let openerFocus=0, headingFocus=0;
   global.HTMLElement=class {isConnected=true;focus(){openerFocus++;}};

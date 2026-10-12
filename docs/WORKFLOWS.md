@@ -6,6 +6,8 @@ New Studio tasks use contract **2.0**, which separates human approval from local
 
 ## Start a change
 
+For GitHub delivery, first open **Repositories** in hosted Studio and select **Connect GitHub delivery** beside an approved folder. An Owner authorizes the App, chooses a repository and remote base, then explicitly connects it. The saved destination becomes available in a new task's **Delivery** selector. Connection setup does not clone source, run checks, start a task or publish changes. **Manage project access** controls team permissions separately.
+
 1. Open Studio locally, or select an online paired machine in hosted Studio. The project must be approved on that machine.
 2. Select **New task**, choose the project, and describe a specific outcome. The **Workflow** selector offers Verified change, Fix a bug, Safe refactor, Modernize one component, and your saved recipes. Built-in recipes use the same execution stages with different task instructions. Their initial team is Codex coordinating and Claude implementing. The [modernization exercise](../examples/legacy-modernization/README.md) starts from a passing behavioral baseline and requires compatibility checks against the upgraded component.
 3. Under **Configure team, task instructions, and checks**, choose providers, models, effort, time limit, task instructions, and explicit project checks if needed. With no explicit checks, Parallax uses the project's detected checks. Unsupported setup stops for attention.

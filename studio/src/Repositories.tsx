@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, messageOf, relayApi } from "./api";
 import { workflowAccess, type WorkflowAuthority } from "./workflow-state";
 import "./repositories.css";
+import { GitHubConnection } from "./GitHubConnection";
+import type { GitHubProject } from "./github-connection-state";
 
 type ProjectContext = {
   workspace?: string;
@@ -58,6 +60,9 @@ export function Repositories({
   canManage,
   onNewTask,
   onManage,
+  accountIdentity,
+  connectionRequest,
+  onBindingUpdated,
 }: {
   active: boolean;
   worker?: string;
@@ -68,11 +73,29 @@ export function Repositories({
   canManage: boolean;
   onNewTask: (project: string) => void;
   onManage?: (section: "projects" | "github") => void;
+  accountIdentity?: { actor?: string; workspace: string };
+  connectionRequest?: { sequence: number; target?: GitHubProject };
+  onBindingUpdated?: () => void;
 }) {
-  const scope = JSON.stringify([worker, paired, online, workspace]);
+  const scope = JSON.stringify([
+    worker,
+    paired,
+    online,
+    workspace,
+    accountIdentity?.actor,
+    accountIdentity?.workspace,
+  ]);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
+  const [connection, setConnection] = useState<{
+    scope: string;
+    path: string;
+  } | null>(null);
+  const [returnNotice, setReturnNotice] = useState("");
+  const handledRequest = useRef<number | undefined>(undefined);
+  const opener = useRef<HTMLElement | null>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     if (!active) return;
     const abort = new AbortController();
@@ -85,6 +108,16 @@ export function Repositories({
         if (paired && !context.authority)
           throw new Error(
             "Workspace permissions are unavailable. Update or reconnect this worker before choosing a repository.",
+          );
+        if (
+          paired &&
+          accountIdentity &&
+          (context.authority?.actor !== accountIdentity.actor ||
+            (context.authority as WorkflowAuthority & { workspace?: string })
+              ?.workspace !== accountIdentity.workspace)
+        )
+          throw new Error(
+            "Workspace access changed. Reload Studio before choosing a repository.",
           );
         const projects = authorizedProjects(context, paired);
         let bindings: Binding[] = [];
@@ -116,12 +149,53 @@ export function Repositories({
   const current = online && snapshot?.scope === scope ? snapshot : null;
   const access = workflowAccess(current?.authority || null, paired);
   const managementAvailable =
-    !!current && canManage && (!paired || current.authority?.role === "owner");
+    active &&
+    !!current &&
+    canManage &&
+    (!paired || current.authority?.role === "owner");
+  const connectedPath =
+    connection?.scope === scope && managementAvailable ? connection.path : "";
+  useEffect(() => {
+    if (
+      !connectionRequest ||
+      handledRequest.current === connectionRequest.sequence ||
+      !current
+    )
+      return;
+    handledRequest.current = connectionRequest.sequence;
+    if (!connectionRequest.target) {
+      if (document.activeElement === document.body)
+        document.getElementById("repositories-title")?.focus();
+      return;
+    }
+    if (
+      !managementAvailable ||
+      connectionRequest.target.worker !== worker ||
+      !current.projects.includes(connectionRequest.target.path)
+    ) {
+      setReturnNotice(
+        "GitHub authorization returned, but this project is no longer available here. Choose a currently approved project to continue.",
+      );
+      return;
+    }
+    setConnection({ scope, path: connectionRequest.target.path });
+  }, [connectionRequest, current, managementAvailable, worker, scope]);
+  useEffect(() => {
+    if (connectedPath) heading.current?.focus();
+  }, [connectedPath]);
+  function closeConnection() {
+    setConnection(null);
+    if (opener.current?.isConnected) opener.current.focus();
+    else document.getElementById("repositories-title")?.focus();
+    opener.current = null;
+  }
   return (
     <section className="repositories-page" aria-labelledby="repositories-title">
       <header className="studio-page-heading">
         <div>
-          <h1 id="repositories-title">Repositories</h1>
+          <h1 id="repositories-title" tabIndex={-1}>
+            Repositories
+          </h1>
           <p>
             Your approved project folders on {machineName}. GitHub delivery is a
             separate connection.
@@ -132,10 +206,11 @@ export function Repositories({
             className="primary-button"
             onClick={() => onManage("projects")}
           >
-            Add repository
+            Manage project access
           </button>
         )}
       </header>
+      {returnNotice && <p role="status">{returnNotice}</p>}
       {!online ? (
         <div className="repository-empty" role="status">
           <h2>Worker offline</h2>
@@ -222,15 +297,81 @@ export function Repositories({
                       New task
                     </button>
                   )}
-                  {onManage && managementAvailable && (
-                    <button
-                      className="secondary-button"
-                      onClick={() => onManage("github")}
-                    >
-                      Connect GitHub delivery
-                    </button>
-                  )}
+                  {paired &&
+                    worker &&
+                    accountIdentity?.actor &&
+                    managementAvailable && (
+                      <button
+                        className="secondary-button"
+                        aria-expanded={connectedPath === project}
+                        onClick={(event) => {
+                          if (connectedPath === project) closeConnection();
+                          else {
+                            opener.current = event.currentTarget;
+                            setReturnNotice("");
+                            setConnection({ scope, path: project });
+                          }
+                        }}
+                      >
+                        Connect GitHub delivery
+                      </button>
+                    )}
                 </div>
+                {connectedPath === project &&
+                  worker &&
+                  accountIdentity?.actor && (
+                    <section
+                      className="repository-connection-panel"
+                      aria-labelledby="github-connection-title"
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") {
+                          event.preventDefault();
+                          closeConnection();
+                        }
+                      }}
+                    >
+                      <header>
+                        <h3
+                          id="github-connection-title"
+                          ref={heading}
+                          tabIndex={-1}
+                        >
+                          Connect GitHub delivery
+                        </h3>
+                        <button
+                          className="text-button"
+                          onClick={closeConnection}
+                        >
+                          Close connection setup
+                        </button>
+                      </header>
+                      <GitHubConnection
+                        identity={{
+                          actor: accountIdentity.actor,
+                          workspace: accountIdentity.workspace,
+                        }}
+                        target={{ worker, path: project, machineName }}
+                        online={online}
+                        canManage={managementAvailable}
+                        onConnected={(binding) => {
+                          setSnapshot((previous) =>
+                            previous?.scope === scope
+                              ? {
+                                  ...previous,
+                                  bindings: [
+                                    ...previous.bindings.filter(
+                                      (item) => item.id !== binding.id,
+                                    ),
+                                    binding,
+                                  ],
+                                }
+                              : previous,
+                          );
+                        onBindingUpdated?.();
+                        }}
+                      />
+                    </section>
+                  )}
               </article>
             );
           })}
@@ -242,7 +383,7 @@ export function Repositories({
         </h2>
         <p>
           {paired
-            ? "Approve the folder on its worker first. Add repository manages workspace project access and optional GitHub delivery; it does not clone a repository."
+            ? "Approve an existing folder on its worker, then manage who can access it here. GitHub delivery connects that folder to a repository for draft pull requests; it does not clone a repository."
             : "Choose an existing folder in the Parallax launcher, or start local Studio with that project path. Browser Studio cannot browse your filesystem or clone a repository."}
         </p>
         {paired && !canManage && (
