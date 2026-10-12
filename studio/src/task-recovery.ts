@@ -5,6 +5,7 @@
 export type RecoveryCategory =
   | "environment"
   | "provider_permission"
+  | "provider_quota"
   | "rejected_review"
   | "failed_checks"
   | "destination_conflict"
@@ -27,6 +28,7 @@ export type RecoveryGuidance = {
 const KNOWN: RecoveryCategory[] = [
   "environment",
   "provider_permission",
+  "provider_quota",
   "rejected_review",
   "failed_checks",
   "destination_conflict",
@@ -76,6 +78,15 @@ function categoryGuidance(
         next: context.resumable
           ? `Sign in to the provider ${where}, then resume the task.`
           : `Sign in to the provider ${where}, then ${fresh}.`,
+      };
+    case "provider_quota":
+      return {
+        title: "An agent ran out of provider capacity",
+        explanation:
+          "A provider reported its plan or account quota was used up. Parallax stopped instead of retrying work that could not succeed until capacity returns.",
+        next: context.resumable
+          ? `Wait for the provider to restore capacity, or sign in another independent provider ${where}, then resume the task. Time already used stays recorded.`
+          : `Wait for the provider to restore capacity, or sign in another independent provider ${where}, then ${fresh}.`,
       };
     case "environment":
       return {
