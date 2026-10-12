@@ -1,7 +1,11 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { relayApi, messageOf } from "./api";
 import { Mark, ThemeToggle } from "./PublicChrome";
-import { PUBLIC_RELEASE, PREVIEW_GUIDES, SOURCE_INSTALL } from "./public-release";
+import {
+  PUBLIC_RELEASE,
+  PREVIEW_GUIDES,
+  SOURCE_INSTALL,
+} from "./public-release";
 import {
   platformLabel,
   workerCommands,
@@ -20,18 +24,26 @@ export function CopyBlock({ label, text }: { label: string; text: string }) {
         type="button"
         className="onb-copy"
         onClick={async () => {
+          setState("idle");
           try {
             await navigator.clipboard.writeText(text);
             setState("copied");
+            window.setTimeout(() => setState("idle"), 2000);
           } catch {
             setState("failed");
           }
-          window.setTimeout(() => setState("idle"), 2000);
         }}
       >
-        {state === "copied" ? "Copied" : "Copy"}
+        {state === "copied"
+          ? "Copied"
+          : state === "failed"
+            ? "Retry copy"
+            : "Copy"}
       </button>
-      <span className="sr-only" role="status">
+      <span
+        className={state === "failed" ? "onb-copy-status" : "sr-only"}
+        role="status"
+      >
         {state === "copied"
           ? `${label} copied`
           : state === "failed"
@@ -188,8 +200,8 @@ export default function Onboarding({
               <h2>Check prerequisites</h2>
               <p>
                 macOS or Linux with Python 3.10 or newer, Git 2.38 or newer, and
-                two usable independent providers for Build: one to implement
-                and another to review. Use supported signed-in CLIs or API
+                two usable independent providers for Build: one to implement and
+                another to review. Use supported signed-in CLIs or API
                 connections; credentials stay on the machine. Linux also needs
                 working bubblewrap and user namespaces. A detected sign-in does
                 not establish remaining quota.
@@ -227,7 +239,10 @@ export default function Onboarding({
               local tools. For tasks in this workspace, use your supplied pilot
               worker above.
             </p>
-            <CopyBlock label="Public local install commands" text={SOURCE_INSTALL} />
+            <CopyBlock
+              label="Public local install commands"
+              text={SOURCE_INSTALL}
+            />
           </details>
         )}
         <section className="onb-status" aria-live="polite">

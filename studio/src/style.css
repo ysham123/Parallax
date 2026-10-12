@@ -1,57 +1,72 @@
+@font-face {
+  font-family: "Archivo";
+  src: url("./assets/fonts/archivo.woff2") format("woff2");
+  font-weight: 100 900;
+  font-stretch: 62.5% 125%;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("./assets/fonts/plex-mono.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
 :root {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  color: #edeef4;
-  background: #121316;
+  font-family:
+    "Archivo",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  color: var(--text);
+  background: var(--background);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  --background: #121316;
-  --sidebar: #101114;
-  --surface: #191a1f;
-  --surface-hover: #202128;
-  --surface-raised: #1e1f26;
-  --input: #14151a;
-  --text: #edeef4;
-  --muted: #92949f;
-  --faint: #8a8d99;
-  --line: #292b34;
-  --line-soft: #22242d;
-  --accent: #b1a2ff;
-  --accent-strong: #9e88fc;
-  --accent-tint: #b1a2ff12;
-  --teal: #66d5bf;
-  --teal-tint: #66d5bf12;
-  --danger: #ef9ba1;
-  --danger-tint: #ef9ba110;
-  --amber: #d1b277;
-  --shadow: 0 20px 50px #00000012;
-  color-scheme: dark;
-}
-
-:root[data-theme="light"] {
-  --background: #f5f5f8;
-  --sidebar: #ececf2;
+  --background: #f8faff;
+  --sidebar: #eef2fa;
   --surface: #ffffff;
-  --surface-hover: #f3f2f8;
-  --surface-raised: #faf9ff;
-  --input: #f7f7fa;
-  --text: #242333;
-  --muted: #666677;
-  --faint: #6c6c7b;
-  --line: #dddde7;
-  --line-soft: #eaeaf1;
-  --accent: #6f54c7;
-  --accent-strong: #7654d2;
-  --accent-tint: #7654d20b;
-  --teal: #197e6d;
-  --teal-tint: #197e6d0a;
-  --danger: #b04958;
-  --danger-tint: #b049580a;
-  --amber: #856127;
-  --shadow: 0 20px 50px #33334406;
+  --surface-hover: #edf1fa;
+  --surface-raised: #f4f7fd;
+  --input: #f2f5fc;
+  --text: #18305d;
+  --muted: #5b6d87;
+  --faint: #60718b;
+  --line: #ccd6e8;
+  --line-soft: #e0e7f2;
+  --accent: #345be8;
+  --accent-strong: #294bce;
+  --accent-tint: #345be80a;
+  --teal: #236a60;
+  --teal-tint: #236a600a;
+  --danger: #a64554;
+  --danger-tint: #a645540a;
+  --amber: #806022;
+  --shadow: 0 18px 36px -28px #18305d55;
   color-scheme: light;
-  color: var(--text);
-  background: var(--background);
+}
+:root[data-theme="dark"] {
+  --background: #18243b;
+  --sidebar: #162137;
+  --surface: #1f2d47;
+  --surface-hover: #293956;
+  --surface-raised: #24334d;
+  --input: #19263e;
+  --text: #edf2ff;
+  --muted: #b3c0d9;
+  --faint: #a8b7d1;
+  --line: #425372;
+  --line-soft: #33445f;
+  --accent: #b0c1ff;
+  --accent-strong: #c5d1ff;
+  --accent-tint: #b0c1ff12;
+  --teal: #9ad2c6;
+  --teal-tint: #9ad2c612;
+  --danger: #f0a8b5;
+  --danger-tint: #f0a8b512;
+  --amber: #e5c58a;
+  --shadow: 0 18px 36px -28px #00000066;
+  color-scheme: dark;
 }
 
 * {
@@ -155,7 +170,7 @@ label {
 pre,
 code,
 .mono {
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
 }
 h1,
 h2,
@@ -821,7 +836,7 @@ nav {
   background: transparent;
   border-radius: 0;
   font-size: 10px;
-  font-family: "SFMono-Regular", Consolas, monospace;
+  font-family: "IBM Plex Mono", Consolas, monospace;
 }
 .input-with-icon:focus-within {
   border-color: var(--accent);
@@ -2027,7 +2042,7 @@ nav {
   margin-bottom: 23px;
 }
 .review-run-heading .eyebrow {
-  font-family: "SFMono-Regular", Consolas, monospace;
+  font-family: "IBM Plex Mono", Consolas, monospace;
   font-size: 8px;
   letter-spacing: 0.6px;
   margin-bottom: 9px;
@@ -2208,7 +2223,7 @@ nav {
   margin-bottom: 20px;
 }
 .changed-files > span {
-  font-family: "SFMono-Regular", Consolas, monospace;
+  font-family: "IBM Plex Mono", Consolas, monospace;
   display: flex;
   gap: 6px;
   align-items: center;
@@ -3265,14 +3280,17 @@ nav {
   object-fit: contain;
   display: block;
 }
-.provider-mark .brand-light {
+.provider-mark .brand-dark {
   display: none;
 }
-[data-theme="light"] .provider-mark .brand-light {
+.provider-mark .brand-light {
   display: block;
 }
-[data-theme="light"] .provider-mark .brand-dark {
+[data-theme="dark"] .provider-mark .brand-light {
   display: none;
+}
+[data-theme="dark"] .provider-mark .brand-dark {
+  display: block;
 }
 .provider-mark.grok img {
   width: 74%;
@@ -4658,4 +4676,31 @@ nav {
   .readiness-heading {
     flex-wrap: wrap;
   }
+}
+
+.entry-status {
+  max-width: 580px;
+  margin: 12vh auto;
+  padding: 28px;
+}
+.entry-status > svg {
+  color: var(--accent);
+}
+.entry-status h1 {
+  font-size: 32px;
+  letter-spacing: -0.04em;
+  margin-top: 24px;
+}
+.entry-status p {
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1.7;
+  margin-block: 18px 24px;
+}
+.entry-status > a {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  margin: 18px 0 0 20px;
+  font-size: 14px;
 }

@@ -1,123 +1,654 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ProviderMark } from "./Brand";
 import { CopyBlock } from "./Onboarding";
 import { Mark, PublicFooter, ThemeToggle } from "./PublicChrome";
 import WorkflowPreview from "./WorkflowPreview";
-import { REPOSITORY, signInErrorMessage, signInMethods, type AuthConfig } from "./session";
-import { PUBLIC_RELEASE, CLAUDE_INSTALL, CODEX_INSTALL, SOURCE_INSTALL, SOURCE_DOWNLOAD, PREVIEW_GUIDES } from "./public-release";
+import {
+  REPOSITORY,
+  signInErrorMessage,
+  signInMethods,
+  type AuthConfig,
+} from "./session";
+import {
+  PUBLIC_RELEASE,
+  CLAUDE_INSTALL,
+  CODEX_INSTALL,
+  SOURCE_INSTALL,
+  SOURCE_DOWNLOAD,
+  PREVIEW_GUIDES,
+} from "./public-release";
 import "./public.css";
-
-const PROVIDERS = [
-  ["codex", "Codex"], ["claude", "Claude Code"],
-  ["grok", "Grok Build"], ["antigravity", "Antigravity"],
-] as const;
-const LOCAL_STUDIO = "python3 scripts/parallax.py studio \\\n  --workspace /absolute/path/to/project";
+import "./perspective.css";
 export { SOURCE_DOWNLOAD } from "./public-release";
 
-function Arrow({ diagonal = false }: { diagonal?: boolean }) {
-  return <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-    {diagonal ? <path d="M5 15 15 5M5 5h10v10" /> : <path d="M3 10h13m-5-5 5 5-5 5" />}
-  </svg>;
-}
+const LOCAL_STUDIO =
+  "python3 scripts/parallax.py studio \\\n  --workspace /absolute/path/to/project";
+const INSTALL_METHODS = ["Claude Code", "Codex", "Source & terminal"];
 
 function CandidateIllustration() {
-  return <figure className="landing-artifact" aria-label="Illustration of a saved candidate, independent review and project checks">
-    <div className="landing-artifact-top"><span><i aria-hidden="true" /> SAVED CANDIDATE</span><span className="landing-example-label">Illustration</span></div>
-    <div className="landing-orbit" aria-hidden="true">
-      <svg viewBox="0 0 480 230" fill="none">
-        <path className="landing-orbit-line" d="M28 115H452M240 14V216" />
-        <ellipse cx="240" cy="115" rx="174" ry="54" transform="rotate(-22 240 115)" />
-        <ellipse cx="240" cy="115" rx="174" ry="54" transform="rotate(22 240 115)" />
-        <ellipse className="landing-orbit-inner" cx="240" cy="115" rx="94" ry="94" />
-        <circle className="landing-orbit-center" cx="240" cy="115" r="22" />
-        <circle className="landing-orbit-dot" cx="93" cy="176" r="5" />
-        <circle className="landing-orbit-dot second" cx="387" cy="54" r="5" />
-      </svg>
-      <span className="landing-orbit-tag left">isolated work</span><span className="landing-orbit-tag right">independent review</span>
-      <span className="landing-orbit-title">One patch.<br /><strong>A visible path to approval.</strong></span>
-    </div>
-    <div className="landing-mini-diff"><div><span className="landing-file-icon" aria-hidden="true">⌘</span><span>maths.py</span><span className="landing-diff-count">+2</span></div>
-      <code><span className="landing-code-muted"> def average(values):</span><span className="landing-code-add">+    if not values:</span><span className="landing-code-add">+        raise ValueError("empty input")</span><span className="landing-code-muted">     return sum(values) / len(values)</span></code>
-    </div>
-    <div className="landing-evidence-strip"><span><i aria-hidden="true">✓</i> Project checks</span><span><i aria-hidden="true">✓</i> Independent review</span><span className="landing-evidence-human">Your approval</span></div>
-    <figcaption>Changes, findings and check results beside the candidate you approve.</figcaption>
-  </figure>;
+  const [corrected, setCorrected] = useState(true);
+  return (
+    <figure
+      className="px-artifact"
+      aria-label="Illustrated candidate and independent review"
+    >
+      <div className="px-artifact-stage">
+        <div className="px-request-plane" aria-hidden="true">
+          <strong>Requested change</strong>
+          <span>Reject empty input. Keep numeric results.</span>
+          <i />
+          <i />
+          <i />
+        </div>
+        <div className="px-patch-plane">
+          <div className="px-patch-heading">
+            <code>maths.py</code>
+            <span>Candidate {corrected ? "02" : "01"}</span>
+          </div>
+          <pre
+            className="px-patch"
+            aria-label={
+              corrected ? "Corrected example diff" : "Initial example diff"
+            }
+          >
+            <code>
+              <span>{" def average(values):"}</span>
+              <span className={corrected ? undefined : "px-code-add"}>
+                {corrected ? "     if not values:" : "+    if not values:"}
+              </span>
+              {corrected ? (
+                <>
+                  <span className="px-code-remove">{"-        return 0"}</span>
+                  <span className="px-code-add">
+                    {'+        raise ValueError("empty input")'}
+                  </span>
+                </>
+              ) : (
+                <span className="px-code-remove">{"+        return 0"}</span>
+              )}
+              <span>{"     return sum(values) / len(values)"}</span>
+            </code>
+          </pre>
+          <div
+            className={`px-artifact-evidence ${corrected ? "" : "px-failed"}`}
+          >
+            <span aria-hidden="true">{corrected ? "✓" : "×"}</span>
+            {corrected ? "Required check passed" : "Required check failed"}
+          </div>
+        </div>
+        <aside className="px-review-plane">
+          <strong>A second perspective</strong>
+          <p>
+            {corrected
+              ? "Empty input now raises a clear error. Existing numeric behavior is preserved."
+              : "Returning zero hides invalid input. The task requires an explicit error."}
+          </p>
+          <span>
+            {corrected
+              ? "Finding resolved in candidate 02"
+              : "Finding at maths.py:2–3"}
+          </span>
+        </aside>
+      </div>
+      <div
+        className="px-artifact-switch"
+        role="group"
+        aria-label="Explore the illustrated correction"
+      >
+        <button
+          type="button"
+          aria-pressed={!corrected}
+          onClick={() => setCorrected(false)}
+        >
+          Before correction
+        </button>
+        <button
+          type="button"
+          aria-pressed={corrected}
+          onClick={() => setCorrected(true)}
+        >
+          After correction
+        </button>
+      </div>
+      <figcaption>
+        Illustrated preview with simulated evidence. No agents run here.
+      </figcaption>
+      <span className="px-artifact-status" role="status">
+        {corrected
+          ? "Corrected candidate: required check passed; human approval pending."
+          : "Initial candidate: required check failed; approval blocked."}
+      </span>
+    </figure>
+  );
 }
 
 function Install() {
-  return <section className="pub-section landing-install-section" id="install" aria-labelledby="install-title">
-    <div className="landing-section-heading"><div><p className="pub-eyebrow">Start where you already work</p><h2 id="install-title">Bring your agents.<br />Keep your workflow.</h2></div><p>Install the public local tools: Review, Build, Compare and the existing Studio. The source download is pinned to {PUBLIC_RELEASE.version}. The saved-candidate workflow shown above needs the separate development preview.</p></div>
-    <div className="landing-install-grid">
-      <article className="landing-install-card"><ProviderMark provider="claude" size={26} /><h3>Claude Code</h3><p>Current public plugin: <code>parallax</code>.</p><CopyBlock label="Claude Code install commands" text={CLAUDE_INSTALL} /><p className="landing-install-note">Start a new chat, then use <code>{PUBLIC_RELEASE.claudeStudio}</code>, <code>{PUBLIC_RELEASE.claudeReview}</code> or <code>{PUBLIC_RELEASE.claudeBuild}</code>.</p></article>
-      <article className="landing-install-card"><ProviderMark provider="codex" size={26} /><h3>Codex</h3><p>Ask Codex to bring in the team.</p><CopyBlock label="Codex install commands" text={CODEX_INSTALL} /><p className="landing-install-note">Start a new chat and ask: “Use Parallax to review this change” or “Open Parallax Studio for this project.”</p></article>
-      <article className="landing-install-card landing-source-card"><span className="landing-terminal-symbol" aria-hidden="true">&gt;_</span><h3>Source &amp; terminal</h3><p>Run the public local tools yourself.</p><CopyBlock label="Source install commands" text={SOURCE_INSTALL} /><a className="landing-text-link" href={SOURCE_DOWNLOAD}>Download source ZIP <Arrow diagonal /></a><p className="landing-install-note">Pinned public source {PUBLIC_RELEASE.version}. Requires Python; this is a source archive, not a native desktop installer. The new saved-candidate Studio workflow and team/GitHub pilot build are not included.</p></article>
-    </div>
-    <div className="landing-open-studio"><div><span className="landing-small-label">LOCAL STUDIO</span><h3>Your project. A browser tab.</h3><p>Run this from your Parallax source folder, then open the authenticated URL printed in the result. It launches the existing local Studio. Keep that access link private.</p></div><CopyBlock label="Open local Studio command" text={LOCAL_STUDIO} /></div>
-    <p className="landing-requirements"><strong>Before your first task</strong> macOS, or Linux with bubblewrap and user namespaces; Python 3.10+, Git 2.38+, and a signed-in agent CLI or API key. Build and Compare require an available independent provider that did not implement the candidate. Provider charges and quota are yours. <a href={`${REPOSITORY}#install`}>Installation details <Arrow diagonal /></a></p>
-  </section>;
+  const [selected, setSelected] = useState(0);
+  return (
+    <section
+      className="px-section px-install"
+      id="install"
+      aria-labelledby="install-title"
+    >
+      <div className="px-section-intro">
+        <h2 id="install-title">
+          Start where
+          <br />
+          you already work.
+        </h2>
+        <p>
+          Install the public local tools on macOS or Linux. Bring your agent
+          sign-ins and project commands. No Parallax account is required
+          locally.
+        </p>
+      </div>
+      <div className="px-install-workbench">
+        <div
+          role="tablist"
+          aria-label="Installation method"
+          className="px-install-tabs"
+        >
+          {INSTALL_METHODS.map((name, index) => (
+            <button
+              type="button"
+              role="tab"
+              id={`install-tab-${index}`}
+              aria-controls={`install-panel-${index}`}
+              aria-selected={selected === index}
+              tabIndex={selected === index ? 0 : -1}
+              key={name}
+              onClick={() => setSelected(index)}
+              onKeyDown={(event) => {
+                const next =
+                  event.key === "ArrowRight"
+                    ? (index + 1) % 3
+                    : event.key === "ArrowLeft"
+                      ? (index + 2) % 3
+                      : event.key === "Home"
+                        ? 0
+                        : event.key === "End"
+                          ? 2
+                          : null;
+                if (next !== null) {
+                  event.preventDefault();
+                  setSelected(next);
+                  event.currentTarget.parentElement
+                    ?.querySelectorAll<HTMLButtonElement>("[role=tab]")
+                    [next]?.focus();
+                }
+              }}
+            >
+              {index < 2 && (
+                <ProviderMark
+                  provider={index === 0 ? "claude" : "codex"}
+                  size={22}
+                />
+              )}
+              {name}
+            </button>
+          ))}
+        </div>
+        <div
+          id="install-panel-0"
+          role="tabpanel"
+          aria-labelledby="install-tab-0"
+          tabIndex={0}
+          hidden={selected !== 0}
+          className="px-install-panel"
+        >
+          <h3>Install the Parallax plugin.</h3>
+          <CopyBlock
+            label="Claude Code install commands"
+            text={CLAUDE_INSTALL}
+          />
+          <p>
+            Start a new chat, then use{" "}
+            <code>{PUBLIC_RELEASE.claudeStudio}</code>,{" "}
+            <code>{PUBLIC_RELEASE.claudeReview}</code> or{" "}
+            <code>{PUBLIC_RELEASE.claudeBuild}</code>.
+          </p>
+        </div>
+        <div
+          id="install-panel-1"
+          role="tabpanel"
+          aria-labelledby="install-tab-1"
+          tabIndex={0}
+          hidden={selected !== 1}
+          className="px-install-panel"
+        >
+          <h3>Bring the team into Codex.</h3>
+          <CopyBlock label="Codex install commands" text={CODEX_INSTALL} />
+          <p>
+            Start a new chat and ask: “Use Parallax to review this change” or
+            “Open Parallax Studio for this project.”
+          </p>
+        </div>
+        <div
+          id="install-panel-2"
+          role="tabpanel"
+          aria-labelledby="install-tab-2"
+          tabIndex={0}
+          hidden={selected !== 2}
+          className="px-install-panel"
+        >
+          <h3>Run the tools from source.</h3>
+          <CopyBlock label="Source install commands" text={SOURCE_INSTALL} />
+          <p>
+            A source archive requires Python and project tools. It is not a
+            native installer.
+          </p>
+          <details>
+            <summary>Open the existing local Studio</summary>
+            <p>
+              Run this in the Parallax source folder. Open the authenticated URL
+              it prints and keep that access link private.
+            </p>
+            <CopyBlock label="Open local Studio command" text={LOCAL_STUDIO} />
+          </details>
+        </div>
+        <div className="px-install-foot">
+          <span>Pinned public source {PUBLIC_RELEASE.version}</span>
+          <a href={SOURCE_DOWNLOAD}>Download source ZIP</a>
+        </div>
+      </div>
+      <div className="px-release-notes">
+        <div>
+          <h3>Saved-candidate preview</h3>
+          <p>
+            The correction, human approval and team delivery screens shown here
+            belong to the supplied development preview. They are not included in
+            the public {PUBLIC_RELEASE.version} download.
+          </p>
+          <a href={PREVIEW_GUIDES.setup}>Read the preview setup guide</a>
+        </div>
+        <div>
+          <h3>Mac application</h3>
+          <p>
+            The Apple Silicon, macOS 15+ app is in preparation. Its official
+            download awaits signing, notarization and release validation.
+          </p>
+          <span className="px-unavailable">Download not available yet</span>
+        </div>
+      </div>
+      <details className="px-practical">
+        <summary>Installation requirements and provider limits</summary>
+        <p>
+          Public tools require macOS, or Linux with bubblewrap and user
+          namespaces; Python 3.10+, Git 2.38+, and supported signed-in agent
+          CLIs or API connections. Build and Compare require an independent
+          provider outside the implementing team. Your provider usage and quota
+          remain yours.
+        </p>
+        <p>
+          The preview checks adapter versions and isolation before execution.
+          Native Grok is currently unavailable in that preview. Claude Code and
+          Antigravity use restricted file tools, with shell and content-search
+          tools disabled. Detection does not prove remaining quota.{" "}
+          <a href={`${REPOSITORY}#install`}>Read the installation details</a>.
+        </p>
+      </details>
+    </section>
+  );
 }
 
-export default function PublicEntry({ config, error, notice }: { config: AuthConfig | null; error: string | null; notice?: string }) {
+export default function PublicEntry({
+  config,
+  error,
+  notice,
+}: {
+  config: AuthConfig | null;
+  error: string | null;
+  notice?: string;
+}) {
   const [busy, setBusy] = useState(false);
-  const [failure, setFailure] = useState(error ? signInErrorMessage(error) : "");
-  useEffect(() => { if (error) setFailure(signInErrorMessage(error)); }, [error]);
-  useEffect(() => { const restore = (event: PageTransitionEvent) => { if (event.persisted) setBusy(false); }; window.addEventListener("pageshow", restore); return () => window.removeEventListener("pageshow", restore); }, []);
-  const methods = signInMethods(config);
-  const accounts = config?.identity === "supabase" && methods.length > 0;
+  const [failure, setFailure] = useState(
+    error ? signInErrorMessage(error) : "",
+  );
+  const [menu, setMenu] = useState(false);
+  const menuButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (error) setFailure(signInErrorMessage(error));
+  }, [error]);
+  useEffect(() => {
+    const restore = (event: PageTransitionEvent) => {
+      if (event.persisted) setBusy(false);
+    };
+    window.addEventListener("pageshow", restore);
+    return () => window.removeEventListener("pageshow", restore);
+  }, []);
+  useEffect(() => {
+    if (!menu) return;
+    const close = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMenu(false);
+        menuButton.current?.focus();
+      }
+    };
+    document.addEventListener("keydown", close);
+    return () => document.removeEventListener("keydown", close);
+  }, [menu]);
+  const accounts =
+    config?.identity === "supabase" && signInMethods(config).length > 0;
   async function signIn() {
-    setBusy(true); setFailure("");
+    setBusy(true);
+    setFailure("");
     try {
-      const response = await fetch("/api/auth/github/start", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" } });
+      const response = await fetch("/api/auth/github/start", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+      });
       const body = await response.json().catch(() => ({}));
-      if (!response.ok || typeof body.url !== "string") throw new Error(signInErrorMessage(typeof body.detail === "string" ? body.detail : "failed"));
+      if (!response.ok || typeof body.url !== "string")
+        throw new Error(
+          signInErrorMessage(
+            typeof body.detail === "string" ? body.detail : "failed",
+          ),
+        );
       const destination = new URL(body.url);
-      if (destination.origin !== "https://github.com") throw new Error(signInErrorMessage("failed"));
+      if (destination.origin !== "https://github.com")
+        throw new Error(signInErrorMessage("failed"));
       window.location.assign(destination.href);
-    } catch (problem) { setFailure(problem instanceof Error ? problem.message : signInErrorMessage("failed")); setBusy(false); }
+    } catch (problem) {
+      setFailure(
+        problem instanceof Error
+          ? problem.message
+          : signInErrorMessage("failed"),
+      );
+      setBusy(false);
+    }
   }
-  return <div className="pub-page landing-page">
-    <a className="skip-link" href="#public-main">Skip to content</a>
-    <header className="pub-header landing-header"><a className="pub-brand" href="/" aria-label="Parallax home"><Mark size={30} />Parallax</a><nav aria-label="Site"><a href="#workflow" className="landing-nav-workflow">Workflow</a><a href={`${REPOSITORY}#readme`}>Docs</a><a href="/studio">Studio <Arrow diagonal /></a><ThemeToggle /><a className="pub-signin-link" href="#install">Install</a></nav></header>
-    <main id="public-main" tabIndex={-1}>
-      <section className="pub-hero landing-hero" aria-labelledby="hero-title"><div className="pub-hero-copy">
-        <p className="pub-eyebrow landing-hero-eyebrow"><span aria-hidden="true" /> Coding workflows on your machine</p>
-        <h1 id="hero-title">Delegate a change.<br /><span>Get back a<br className="landing-hero-break" /> reviewed patch.</span></h1>
-        <p className="pub-lead">Your coding agents, working as a team. Isolated changes, independent review, and real project checks. The upcoming Studio workflow brings corrections and human approval into the same view.</p>
-        <div className="pub-actions"><a className="pub-primary" href="#install">Install local tools <Arrow /></a><a className="pub-secondary" href="#workflow">Preview the workflow <span aria-hidden="true">↓</span></a></div>
-        <p className="pub-fineprint landing-local-note">Open source · Runs locally · No account needed locally</p><p className="pub-fineprint">Unreleased Studio workflow preview. Install the current public local tools below.</p>
-        <ul className="pub-providers" aria-label="Provider integrations">{PROVIDERS.map(([id, name]) => <li key={id}><ProviderMark provider={id} size={20} />{name}</li>)}</ul>
-        <p className="pub-fineprint">Available transports depend on the build. Native Grok is unavailable in the development preview. <a href="#preview-providers">Check preview requirements</a>.</p>
-        {(failure || notice) && <p className="pub-alert" role="alert">{failure || notice}</p>}
-      </div><CandidateIllustration /></section>
-      <div className="landing-principles" aria-label="Product principles"><span><i aria-hidden="true">01</i> Your providers</span><span><i aria-hidden="true">02</i> Isolated work</span><span><i aria-hidden="true">03</i> Inspectable evidence</span><span><i aria-hidden="true">04</i> Explicit approval</span></div>
-      <section className="pub-section landing-workflow-section" id="workflow" aria-labelledby="workflow-title"><div className="landing-section-heading"><div><p className="pub-eyebrow">The whole change, in view</p><h2 id="workflow-title">A patch is a starting point.<br />Make it a decision.</h2></div><p>Explore the unreleased Studio workflow: changes, checks, a review finding, a correction and human approval. The illustrated evidence is simulated; the public source download has the existing local tools.</p></div><WorkflowPreview /></section>
-      <section className="pub-section landing-reasons" aria-labelledby="reasons-title"><div className="landing-section-heading"><div><p className="pub-eyebrow">A clear path from work to evidence</p><h2 id="reasons-title">Let agents do the work.<br />Keep the decision yours.</h2></div><p>Parallax connects implementation, verification and review into a workflow you can inspect and return to.</p></div><div className="landing-reason-grid">
-        <article><span className="landing-reason-number">01 / ISOLATION</span><h3>Keep your working tree yours.</h3><p>Agents work in private checkouts seeded from your project. The upcoming Studio workflow keeps saved candidates separate from your files. Local application preserves staging and checks for conflicting edits.</p><span className="landing-reason-foot">Private worktrees · Captured baseline</span></article>
-        <article><span className="landing-reason-number">02 / VERIFICATION</span><h3>Read what actually passed.</h3><p>Run your project’s real check commands and inspect their output. A provider outside the implementing team reviews the candidate independently. Failures remain visible.</p><span className="landing-reason-foot">Check output · Independent findings</span></article>
-        <article><span className="landing-reason-number">03 / CONTROL</span><h3>Correct it before you deliver it.</h3><p>The upcoming Studio workflow revises a saved candidate against its original baseline, or starts afresh from your current project. It separates candidate approval from local application or pilot PR publication.</p><span className="landing-reason-foot">Fresh evidence · Recorded decisions</span></article>
-      </div></section>
-      <section className="pub-section landing-reasons" aria-labelledby="modernization-title"><div className="landing-section-heading"><div><p className="pub-eyebrow">A focused modernization exercise</p><h2 id="modernization-title">Upgrade the component.<br />Protect the behavior.</h2></div><p>Older services carry rules that their users depend on. The development preview includes a bounded exercise: replace one batch job’s legacy parser while preserving its CLI and settlement report. Start with a working baseline and an agreed compatibility contract.</p></div><div className="landing-reason-grid">
-        <article><span className="landing-reason-number">01 / RECORD</span><h3>Make the contract explicit.</h3><p>Freeze representative inputs, expected outputs, allowed files and the target change. In the bundled CSV exercise, that includes refunds, rounding, dates and rejected input.</p><span className="landing-reason-foot">One component · Defined acceptance</span></article>
-        <article><span className="landing-reason-number">02 / VERIFY</span><h3>Test what consumers observe.</h3><p>The exercise has 34 characterization tests. A naive local parser conversion fails two compatibility cases; a compatible local conversion passes. Independent review still has to inspect the exact patch.</p><span className="landing-reason-foot">Synthetic exercise · Local test evidence</span></article>
-        <article><span className="landing-reason-number">03 / DECIDE</span><h3>Review each upgrade.</h3><p>Choose “Modernize one component” in the supplied preview, inspect checks and findings, request a correction, then approve the saved candidate. Your team controls application and delivery.</p><span className="landing-reason-foot">Preview recipe · Explicit delivery</span></article>
-      </div><p className="landing-data-note">This exercise is included in the development preview, separately from the public download. Read the <a href={PREVIEW_GUIDES.modernization}>runnable exercise</a>, <a href={PREVIEW_GUIDES.contract}>compatibility contract</a> and <a href={PREVIEW_GUIDES.setup}>preview setup guide</a>. Live agent migration and customer comparisons remain to be validated. Whole-system conversion, production data migration and automatic deployment are outside this pilot.</p></section>
-      <Install />
-      <section className="pub-section landing-studio-section" id="studio" aria-labelledby="studio-title"><div className="landing-studio-copy"><p className="pub-eyebrow">An interface for the work</p><h2 id="studio-title">Studio in your browser.<br />Local by default.</h2><p>The public local Studio lets you follow runs, inspect changes and review evidence in your browser. The upcoming task workspace adds saved-candidate corrections and human approval. Plugins, CLI and Studio share the same runtime.</p><a className="landing-text-link" href={`${REPOSITORY}#studio`}>Explore Studio <Arrow diagonal /></a></div><div className="landing-hosted-card"><span className="landing-small-label">OPTIONAL · INVITED PILOT</span><h3>Share the review with your team.</h3><p>Hosted Studio adds invited workspaces, project access and reviewer handoff on explicitly paired machines. Team approval requires another human. GitHub App delivery publishes an approved candidate to a draft PR.</p><p>These features are being validated for an invited pilot. Enrollment and commercial terms are arranged manually. Paired workers must remain online for task controls and team evidence.</p><div className="landing-hosted-actions"><a className="pub-secondary" href="/studio">Open Studio <Arrow /></a>{accounts ? <a href="/login" className="landing-text-link">Log in</a> : config?.github ? <button className="landing-text-link" type="button" onClick={() => void signIn()} disabled={busy}>{busy ? "Opening GitHub…" : "Sign in with GitHub"}</button> : null}</div><p className="landing-install-note">Account sign-in and repository delivery use separate authorization. Legacy CLI/plugin runs retain their existing integration behavior.</p></div></section>
-      <section className="pub-section landing-data-section" aria-labelledby="data-title"><div className="landing-section-heading"><div><p className="pub-eyebrow">Know where the work goes</p><h2 id="data-title">Local execution.<br />Clear data boundaries.</h2></div><p>Bring your own machine and providers. Connecting a hosted workspace adds a relay; publishing adds GitHub.</p></div><div className="landing-data-grid">
-        <article><span className="landing-small-label">01 / YOUR MACHINE</span><h3>Execution &amp; private copies</h3><p>Project snapshots, private worktrees, agent processes, full local provider-session files, sign-ins and provider credentials stay on the worker.</p></article>
-        <article><span className="landing-small-label">02 / MODEL PROVIDERS</span><h3>Prompts &amp; relevant code</h3><p>Your selected providers receive task prompts and the project content needed for their role. Their own usage, quota and data policies apply.</p></article>
-        <article><span className="landing-small-label">03 / OPTIONAL RELAY</span><h3>Workspace &amp; task evidence</h3><p>Connected workspaces mirror prompts, settings, diffs, check output, review findings, agent output and session metadata. This evidence can contain source code.</p></article>
-        <article><span className="landing-small-label">04 / EXPLICIT DELIVERY</span><h3>The approved candidate</h3><p>Current local builds integrate verified patches under their existing behavior. The upcoming workflow adds explicit application or configured GitHub delivery of an approved candidate. Merging and deployment stay with you.</p></article>
-      </div><p className="landing-data-note">Free software does not mean free model usage. Read the <a href="/privacy">privacy policy</a>, <a href={`${REPOSITORY}/blob/main/SECURITY.md`}>security documentation</a> and <a href={`${REPOSITORY}#limits`}>execution limits</a> before connecting a project.</p></section>
-      <section className="pub-section landing-faq" aria-labelledby="faq-title"><div><p className="pub-eyebrow">Before you install</p><h2 id="faq-title">A few practical details.</h2></div><div>
-        <details><summary>Do I need a Parallax account?</summary><p>Local Studio, plugins and the CLI run without a hosted account. An account is needed when you choose a connected hosted workspace.</p></details>
-        <details><summary>Do I need all four providers?</summary><p>No. Choose the providers you have available. Build and Compare need an independent reviewer from a provider that did not implement the candidate. Sign-in detection does not establish remaining quota.</p></details>
-        <details id="preview-providers"><summary>Which agents can run the development preview?</summary><p>The supplied preview checks adapter versions and execution boundaries before running. Build needs two usable independent providers: one to implement and another to review. Native Grok execution is currently unavailable under its required isolation policy. Claude Code and Antigravity use restricted file tools; their shell and content-search tools are disabled. Supported API connections provide another entry point. Detection does not prove remaining quota. These preview restrictions are separate from the pinned public download.</p></details>
-        <details><summary>What can I download today?</summary><p>The source ZIP is pinned to public version {PUBLIC_RELEASE.version}; the source commands check out that same revision. It requires Python and the listed prerequisites. The plugins install from the repository. Native desktop installers are not available. The saved-candidate development preview requires a separate build supplied by the operator. Pilot enrollment remains closed while live validation is unfinished.</p></details>
-        <details><summary>Does approval merge or deploy my change?</summary><p>The unreleased Studio workflow records approval separately from delivery. Current public CLI/plugin builds retain their existing integration behavior. In the upcoming workflow, apply locally or publish a draft PR explicitly after approval. Pilot GitHub delivery requires App setup and a matching clean remote baseline. Parallax does not automatically merge or deploy.</p></details>
-      </div></section>
-      <section className="landing-last-call" aria-label="Get Parallax"><Mark size={44} /><h2>Bring the team to your next change.</h2><a className="pub-primary" href="#install">Install local tools <Arrow /></a><p>Start locally. Open Studio when you want the whole picture.</p></section>
-    </main>
-    <PublicFooter preview />
-  </div>;
+  const accountEntry = accounts ? (
+    <a href="/login">Sign in</a>
+  ) : config?.github ? (
+    <button type="button" onClick={() => void signIn()} disabled={busy}>
+      {busy ? "Opening GitHub…" : "Sign in"}
+    </button>
+  ) : (
+    <a href="#connected">Accounts</a>
+  );
+  return (
+    <div className="pub-page px-page">
+      <a className="skip-link" href="#public-main">
+        Skip to content
+      </a>
+      <header className="px-header">
+        <a className="pub-brand" href="/" aria-label="Parallax home">
+          <Mark size={34} />
+          Parallax
+        </a>
+        <nav className="px-desktop-nav" aria-label="Site">
+          <a href="#workflow">Workflow</a>
+          <a href="#install">Install</a>
+          <a href={`${REPOSITORY}#readme`}>Docs</a>
+        </nav>
+        <div className="px-utilities">
+          <button
+            className="px-menu-button"
+            type="button"
+            ref={menuButton}
+            aria-expanded={menu}
+            aria-controls="public-menu"
+            onClick={() => setMenu(!menu)}
+          >
+            Menu
+          </button>
+          {accountEntry}
+          <ThemeToggle />
+          <a className="px-studio-link" href="/studio">
+            Open Studio
+          </a>
+        </div>
+        <nav
+          className="px-mobile-nav"
+          id="public-menu"
+          aria-label="Mobile site"
+          hidden={!menu}
+        >
+          <a href="#workflow" onClick={() => setMenu(false)}>
+            Workflow
+          </a>
+          <a href="#install" onClick={() => setMenu(false)}>
+            Install
+          </a>
+          <a href={`${REPOSITORY}#readme`}>Docs</a>
+          <a href="/studio">Open Studio</a>
+          <div className="px-menu-theme">
+            <span>Appearance</span>
+            <ThemeToggle />
+          </div>
+        </nav>
+      </header>
+      <main id="public-main" tabIndex={-1}>
+        {(failure || notice) && (
+          <p className="pub-alert" role="alert">
+            {failure || notice}
+          </p>
+        )}
+        <section className="px-hero" aria-labelledby="hero-title">
+          <h1 id="hero-title">
+            <span>Delegate a change.</span>
+            <span>Get back a reviewed patch.</span>
+          </h1>
+          <div className="px-hero-body">
+            <div className="px-hero-intro">
+              <p>
+                Bring your coding agents together. Inspect one isolated change,
+                a second perspective, and your project’s checks.
+              </p>
+              <div className="px-actions">
+                <a className="px-primary" href="#install">
+                  Install local tools
+                </a>
+                <a className="px-text-link" href="#workflow">
+                  Explore the workflow
+                </a>
+              </div>
+              <p className="px-availability">
+                The saved-candidate workflow is a development preview. Public{" "}
+                {PUBLIC_RELEASE.version} tools are available below.
+              </p>
+              <div className="px-providers" aria-label="Provider integrations">
+                {(
+                  [
+                    ["codex", "Codex"],
+                    ["claude", "Claude Code"],
+                    ["grok", "Grok Build"],
+                    ["antigravity", "Antigravity"],
+                  ] as const
+                ).map(([id, name]) => (
+                  <span key={id}>
+                    <ProviderMark provider={id} size={20} />
+                    {name}
+                  </span>
+                ))}
+              </div>
+              <p className="px-provider-note">
+                Supported transports vary by build.{" "}
+                <a href="#install">Check requirements</a>.
+              </p>
+            </div>
+            <CandidateIllustration />
+          </div>
+        </section>
+        <section
+          className="px-section px-workflow"
+          id="workflow"
+          aria-labelledby="workflow-title"
+        >
+          <div className="px-section-intro">
+            <h2 id="workflow-title">
+              The whole change,
+              <br />
+              within reach.
+            </h2>
+            <p>
+              Follow one example from its request to a correction, fresh
+              evidence and a human decision. Delivery is a separate action.
+            </p>
+          </div>
+          <WorkflowPreview />
+        </section>
+        <section className="px-section px-fit" aria-labelledby="fit-title">
+          <h2 id="fit-title">
+            For changes you can
+            <br />
+            define and check.
+          </h2>
+          <div className="px-fit-list">
+            <div>
+              <h3>A bounded bug fix</h3>
+              <p>Correct the behavior and keep its regression check.</p>
+            </div>
+            <div>
+              <h3>A multi-file refactor</h3>
+              <p>Change the implementation with stable interfaces.</p>
+            </div>
+            <div>
+              <h3>One-component modernization</h3>
+              <p>
+                Replace a legacy parser while protecting its compatibility
+                contract.
+              </p>
+              <a href={PREVIEW_GUIDES.modernization}>
+                Inspect the runnable preview exercise
+              </a>
+            </div>
+          </div>
+        </section>
+        <Install />
+        <section
+          className="px-section px-connected"
+          id="connected"
+          aria-labelledby="connected-title"
+        >
+          <div>
+            <h2 id="connected-title">
+              Your machine.
+              <br />A shared review when you need it.
+            </h2>
+            <p>
+              Local tools use your machine and providers. Connected workspaces
+              add shared task evidence, reviewer handoff and explicitly paired
+              workers.
+            </p>
+            <div className="px-connected-actions">
+              <a className="px-secondary" href="/studio">
+                Open Studio
+              </a>
+              {accounts ? (
+                <a className="px-text-link" href="/login">
+                  Sign in to your workspace
+                </a>
+              ) : config?.github ? (
+                <button
+                  className="px-text-link"
+                  onClick={() => void signIn()}
+                  disabled={busy}
+                >
+                  Sign in with GitHub
+                </button>
+              ) : (
+                <a className="px-text-link" href="/support">
+                  Ask about the invited pilot
+                </a>
+              )}
+            </div>
+            <p className="px-small">
+              Pilot enrollment is closed while live validation is unfinished.
+              Account sign-in and GitHub repository delivery use separate
+              authorization.
+            </p>
+          </div>
+          <dl className="px-boundaries">
+            <div>
+              <dt>On your machine</dt>
+              <dd>
+                Project snapshots, isolated work, agent processes, full
+                provider-session files, sign-ins and provider credentials.
+              </dd>
+            </div>
+            <div>
+              <dt>At your chosen providers</dt>
+              <dd>
+                Prompts and relevant project content. Provider usage, quota and
+                data policies apply.
+              </dd>
+            </div>
+            <div>
+              <dt>In a connected workspace</dt>
+              <dd>
+                Prompts, settings, diffs, check output, review findings, agent
+                output and session metadata. This evidence can include source
+                code.
+              </dd>
+            </div>
+          </dl>
+        </section>
+        <section className="px-section px-faq" aria-labelledby="faq-title">
+          <h2 id="faq-title">Before your first task.</h2>
+          <div>
+            <details>
+              <summary>What does an approved change mean?</summary>
+              <p>
+                In the preview, approval records a human decision on an exact
+                candidate and its evidence. Apply locally or publish a draft PR
+                as separate operations. Passing checks support that scoped
+                decision; they do not prove the software is bug-free. Public
+                CLI/plugin tools retain their existing integration behavior.
+              </p>
+            </details>
+            <details>
+              <summary>Can I connect a GitHub repository?</summary>
+              <p>
+                The team preview supports owner-authorized GitHub App delivery
+                for an approved project folder. Bind an installation, repository
+                and remote base after separate GitHub authorization. Publication
+                requires a matching clean remote baseline. This is not a
+                repository cloning flow; dirty-tree tasks remain available for
+                local delivery.
+              </p>
+            </details>
+            <details>
+              <summary>Do I need all four providers?</summary>
+              <p>
+                No. Use the providers available to you. Build and Compare need
+                an independent reviewer from a provider outside the implementing
+                team. Free software does not mean free model usage.
+              </p>
+            </details>
+            <details>
+              <summary>What stays under human control?</summary>
+              <p>
+                Team approval requires someone other than the revision’s
+                requester, including Owners. Approval does not apply, publish,
+                merge or deploy. GitHub delivery creates a draft PR; CI and
+                review feedback can populate an explicit correction request.
+              </p>
+            </details>
+            <details>
+              <summary>Where can I inspect the technical limits?</summary>
+              <p>
+                Read the <a href="/privacy">privacy policy</a>,{" "}
+                <a href={`${REPOSITORY}/blob/main/SECURITY.md`}>
+                  security documentation
+                </a>{" "}
+                and <a href={`${REPOSITORY}#limits`}>execution limits</a>. The
+                preview is still awaiting live provider, account and GitHub
+                acceptance; the illustrated examples are not performance claims.
+              </p>
+            </details>
+          </div>
+        </section>
+        <div className="px-last-call">
+          <Mark size={40} />
+          <h2>Bring the team to your next change.</h2>
+          <a className="px-primary" href="#install">
+            Install local tools
+          </a>
+        </div>
+      </main>
+      <PublicFooter preview />
+    </div>
+  );
 }

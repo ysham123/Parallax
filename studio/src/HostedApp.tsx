@@ -1,5 +1,6 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { ProviderMark } from "./Brand";
+import { Mark, ThemeToggle, applyStoredTheme } from "./PublicChrome";
 import { localStudioUrl } from "./hosted-link";
 import { legalPage } from "./session";
 import Legal from "./Legal";
@@ -18,14 +19,20 @@ export default function HostedApp() {
   if (location.pathname === "/connections") return <ConnectedApps />;
   const page = legalPage(location.pathname);
   if (page) return <Legal page={page} />;
-  return publicWebsite(location.pathname, location.search) ? <PublicSite /> : <HostedEntry />;
+  return publicWebsite(location.pathname, location.search) ? (
+    <PublicSite />
+  ) : (
+    <HostedEntry />
+  );
 }
 
 function HostedEntry() {
   const [link, setLink] = useState("");
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
-  const [light, setLight] = useState(false);
+  useEffect(() => {
+    applyStoredTheme();
+  }, []);
   function open(event: FormEvent) {
     event.preventDefault();
     try {
@@ -48,45 +55,22 @@ function HostedEntry() {
     <div className="hosted-page">
       <header className="hosted-header">
         <a className="hosted-brand" href="/" aria-label="Parallax home">
-          <svg viewBox="0 0 40 40" width="32" height="32" aria-hidden="true">
-            <ellipse
-              cx="20"
-              cy="20"
-              rx="17"
-              ry="8"
-              transform="rotate(-42 20 20)"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            />
-            <circle cx="20" cy="20" r="4" fill="currentColor" />
-          </svg>
+          <Mark size={32} />
           Parallax
         </a>
         <nav aria-label="Site navigation">
           <a href={`${repository}#readme`}>Documentation</a>
           <a href={repository}>GitHub ↗</a>
-          <button
-            className="hosted-theme"
-            aria-label={light ? "Use dark mode" : "Use light mode"}
-            onClick={() => {
-              document.documentElement.dataset.theme = light ? "dark" : "light";
-              setLight(!light);
-            }}
-          >
-            {light ? "Dark" : "Light"}
-          </button>
+          <ThemeToggle />
         </nav>
       </header>
       <main className="hosted-main">
         <div className="hosted-intro">
-          <span className="hosted-eyebrow">
-            VERIFIED CODING TEAMS · LOCAL EXECUTION
-          </span>
+          <span className="hosted-eyebrow">Local Studio</span>
           <h1>
-            A coding team.
+            Open Studio.
             <br />
-            Your workspace.
+            Work from your project.
           </h1>
           <p>
             Choose your models, follow each agent’s work, and review the
@@ -122,11 +106,12 @@ function HostedEntry() {
           </p>
         </div>
         <section className="hosted-launch" aria-labelledby="launch-title">
-          <span className="hosted-eyebrow">OPEN YOUR WORKSPACE</span>
+          <span className="hosted-eyebrow">Open your project</span>
           <h2 id="launch-title">Start in Claude Code or Codex</h2>
           <p>
-            With the public Parallax plugin installed, run <code>{PUBLIC_RELEASE.claudeStudio}</code> in Claude
-            Code, or ask Codex:
+            With the public Parallax plugin installed, run{" "}
+            <code>{PUBLIC_RELEASE.claudeStudio}</code> in Claude Code, or ask
+            Codex:
           </p>
           <blockquote>“Open Parallax Studio for this project.”</blockquote>
           <p>
@@ -181,14 +166,18 @@ function HostedEntry() {
             Install the Parallax plugin ↗
           </a>
           <p className="hosted-help">
-            Testing the {__PARALLAX_VERSION__} development preview? Use the reviewed build supplied
-            by your operator and the source command above. The public {PUBLIC_RELEASE.version} tools
-            do not include the saved-candidate workflow shown on this website.
+            Testing the {__PARALLAX_VERSION__} development preview? Use the
+            reviewed build supplied by your operator and the source command
+            above. The public {PUBLIC_RELEASE.version} tools do not include the
+            saved-candidate workflow shown on this website.
           </p>
         </section>
       </main>
       <footer className="hosted-footer">
-        <span>Parallax {__PARALLAX_VERSION__} development preview · Studio runs locally</span>
+        <span>
+          Parallax {__PARALLAX_VERSION__} development preview · Studio runs
+          locally
+        </span>
         <nav aria-label="Legal and support">
           <a href="/privacy">Privacy</a>
           <a href="/terms">Terms</a>

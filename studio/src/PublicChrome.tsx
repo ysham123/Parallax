@@ -3,27 +3,26 @@ import { REPOSITORY, accountName, initials, type Session } from "./session";
 
 export function Mark({ size = 26 }: { size?: number }) {
   return (
-    <svg viewBox="0 0 40 40" width={size} height={size} aria-hidden="true">
-      <ellipse
-        cx="20"
-        cy="20"
-        rx="17"
-        ry="8"
-        transform="rotate(-42 20 20)"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.2"
-      />
-      <circle cx="20" cy="20" r="4" fill="currentColor" />
+    <svg
+      viewBox="0 0 32 32"
+      width={size}
+      height={size}
+      aria-hidden="true"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.65"
+      strokeLinejoin="round"
+    >
+      <path d="M4 20V7l12-4v13zM11 28V15l16-5v13z" />
     </svg>
   );
 }
 
 function storedTheme(): string {
   try {
-    return localStorage.getItem("parallax-theme") || "dark";
+    return localStorage.getItem("parallax-theme") === "dark" ? "dark" : "light";
   } catch {
-    return "dark";
+    return "light";
   }
 }
 
@@ -34,6 +33,22 @@ export function applyStoredTheme() {
 
 export function ThemeToggle() {
   const [theme, setTheme] = useState(storedTheme);
+  useEffect(() => {
+    const synchronize = (event: Event) => {
+      const value = (event as CustomEvent<string>).detail;
+      if (value === "dark" || value === "light") setTheme(value);
+    };
+    const synchronizeStorage = (event: StorageEvent) => {
+      if (event.key === "parallax-theme" || event.key === null)
+        setTheme(storedTheme());
+    };
+    window.addEventListener("parallax-theme-change", synchronize);
+    window.addEventListener("storage", synchronizeStorage);
+    return () => {
+      window.removeEventListener("parallax-theme-change", synchronize);
+      window.removeEventListener("storage", synchronizeStorage);
+    };
+  }, []);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     try {
@@ -49,14 +64,31 @@ export function ThemeToggle() {
       className="pub-icon-button"
       aria-label={light ? "Use dark theme" : "Use light theme"}
       title={light ? "Dark theme" : "Light theme"}
-      onClick={() => setTheme(light ? "dark" : "light")}
+      onClick={() => {
+        const next = light ? "dark" : "light";
+        setTheme(next);
+        window.dispatchEvent(
+          new CustomEvent("parallax-theme-change", { detail: next }),
+        );
+      }}
     >
       {light ? (
         <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
-          <path fill="currentColor" d="M6.2 1.3a6.8 6.8 0 1 0 8.5 8.5A5.6 5.6 0 0 1 6.2 1.3Z" />
+          <path
+            fill="currentColor"
+            d="M6.2 1.3a6.8 6.8 0 1 0 8.5 8.5A5.6 5.6 0 0 1 6.2 1.3Z"
+          />
         </svg>
       ) : (
-        <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.4">
+        <svg
+          viewBox="0 0 16 16"
+          width="15"
+          height="15"
+          aria-hidden="true"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.4"
+        >
           <circle cx="8" cy="8" r="3" />
           <path d="M8 1v1.6M8 13.4V15M1 8h1.6M13.4 8H15M3 3l1.1 1.1M11.9 11.9 13 13M3 13l1.1-1.1M11.9 4.1 13 3" />
         </svg>
@@ -68,7 +100,10 @@ export function ThemeToggle() {
 export function PublicFooter({ preview = false }: { preview?: boolean } = {}) {
   return (
     <footer className="pub-footer">
-      <span>Parallax {__PARALLAX_VERSION__}{preview ? " development preview" : ""} · MIT</span>
+      <span>
+        Parallax {__PARALLAX_VERSION__}
+        {preview ? " development preview" : ""} · MIT
+      </span>
       <nav aria-label="Legal and support">
         <a href="/privacy">Privacy</a>
         <a href="/terms">Terms</a>
@@ -155,7 +190,11 @@ export function AccountMenu({
               try {
                 await onSignOut();
               } catch (failure) {
-                setProblem(failure instanceof Error ? failure.message : "Sign-out failed. Try again.");
+                setProblem(
+                  failure instanceof Error
+                    ? failure.message
+                    : "Sign-out failed. Try again.",
+                );
               } finally {
                 setBusy(false);
               }
@@ -169,7 +208,9 @@ export function AccountMenu({
             </p>
           )}
           {member && !operatorWorkspace && (
-            <a role="menuitem" href="/connections">Connected apps</a>
+            <a role="menuitem" href="/connections">
+              Connected apps
+            </a>
           )}
           {member && !operatorWorkspace && (
             <button
@@ -201,7 +242,8 @@ export function DeleteAccountDialog({
   onCancel: () => void;
   onConfirm: () => Promise<void>;
 }) {
-  const outside = provider === "github" ? "GitHub" : provider === "google" ? "Google" : null;
+  const outside =
+    provider === "github" ? "GitHub" : provider === "google" ? "Google" : null;
   const [typed, setTyped] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -219,7 +261,9 @@ export function DeleteAccountDialog({
       }
       if (event.key === "Tab") {
         const items = Array.from(
-          dialog.current?.querySelectorAll<HTMLElement>("button:not([disabled]), input") || [],
+          dialog.current?.querySelectorAll<HTMLElement>(
+            "button:not([disabled]), input",
+          ) || [],
         );
         const first = items[0],
           last = items.at(-1);
@@ -256,9 +300,9 @@ export function DeleteAccountDialog({
       >
         <h2 id="delete-title">Delete your account?</h2>
         <p id="delete-description">
-          This removes your workspace, disconnects every machine, and deletes mirrored run evidence
-          and your sign-in from Parallax. Project files and local history on your machines are not
-          touched.
+          This removes your workspace, disconnects every machine, and deletes
+          mirrored run evidence and your sign-in from Parallax. Project files
+          and local history on your machines are not touched.
           {outside &&
             ` ${outside} keeps its record of the authorization until you revoke it in your ${outside} account settings.`}
         </p>
@@ -270,7 +314,9 @@ export function DeleteAccountDialog({
             try {
               await onConfirm();
             } catch (problem) {
-              setError(problem instanceof Error ? problem.message : String(problem));
+              setError(
+                problem instanceof Error ? problem.message : String(problem),
+              );
               setBusy(false);
             }
           }}
@@ -292,10 +338,19 @@ export function DeleteAccountDialog({
             </p>
           )}
           <div className="dialog-actions">
-            <button type="button" className="work-button" onClick={onCancel} disabled={busy}>
+            <button
+              type="button"
+              className="work-button"
+              onClick={onCancel}
+              disabled={busy}
+            >
               Cancel
             </button>
-            <button type="submit" className="danger-button" disabled={busy || typed !== login}>
+            <button
+              type="submit"
+              className="danger-button"
+              disabled={busy || typed !== login}
+            >
               {busy ? "Deleting…" : "Delete account"}
             </button>
           </div>

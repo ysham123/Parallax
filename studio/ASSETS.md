@@ -14,3 +14,14 @@ Retrieved 2026-10-06. Assets are bundled locally, with no external image request
 Image files preserve the vendor artwork. The provider card supplies padding and the correct OpenAI color variant for the active theme. Other icons in the UI are Parallax interface glyphs, not vendor symbols.
 
 The task graph uses [React Flow](https://reactflow.dev/) (`@xyflow/react` 12.12.0), distributed under the MIT license. Its attribution link is retained in the graph.
+
+## Product fonts
+
+Archivo variable and IBM Plex Mono Regular are bundled locally as WOFF2. There are no third-party font requests. Retrieved October 11, 2026 from the Google Fonts source repository:
+
+- [Archivo variable source](https://github.com/google/fonts/blob/main/ofl/archivo/Archivo%5Bwdth,wght%5D.ttf), copyright the Archivo Project Authors, [Archivo source project](https://github.com/Omnibus-Type/Archivo).
+- [IBM Plex Mono Regular source](https://github.com/google/fonts/blob/main/ofl/ibmplexmono/IBMPlexMono-Regular.ttf), copyright IBM Corp., reserved font name Plex.
+
+Both use SIL Open Font License 1.1. Original license files ship under `public/font-licenses/` and are copied into the built frontend. FontTools 4.66.1 converted the complete original TTF files to WOFF2; glyphs and names were not changed. These licenses apply to the fonts, separately from Parallax's source-code license.
+
+The Parallax interface mark is an original pair of offset perspective planes drawn in SVG.
