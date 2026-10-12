@@ -1,11 +1,13 @@
-import { useEffect, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { relayApi, messageOf } from "./api";
 import { Mark, ThemeToggle } from "./PublicChrome";
-import {
-  PUBLIC_RELEASE,
-  PREVIEW_GUIDES,
-  SOURCE_INSTALL,
-} from "./public-release";
+import { WorkerSetupGuide } from "./WorkerSetupGuide";
 import {
   platformLabel,
   workerCommands,
@@ -61,6 +63,39 @@ export function PairingCode() {
   const [now, setNow] = useState(Date.now());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const generateButton = useRef<HTMLButtonElement>(null);
+  const restoreFocus = useRef(false);
+  const inflight = useRef(false);
+  useEffect(() => {
+    if (busy) {
+      const moved = (event: FocusEvent) => {
+        if (
+          event.target !== generateButton.current &&
+          event.target !== document.body
+        )
+          restoreFocus.current = false;
+      };
+      document.addEventListener("focusin", moved);
+      return () => document.removeEventListener("focusin", moved);
+    }
+    const active = document.activeElement;
+    if (
+      restoreFocus.current &&
+      generateButton.current &&
+      (!active ||
+        active === document.body ||
+        active === generateButton.current ||
+        active.isConnected === false)
+    )
+      generateButton.current.focus();
+    restoreFocus.current = false;
+  }, [busy]);
+  useEffect(
+    () => () => {
+      restoreFocus.current = false;
+    },
+    [],
+  );
   useEffect(() => {
     if (!pair) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
@@ -70,6 +105,9 @@ export function PairingCode() {
     ? Math.max(0, Math.ceil((pair.expires - now) / 1000))
     : 0;
   async function generate() {
+    if (inflight.current) return;
+    inflight.current = true;
+    restoreFocus.current = document.activeElement === generateButton.current;
     setBusy(true);
     setError("");
     try {
@@ -87,6 +125,7 @@ export function PairingCode() {
     } catch (failure) {
       setError(messageOf(failure));
     } finally {
+      inflight.current = false;
       setBusy(false);
     }
   }
@@ -114,10 +153,11 @@ export function PairingCode() {
         )
       )}
       <button
+        ref={generateButton}
         type="button"
         className="pub-primary"
         onClick={() => void generate()}
-        disabled={busy}
+        aria-disabled={busy}
       >
         {busy
           ? "Generating…"
@@ -151,6 +191,20 @@ export default function Onboarding({
 }) {
   const commands = workerCommands(window.location.origin);
   const connected = machines.find((machine) => machine.online) || machines[0];
+  const setupRegion = useRef<HTMLDivElement | null>(null);
+  const transferFocus = useRef(false);
+  const openStudio = useRef<HTMLButtonElement>(null);
+  const setupRef = useCallback((node: HTMLDivElement | null) => {
+    if (!node && setupRegion.current?.contains(document.activeElement))
+      transferFocus.current = true;
+    setupRegion.current = node;
+  }, []);
+  useEffect(() => {
+    if (connected && transferFocus.current) {
+      openStudio.current?.focus();
+      transferFocus.current = false;
+    }
+  }, [connected?.id]);
   return (
     <div className="pub-page onb-page">
       <a className="skip-link" href="#onboarding-main">
@@ -170,80 +224,37 @@ export default function Onboarding({
       <main id="onboarding-main" className="onb-main" tabIndex={-1}>
         <p className="pub-eyebrow">Your workspace</p>
         <h1>
-          {canManageMachines
-            ? "Connect a machine"
-            : "Waiting for your team’s machine"}
+          {connected
+            ? connected.online
+              ? "Your machine is connected"
+              : "Reconnect your machine"
+            : canManageMachines
+              ? "Connect a machine"
+              : "Waiting for your team’s machine"}
         </h1>
         <p className="pub-lead">
-          {canManageMachines
-            ? "Agents run on a computer you control, using the CLIs you are already signed in to. Connect one to start your first run."
-            : "Ask a workspace owner to connect a machine and grant you project access. Your permitted tasks and reviews appear here when it connects."}
+          {connected
+            ? connected.online
+              ? canManageMachines
+                ? "Open Studio to choose an authorized project, inspect your provider and check setup, then start a task. A connected machine does not establish provider quota or task readiness."
+                : "Open Studio to inspect your permitted tasks and reviews. Access follows your role and project permissions; connection alone does not establish task readiness."
+              : canManageMachines
+                ? "Open Studio to reconnect this machine using its existing worker state. Your saved work remains tied to this machine."
+                : "Open Studio to check the connection. Ask a workspace Owner to restart this machine's worker with its existing state."
+            : canManageMachines
+              ? "Agents run on a computer you control, using supported local CLIs or API connections. Connect an existing project to this workspace."
+              : "Ask a workspace owner to connect a machine and grant you project access. Your permitted tasks and reviews appear here when it connects."}
         </p>
-        {canManageMachines && (
-          <ol className="onb-steps">
-            <li>
-              <h2>Use your supplied pilot worker</h2>
-              <p>
-                New Studio workflows and team tasks require the versioned
-                development preview supplied by your pilot operator. Verify its
-                archive digest, extract it into a new folder, and run the worker
-                from that folder. Follow the{" "}
-                <a href={PREVIEW_GUIDES.setup}>preview setup guide</a>.
-              </p>
-              <p className="onb-muted">
-                If you have not received the preview, ask your operator for it
-                before pairing. Public {PUBLIC_RELEASE.version} installation
-                commands do not install this worker.
-              </p>
-            </li>
-            <li>
-              <h2>Check prerequisites</h2>
-              <p>
-                macOS or Linux with Python 3.10 or newer, Git 2.38 or newer, and
-                two usable independent providers for Build: one to implement and
-                another to review. Use supported signed-in CLIs or API
-                connections; credentials stay on the machine. Linux also needs
-                working bubblewrap and user namespaces. A detected sign-in does
-                not establish remaining quota.
-              </p>
-              <p className="onb-muted">
-                Native Grok is unavailable in the preview. Claude Code and
-                Antigravity use restricted file tools, with shell and
-                content-search tools disabled. Run diagnostics in the supplied
-                preview before starting a task.
-              </p>
-            </li>
-            <li>
-              <h2>Start a worker for one project</h2>
-              <CopyBlock label="Worker command" text={commands.start} />
-              <p className="onb-muted">
-                Use the absolute path of a Git repository you want agents to
-                work in. Repeat
-                <code>--workspace</code> to approve more. The first start
-                prepares a private Python environment and then asks for a
-                pairing code without echoing it.
-              </p>
-            </li>
-            <li>
-              <h2>Pair it</h2>
-              <p>Generate a code and paste it at the worker’s prompt.</p>
-              <PairingCode />
-            </li>
-          </ol>
-        )}
-        {canManageMachines && (
-          <details className="onb-muted">
-            <summary>Install the public local tools separately</summary>
-            <p>
-              These pinned {PUBLIC_RELEASE.version} commands are for the public
-              local tools. For tasks in this workspace, use your supplied pilot
-              worker above.
-            </p>
-            <CopyBlock
-              label="Public local install commands"
-              text={SOURCE_INSTALL}
+        {canManageMachines && !connected && (
+          <div ref={setupRef}>
+            <WorkerSetupGuide
+              command={
+                <CopyBlock label="Worker command" text={commands.start} />
+              }
+              pairing={<PairingCode />}
+              access="Access follows this workspace's membership and project permissions."
             />
-          </details>
+          </div>
         )}
         <section className="onb-status" aria-live="polite">
           {connected ? (
@@ -262,6 +273,7 @@ export default function Onboarding({
                 </small>
               </div>
               <button
+                ref={openStudio}
                 type="button"
                 className="pub-primary"
                 onClick={() => onOpen(connected.id)}
@@ -281,15 +293,15 @@ export default function Onboarding({
             </div>
           )}
         </section>
-        <p className="onb-muted onb-footnote">
-          The worker connects outward over HTTPS. It opens no port and never
-          uploads your provider credentials. Run results, diffs, check output,
-          and events are mirrored to this workspace so Studio can draw the
-          graph. Mirrored task prompts, agent output, session metadata and
-          evidence can contain source code. Private checkouts and complete
-          provider-session files stay on the machine. Keep the worker online to
-          use Studio controls.
-        </p>
+        {(connected || !canManageMachines) && (
+          <p className="onb-muted onb-footnote">
+            Execution and provider credentials stay on the machine. This
+            workspace receives task evidence that can contain source code, under
+            your role and project permissions. Chosen model providers receive
+            relevant project context when tasks run. Keep the worker online to
+            use Studio and inspect team tasks.
+          </p>
+        )}
       </main>
     </div>
   );

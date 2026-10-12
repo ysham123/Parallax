@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { relayApi, messageOf } from "./api";
-import { PairingCode } from "./Onboarding";
+import { CopyBlock, PairingCode } from "./Onboarding";
+import { WorkerSetupGuide } from "./WorkerSetupGuide";
 import {
   HOSTED_EXECUTOR,
   platformLabel,
@@ -35,6 +36,13 @@ export function ExecutionMachines({
   const [error, setError] = useState("");
   const close = useRef<HTMLButtonElement>(null);
   const dialog = useRef<HTMLDivElement>(null);
+  const reconnectRegion = useRef<HTMLElement | null>(null);
+  const reconnectFocus = useRef(false);
+  const reconnectRef = useCallback((node: HTMLElement | null) => {
+    if (!node && reconnectRegion.current?.contains(document.activeElement))
+      reconnectFocus.current = true;
+    reconnectRegion.current = node;
+  }, []);
   useEffect(() => {
     if (reconnectSignal) {
       setError("");
@@ -90,6 +98,16 @@ export function ExecutionMachines({
     }
   }
   const current = machines.find((m) => m.id === selected);
+  useEffect(() => {
+    const active = document.activeElement;
+    if (
+      open &&
+      reconnectFocus.current &&
+      (!active || active === document.body || active.isConnected === false)
+    )
+      close.current?.focus();
+    reconnectFocus.current = false;
+  }, [open, current?.id, current?.online]);
   const command = workerCommands(location.origin).start;
   return (
     <>
@@ -154,7 +172,7 @@ export function ExecutionMachines({
               CLI sign-ins, checks, and integration.
             </p>
             {current && !current.online && (
-              <section className="pair-machine">
+              <section className="pair-machine" ref={reconnectRef}>
                 <h3>Reconnect {current.name}</h3>
                 <p>
                   {canManageMachines
@@ -270,25 +288,18 @@ export function ExecutionMachines({
             {canManageMachines ? (
               <section className="pair-machine">
                 <h3>Connect another machine</h3>
-                <p>
-                  From a Parallax checkout on that machine, run this with a
-                  project you approve. It connects outward over HTTPS; no
-                  inbound port is opened and provider credentials stay on the
-                  machine.
-                </p>
-                <pre className="machine-command">
-                  <code>{command}</code>
-                </pre>
-                <p>
-                  {hostedExecution
-                    ? "Anyone signed in to the operator workspace can operate approved projects on its machines."
-                    : teamWorkspace
-                      ? "Workspace members can inspect or operate this machine according to their role and project permissions."
-                      : "Only your account can see or operate machines in this workspace."}{" "}
-                  Disconnect revokes future commands; an offline machine
-                  receives the revocation when it reconnects.
-                </p>
-                <PairingCode />
+                <WorkerSetupGuide
+                  headingLevel={3}
+                  command={<CopyBlock label="Worker command" text={command} />}
+                  pairing={<PairingCode />}
+                  access={
+                    hostedExecution
+                      ? "Anyone signed in to the operator workspace can operate its approved projects."
+                      : teamWorkspace
+                        ? "Members' access follows their role and project permissions."
+                        : "Only your account can see or operate this workspace's machines."
+                  }
+                />
               </section>
             ) : (
               <p>Workspace owners manage machine pairing and disconnection.</p>

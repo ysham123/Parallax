@@ -396,7 +396,7 @@ const taskProps = {
   const ownerSetup = renderer(Onboarding, {...waitingReviewer.props,canManageMachines:true}); ownerSetup.render();
   check('Authorized owners retain the complete worker setup', () => {
     assert.match(text(ownerSetup.tree),/Connect a machine/);
-    assert.equal(nodes(ownerSetup.tree).some(n => n.type === 'ol'),true);
+    assert.equal(nodes(ownerSetup.tree).some(n => n.type?.name === 'WorkerSetupGuide'),true);
   });
   const reviewerMachines = renderer(ExecutionMachines,{machines:[{id:'one',name:'Team worker',online:false,workspaces:['/project']}],selected:'one',onSelect(){},refresh:async()=>{},hostedExecution:false,canManageMachines:false,reconnectSignal:1});
   reviewerMachines.render(); reviewerMachines.render();

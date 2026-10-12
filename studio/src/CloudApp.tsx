@@ -449,7 +449,9 @@ function CloudWorkspace() {
       <>
         <Onboarding
           workspaceName={
-            active.account ? accountName(active.account) : active.workspace.name
+            active.workspace.kind === "team" || !active.account
+              ? active.workspace.name
+              : accountName(active.account)
           }
           machines={machines}
           canManageMachines={
