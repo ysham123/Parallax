@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from .models import CheckSpec, ProjectAssessment
 from .store import now
+from .provisioning import yarn_classic_inputs, yarn_classic_tool, YARN_POLICY
 
 IGNORED = {'.git', '.venv', 'venv', 'node_modules', 'dist', 'build', '__pycache__', '.next', '.tox'}
 MANIFESTS = ('package.json', 'package-lock.json', 'npm-shrinkwrap.json', 'pnpm-lock.yaml', 'yarn.lock', 'requirements.txt', 'pyproject.toml')
@@ -62,6 +63,13 @@ def assess_project(workspace: str | Path, roots: list[str] | None = None, checks
             if name in files and not (path / name).is_symlink(): instructions.append(str((path / name).relative_to(root)))
     selected = [package_directory(root, value) for value in roots] if roots else [p for p in directories if any((p / m).exists() for m in ('package.json', 'pyproject.toml', 'requirements.txt')) or (p / 'tests').is_dir()]
     packages, proposed, issues = [], [], []
+    yarn_members = set()
+    if (root / 'yarn.lock').is_file():
+        try:
+            yarn_members = {str(Path(name).parent) for name in yarn_classic_inputs(root) if name.endswith('package.json')}
+            yarn_classic_tool()
+        except (ValueError, OSError) as exc:
+            issues.append({'category':'environment','severity':'blocker','root':'.','message':str(exc)})
     for path in dict.fromkeys(selected):
         relative = str(path.relative_to(root))
         manifests = [name for name in MANIFESTS if (path / name).exists() or (path / name).is_symlink()]
@@ -72,15 +80,17 @@ def assess_project(workspace: str | Path, roots: list[str] | None = None, checks
                 item.update(kind='typescript' if (path / 'tsconfig.json').is_file() else 'javascript', manager='pnpm' if 'pnpm-lock.yaml' in manifests else 'yarn' if 'yarn.lock' in manifests else 'npm')
                 package = json.loads(_read(path / 'package.json'))
                 if not isinstance(package, dict) or not isinstance(package.get('scripts', {}), dict): raise ValueError('package.json must contain an object and scripts map')
-                if package.get('workspaces'):
+                if relative in yarn_members:
+                    item['manager'] = 'yarn'
+                if package.get('workspaces') and item['manager'] != 'yarn':
                     issues.append({'category':'configuration','severity':'blocker','root':relative,'message':'npm workspaces require explicit package roots with per-package lockfiles and check commands for this release.'})
-                item['setup'] = 'private npm ci, lifecycle scripts disabled' if item['manager'] == 'npm' and any(m in manifests for m in ('package-lock.json', 'npm-shrinkwrap.json')) else 'unsupported'
+                item['setup'] = 'private Yarn Classic frozen-lock install, lifecycle scripts disabled' if relative in yarn_members else 'private npm ci, lifecycle scripts disabled' if item['manager'] == 'npm' and any(m in manifests for m in ('package-lock.json', 'npm-shrinkwrap.json')) else 'unsupported'
                 scripts = package.get('scripts', {})
                 keys = ['test:ci' if 'test:ci' in scripts else 'test', 'typecheck', 'lint', 'build']
                 for key in keys:
                     if isinstance(scripts.get(key), str): proposed.append(CheckSpec(name=f'{relative} · {key}', argv=[item['manager'], 'run', key], timeout=180, cwd=relative))
-                if item['setup'] == 'unsupported': issues.append({'category': 'environment', 'severity': 'blocker', 'root': relative, 'message': 'Node setup requires a committed npm lockfile. pnpm and Yarn setup are not supported yet.'})
-                if item['manager'] == 'npm' and item['setup'] != 'unsupported' and git:
+                if item['setup'] == 'unsupported': issues.append({'category': 'environment', 'severity': 'blocker', 'root': relative, 'message': 'Node setup requires a committed npm lockfile or supported Yarn Classic v1 lock. Berry and pnpm setup are unsupported.'})
+                if item['manager'] in {'npm','yarn'} and item['setup'] != 'unsupported' and git:
                     ignored = subprocess.run(['git', '-C', str(path), 'check-ignore', '--no-index', 'node_modules/.parallax-probe'], capture_output=True, timeout=5)
                     if ignored.returncode != 0: issues.append({'category': 'environment', 'severity': 'blocker', 'root': relative, 'message': 'Add node_modules/ to .gitignore before private dependency setup.'})
             if 'pyproject.toml' in manifests or 'requirements.txt' in manifests or (path / 'tests').is_dir():

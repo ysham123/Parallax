@@ -16,7 +16,7 @@ from pathlib import Path
 from .models import CheckEvidence, CoordinatorAction, Participant, RunResult, RunSpec, TaskSpec, CheckSpec
 from .store import Store
 from .assessment import assess_project, execution_capability, package_directory
-from .recovery import classify, recovery_options
+from .recovery import classify, provider_quota_exhausted, recovery_options
 from .evidence import phase_attempt, record_observation, bind_current_observations, content_digest, text_digest
 from .context import (PROMPT_LIMIT, REQUEST_LIMIT, Packet, consultant_packet, coordinator_packet, distiller_packet,
                       filter_patch, findings as context_findings, memory_scrubber, review_packet, synthesis_packet, worker_packet)
@@ -84,6 +84,8 @@ class Engine:
         self.wakeup: dict[str, asyncio.Event] = {}
         self.shutting_down = False
         self._clocks: dict[str, tuple[float, float]] = {}
+        # Reviewers that reported exhausted provider quota during this execution; a resume clears it.
+        self._exhausted_reviewers: dict[str, set[str]] = {}
         from .budget import ExecutionBudget
         self.budget = ExecutionBudget(store)
         self._start_lock = asyncio.Lock()
@@ -593,6 +595,7 @@ class Engine:
         spec = RunSpec.model_validate(self.store.get(run_id)["spec"])
         run_dir = Path(self.store.get(run_id)["artifacts"]["directory"])
         manager = None
+        self._exhausted_reviewers.pop(run_id, None)
         used = self.store.get(run_id)["artifacts"].get("runtime_seconds", 0)
         self._clocks[run_id] = self.budget.begin(run_id, used, spec.limits.minutes * 60)
         used = self._clocks[run_id][1]
@@ -915,15 +918,14 @@ class Engine:
                     for task, outcome in zip(batch, outcomes):
                         invocation = outcome.get("provider_result") or {}
                         error = invocation.get("error") or {}
-                        code = str(error.get("code", "")).lower() if isinstance(error, dict) else ""
-                        message = str(error.get("message", "")) if isinstance(error, dict) else str(error)
-                        transient = code in {"rate_limit_exceeded", "rate_limited", "too_many_requests", "request_rate_exceeded", "request_rate_limit_exceeded"}
-                        quota = not transient and (code in {"quota_exceeded", "insufficient_quota", "quota_exhausted"}
-                            or bool(re.search(r"\b(?:individual|account|subscription)\s+quota\s+(?:reached|exhausted|exceeded)\b", message, re.I)))
+                        quota = provider_quota_exhausted(error)
                         if (task["provider"] != spec.coordinator.provider and task["provider"] in writers
                                 and invocation.get("ok") is False and quota and not outcome.get("changed_files")):
                             self.store.event(run_id, "provider_exhausted", {"provider":task["provider"], "reason":"quota", "automatic_retry":False}, task["id"])
                             raise RunProblem(f"Only enabled implementer {task['provider']} exhausted its provider quota. Restore capacity and explicitly resume from saved execution evidence; no further coordinator call was dispatched.")
+                for outcome in outcomes:
+                    if isinstance(outcome, dict) and outcome.get("reviewers_exhausted"):
+                        raise RunProblem(outcome["error"])
         elif action.action=="inspect_results":
             pass
         elif action.action=="explore":
@@ -1174,6 +1176,9 @@ class Engine:
                                       result={**outcome, "ok": False, "error": "Variant checks failed: " + ", ".join(failing)})
                 else:
                     self._task_update(run_id, record["id"], status="candidate", checks=evidence, result=outcome)
+            exhausted = next((o for o in outcomes if o.get("reviewers_exhausted")), None)
+            if exhausted is not None:
+                raise RunProblem(exhausted["error"])
         finally:
             result = self.store.get(run_id)
             stranded = [t for t in result["tasks"] if t["id"] in ids and t["status"] == "running"]
@@ -1309,14 +1314,37 @@ class Engine:
         if outside: return finish({"ok":False,"error":"Changed files outside ownership: "+", ".join(outside),"workspace":str(target),"provider_result":_handoff(outcome),"changed_files":collected["changed_files"]}, resume_safe=False)
         if not outcome.get("ok"): return finish({**collected,"ok":False,"error":outcome.get("error"),"workspace":str(target),"provider_result":_handoff(outcome)})
         if not collected["changed_files"]: return finish({"ok":False,"error":"Implementation produced no changes","workspace":str(target),"provider_result":_handoff(outcome)})
-        reviewer=next((p for p in spec.team if p.provider!=member.provider and p.role=="reviewer"),None) or next((p for p in [spec.coordinator,*spec.team] if p.provider!=member.provider),None)
-        if reviewer is None: return finish({"ok":False,"error":"No independent reviewer","workspace":str(target)})
+        reviewers=[p for p in spec.team if p.provider!=member.provider and p.role=="reviewer"]+[p for p in [spec.coordinator,*spec.team] if p.provider!=member.provider]
+        if not reviewers: return finish({"ok":False,"error":"No independent reviewer","workspace":str(target)})
         requirements={**task,"id":task.get("variant_of") or task["id"]}
-        review=await self._assess_patch(run_id,reviewer,target,spec.prompt,requirements,task["id"],patch=collected.get("patch") or "",
+        review=await self._independent_review(run_id,reviewers,target,spec.prompt,requirements,task["id"],patch=collected.get("patch") or "",
             observation_attempt=phase_attempt("task", task["id"], attempt))
+        if review is None:
+            return finish({**collected,"ok":False,"error":self._reviewers_exhausted(run_id),"reviewers_exhausted":True,"workspace":str(target),"provider_result":_handoff(outcome)})
         if not review["ok"]: return finish({**collected,"ok":False,"error":"Independent review rejected the change","workspace":str(target),"review":review,"provider_result":_handoff(outcome)})
         active["reviewed_fingerprint"] = manager.fingerprint(target)
         return finish({**collected,"ok":True,"workspace":str(target),"review":review,"provider_result":_handoff(outcome)}, "reviewed")
+
+    async def _independent_review(self,run_id,reviewers,*args,**kwargs):
+        """Review with the first independent provider that still has capacity, in preference order.
+
+        A reviewer that reports exhausted plan or account quota is skipped for the rest of this
+        execution. None means every independent reviewer is exhausted; the caller stops the run."""
+        exhausted=self._exhausted_reviewers.setdefault(run_id,set())
+        seen=set()
+        for reviewer in reviewers:
+            if reviewer.provider in seen or reviewer.provider in exhausted: continue
+            seen.add(reviewer.provider)
+            review=await self._assess_patch(run_id,reviewer,*args,**kwargs)
+            if review["ok"] or not provider_quota_exhausted(review.get("error")): return review
+            exhausted.add(reviewer.provider)
+            self.store.event(run_id,"provider_exhausted",{"provider":reviewer.provider,"reason":"quota","role":"reviewer","automatic_retry":False},args[3] if len(args)>3 else None)
+        return None
+
+    def _reviewers_exhausted(self,run_id):
+        names=", ".join(sorted(self._exhausted_reviewers.get(run_id) or ())) or "unknown"
+        return (f"Every independent reviewer exhausted its provider quota ({names}). Restore capacity or enable another "
+                "independent provider, then resume from saved evidence; no further coordinator call was dispatched.")
 
     async def _assess_patch(self,run_id,reviewer,target,request,task,task_id,*,evidence=None,patch="",patch_budget=40000,observation_attempt=None):
         from .workspaces import fingerprint
@@ -1406,6 +1434,14 @@ class Engine:
     async def _ensure_environment(self,run_id,workspace,checks):
         """Resolve declared dependencies only into this run's private environment."""
         wants_node={Path(c.argv[0]).name for c in checks}&{"npm","pnpm","yarn"}
+        yarn_requested=bool(wants_node & {"yarn"}) or any(Path(c.argv[0]).name=="node" for c in checks) and (workspace/"yarn.lock").is_file()
+        yarn_inputs=None;yarn_tool=None
+        if yarn_requested:
+            from .provisioning import yarn_classic_inputs,yarn_classic_tool
+            yarn_inputs=yarn_classic_inputs(workspace)
+            explicit_yarn=next((c.argv[0] for c in checks if Path(c.argv[0]).name=="yarn"),None)
+            yarn_tool=yarn_classic_tool(explicit_yarn if explicit_yarn and Path(explicit_yarn).is_absolute() else None)
+            wants_node.add("yarn")
         wants_python=any(Path(c.argv[0]).name.startswith("python") for c in checks)
         lock=next((p for p in (workspace/"package-lock.json",workspace/"npm-shrinkwrap.json") if p.is_file()),None)
         requirements=workspace/"requirements.txt";pyproject=workspace/"pyproject.toml"
@@ -1428,9 +1464,11 @@ class Engine:
                 if not isinstance(dependencies,list) or len(dependencies)>1000 or any(not isinstance(d,str) or not d.strip() or len(d)>2048 for d in dependencies): raise ValueError
             except (ImportError,ValueError,OSError,AttributeError):
                 raise ValueError("Cannot parse declared Python dependencies; use a valid pyproject.toml or requirements.txt")
-        node_needed=bool(wants_node and (lock or package.get("dependencies") or package.get("devDependencies")))
+        node_needed=bool(yarn_inputs or wants_node and (lock or package.get("dependencies") or package.get("devDependencies")))
         if node_needed:
-            if wants_node!={"npm"} or not lock:
+            if yarn_inputs and wants_node!={"yarn"}:
+                raise ValueError("Choose one locked package manager for project checks")
+            if not yarn_inputs and (wants_node!={"npm"} or not lock):
                 raise ValueError("Automatic Node provisioning requires npm checks and package-lock.json or npm-shrinkwrap.json; configure the project environment before using other package managers")
             ignored=await asyncio.create_subprocess_exec("git","-C",str(workspace),"check-ignore","--no-index","node_modules/.parallax-probe",stdout=asyncio.subprocess.DEVNULL,stderr=asyncio.subprocess.DEVNULL)
             try: status=await asyncio.wait_for(ignored.wait(),10)
@@ -1443,6 +1481,8 @@ class Engine:
         digest=hashlib.sha256(str(workspace.resolve()).encode())
         for path in (requirements,pyproject,lock,workspace/"package.json"):
             if path and path.is_file(): digest.update(path.read_bytes())
+        if yarn_inputs:
+            digest.update(json.dumps({"inputs":yarn_inputs,"tool":yarn_tool["sha256"],"version":yarn_tool["version"]},sort_keys=True).encode())
         if python_needed:
             # An app/runtime replacement must not reuse wheels or venv aliases
             # provisioned by another Python, even at the same installation path.
@@ -1461,7 +1501,20 @@ class Engine:
         env["PIP_CONFIG_FILE"] = os.devnull
         steps=[];python=None
         if node_needed:
-            steps.append(("npm dependencies",["npm","ci","--ignore-scripts","--no-audit","--no-fund","--cache",str(environment/"npm-cache")]))
+            if yarn_inputs:
+                env.update(YARN_IGNORE_PATH="1",YARN_DISABLE_SELF_UPDATE_CHECK="1")
+                for relative in ["node_modules",*(str(Path(p).parent/"node_modules") for p in yarn_inputs if p.endswith("/package.json"))]:
+                    modules=workspace/relative
+                    if modules.is_symlink(): raise ValueError("Dependency directories cannot redirect outside the candidate")
+                    tracked=await asyncio.create_subprocess_exec("git","-C",str(workspace),"ls-files","--",relative,stdout=asyncio.subprocess.PIPE,stderr=asyncio.subprocess.DEVNULL)
+                    files,_=await asyncio.wait_for(tracked.communicate(),10)
+                    if tracked.returncode or files: raise ValueError("Yarn dependency folders must not contain tracked source")
+                    ignored=await asyncio.create_subprocess_exec("git","-C",str(workspace),"check-ignore","--no-index",relative+"/.parallax-probe",stdout=asyncio.subprocess.DEVNULL,stderr=asyncio.subprocess.DEVNULL)
+                    if await asyncio.wait_for(ignored.wait(),10)!=0: raise ValueError("Every Yarn dependency folder must be gitignored")
+                    if modules.exists(): shutil.rmtree(modules)
+                steps.append(("Yarn Classic dependencies",[str(yarn_tool["launch"]),"--no-default-rc","install","--frozen-lockfile","--ignore-scripts","--non-interactive","--no-progress","--production=false","--cache-folder",str(environment/"yarn-cache")]))
+            else:
+                steps.append(("npm dependencies",["npm","ci","--ignore-scripts","--no-audit","--no-fund","--cache",str(environment/"npm-cache")]))
         if python_needed:
             python=environment/"venv"/"bin"/"python"
             if not (environment/"python-ready").is_file() or not python.is_file():
@@ -1483,13 +1536,16 @@ class Engine:
             await self.checkpoint(run_id)
             download = name == "Python wheel download"
             command_workspace = stage if name.startswith("Python") else workspace
-            try: outcome=await self._command(run_id,argv,command_workspace,env,300,writable=[environment],readable=[environment],network=download or name=="npm dependencies")
+            try: outcome=await self._command(run_id,argv,command_workspace,env,600 if name=="Yarn Classic dependencies" else 300,writable=[environment],readable=[environment],network=download or name in {"npm dependencies","Yarn Classic dependencies"})
             except OSError as exc: raise ValueError(name+" could not start; private environment preserved") from exc
             output=(outcome.stdout+outcome.stderr)[-4000:]
             self.store.event(run_id,"environment",{"name":name,"ok":outcome.exit_code==0 and not outcome.failure,"output":output,"error":outcome.failure})
             if outcome.failure=="process_termination_failed": raise RunProblem(name+" process survived termination; private environment preserved for inspection")
             if outcome.failure=="cancelled": raise asyncio.CancelledError()
             if outcome.failure or outcome.exit_code!=0: raise ValueError(name+" failed; private environment preserved: "+output)
+        if yarn_inputs:
+            if yarn_classic_inputs(workspace)!=yarn_inputs:
+                raise ValueError("Yarn lock or workspace manifests changed during provisioning")
         if python: (environment/"python-ready").write_text("installed")
         return ({"VIRTUAL_ENV":str(python.parent.parent),"PATH":str(python.parent)+os.pathsep+os.environ.get("PATH","")} if python else {}),python
 
@@ -1505,12 +1561,20 @@ class Engine:
         self._status(run_id,"validating")
         evidence=[]
         environments={}
+        # A Yarn Classic monorepo installs once at the candidate root; members share it.
+        yarn_root=(workspace/"yarn.lock").is_file()
+        yarn_environment=None
         for relative in dict.fromkeys(c.cwd for c in checks):
             root=package_directory(workspace,relative)
             group=[c.model_copy(update={"cwd":"."}) for c in checks if c.cwd==relative]
             before=fingerprint(workspace)
             try:
-                environments[relative]=await self._ensure_environment(run_id,root,group)
+                yarn_group=yarn_root and any(Path(c.argv[0]).name in {"yarn","node"} for c in group)
+                if yarn_group and yarn_environment is not None:
+                    environments[relative]=yarn_environment
+                    continue
+                environments[relative]=await self._ensure_environment(run_id,workspace if yarn_root else root,group)
+                if yarn_group: yarn_environment=environments[relative]
             except (asyncio.CancelledError, Exception) as exc:
                 after=fingerprint(workspace)
                 for check in checks:
@@ -1534,16 +1598,25 @@ class Engine:
             if (root/"src").is_dir() and (root/"pyproject.toml").is_file():
                 env["PYTHONPATH"]=str(root/"src")+os.pathsep+str(root)
             command=list(check.argv)
-            if project_python and Path(command[0]).name.startswith("python"): command[0]=str(project_python)
+            yarn_check=yarn_root and Path(command[0]).name in {"yarn","node"}
             before=fingerprint(workspace)
             try:
-                outcome=await self._command(run_id,command,root,env,check.timeout,writable=[temporary],
+                if Path(command[0]).name=="yarn":
+                    from .provisioning import yarn_classic_tool
+                    if "--use-yarnrc" in command or any(arg.startswith("--use-yarnrc=") for arg in command):
+                        raise ValueError("Yarn check commands cannot select alternate configuration")
+                    tool=yarn_classic_tool(command[0] if Path(command[0]).is_absolute() else None)
+                    command=[str(tool["launch"]),"--no-default-rc",*command[1:]]
+                    env.update(YARN_IGNORE_PATH="1",YARN_DISABLE_SELF_UPDATE_CHECK="1")
+                if project_python and Path(command[0]).name.startswith("python"): command[0]=str(project_python)
+                # Members of a Yarn monorepo resolve hoisted packages and the root manifest.
+                outcome=await self._command(run_id,command,root,env,check.timeout,writable=[temporary,*([workspace] if yarn_check else [])],
                     readable=[project_python.parent.parent] if project_python else [],task_id=task_id)
                 output=(outcome.stdout+outcome.stderr)[-64000:]
                 ok=outcome.exit_code==0 and not outcome.failure and "Ran 0 tests" not in output and "no tests ran" not in output.lower()
                 code=None if ok else outcome.failure or "check_failed"
                 item={"name":check.name,"argv":check.argv,"ok":ok,"exit_code":outcome.exit_code,"output":output,"elapsed_seconds":round(time.monotonic()-started,2),"error":code,"task_id":task_id}
-            except OSError as exc:
+            except (OSError,ValueError) as exc:
                 item={"name":check.name,"argv":check.argv,"ok":False,"exit_code":None,"output":str(exc),"elapsed_seconds":0,"error":"check_unavailable","task_id":task_id}
             except asyncio.CancelledError:
                 item={"schema_version":"1.2","name":check.name,"argv":check.argv,"cwd":check.cwd,"phase":phase,
@@ -1616,10 +1689,12 @@ class Engine:
             raise ValueError("Combined checks failed; repair and validate again")
         contributors={t["provider"] for t in result["tasks"] if t["status"]=="completed" and (spec.mode!="compare" or t["id"]==result["artifacts"].get("selected_task"))}
         candidates=[p for p in spec.team if p.role=="reviewer"]+[spec.coordinator,*spec.team]
-        reviewer=next((p for p in candidates if p.provider not in contributors),None)
-        if reviewer is None: raise ValueError("Combined verification needs a provider that did not implement this candidate")
-        review=await self._assess_patch(run_id,reviewer,manager.integration_path,spec.prompt,self._integration_requirements(result,spec),"integration",
+        reviewers=[p for p in candidates if p.provider not in contributors]
+        if not reviewers: raise ValueError("Combined verification needs a provider that did not implement this candidate")
+        review=await self._independent_review(run_id,reviewers,manager.integration_path,spec.prompt,self._integration_requirements(result,spec),"integration",
             evidence=evidence,patch=before,patch_budget=60000,observation_attempt=evidence_attempt)
+        if review is None:
+            raise RunProblem(self._reviewers_exhausted(run_id))
         if not review["ok"]: raise ValueError("Combined integration review failed")
         result=self.store.get(run_id)
         result["checks"]=evidence
@@ -1747,7 +1822,7 @@ def _project_check(argv,workspace):
 
 def _node_toolchain_reads(argv):
     """Expose selected Node/npm code, never a user toolchain's parent directory."""
-    if not argv or Path(argv[0]).name not in {"node", "npm", "npm-cli.js"}:
+    if not argv or Path(argv[0]).name not in {"node", "npm", "npm-cli.js", "yarn", "yarn.js"}:
         return set()
     executable = argv[0] if Path(argv[0]).is_absolute() else shutil.which(argv[0])
     if not executable:
@@ -1757,6 +1832,15 @@ def _node_toolchain_reads(argv):
     if not resolved.is_file():
         return set()
     paths = {launch, resolved}
+    if Path(argv[0]).name in {"yarn","yarn.js"}:
+        from .provisioning import yarn_classic_tool
+        tool=yarn_classic_tool(str(launch))
+        paths.add(tool["package"])
+        node=shutil.which("node")
+        if not node: raise ValueError("Node is required for Yarn Classic checks")
+        node_launch=Path(node).absolute()
+        paths.update({node_launch,node_launch.resolve()})
+        return paths
     if Path(argv[0]).name != "node":
         # Native npm installations have a fixed bin/npm-cli.js entry point.
         # Only its verified package contains npm's required bundled modules.

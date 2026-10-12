@@ -431,6 +431,11 @@ class ProviderRegistry:
                'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1'}
         if scratch is not None:
             env['TMPDIR'] = str(scratch)
+        # Claude Code on macOS finds its saved sign-in by account name; without
+        # USER it reports signed out. Only a plain login name passes through.
+        for key in ('USER', 'LOGNAME'):
+            if os.name == 'posix' and re.fullmatch(r'[A-Za-z0-9._-]{1,64}', os.environ.get(key, '')):
+                env[key] = os.environ[key]
         for key in ('SystemRoot', 'WINDIR'):
             if key in os.environ and os.name == 'nt':
                 env[key] = os.environ[key]

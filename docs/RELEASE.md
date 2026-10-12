@@ -28,6 +28,6 @@ See [UPGRADE.md](../UPGRADE.md#11-to-12). The Codex install ID stays `codex-clau
 - Live API inference and the five-developer study remain separate validation gates.
 - Shared team workspaces and hosted execution for personal workspaces are not available.
 - API command execution requires the macOS sandbox. SSH workers and remote filesystem mounts are not supported.
-- Yarn, pnpm and npm workspaces need a prepared environment. Git submodules and symlinks that leave the project need manual handling.
+- Yarn Berry, pnpm and npm workspaces need a prepared environment. Yarn Classic 1.22.x with a v1 lock is provisioned automatically. Git submodules and symlinks that leave the project need manual handling.
 
 Release archives and `SHA256SUMS` are produced by `python3 scripts/build_release.py`.

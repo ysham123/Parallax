@@ -1,15 +1,31 @@
 """Finite recovery choices and opt-in aggregate alpha metrics."""
 from __future__ import annotations
 import json
+import re
 from collections import Counter
 from typing import Literal
 from pydantic import Field
 from .models import Contract
 
-CATEGORIES = ('environment', 'provider_permission', 'rejected_review', 'failed_checks', 'destination_conflict', 'interrupted', 'configuration', 'runtime')
+CATEGORIES = ('environment', 'provider_permission', 'provider_quota', 'rejected_review', 'failed_checks', 'destination_conflict', 'interrupted', 'configuration', 'runtime')
+
+QUOTA = re.compile(r"\b(?:individual|account|subscription|usage)\s+quota\s+(?:reached|exhausted|exceeded)\b|\busage\s+limit\s+(?:reached|exhausted|exceeded)\b|\bexhausted its provider quota\b|\binsufficient_quota\b|\bquota_exceeded\b|\bquota_exhausted\b", re.I)
+
+POST_RUN_TASKS = frozenset({'distill'})
+
+
+def provider_quota_exhausted(error) -> bool:
+    """A provider reported exhausted plan or account quota, not a transient rate limit."""
+    code = str(error.get("code", "")).lower() if isinstance(error, dict) else ""
+    message = str(error.get("message", "")) if isinstance(error, dict) else str(error or "")
+    if code in {"rate_limit_exceeded", "rate_limited", "too_many_requests", "request_rate_exceeded", "request_rate_limit_exceeded"}:
+        return False
+    return code in {"quota_exceeded", "insufficient_quota", "quota_exhausted"} or bool(QUOTA.search(message))
+
 
 def classify(message: str) -> str:
     text = message.lower()
+    if provider_quota_exhausted(message): return 'provider_quota'
     if any(word in text for word in ('destination', 'conflict', 'concurrent', 'index changed', 'staging')): return 'destination_conflict'
     if any(word in text for word in ('permission', 'authentication', 'unauthenticated', 'sandbox', 'denied', 'sign in', 'login')): return 'provider_permission'
     if any(word in text for word in ('environment', 'dependencies', 'dependency', 'provision', 'manifest', 'npm', 'venv', 'check_unavailable')): return 'environment'
@@ -23,12 +39,16 @@ def recovery_options(result: dict) -> dict:
     artifacts = result.get('artifacts', {})
     if result['status'] not in {'needs_attention', 'interrupted'} or artifacts.get('integration_applied') or artifacts.get('verified_only'):
         return {'category': None, 'actions': []}
-    error = (result.get('errors') or [{}])[-1]
+    # Post-run memory distillation can record a provider failure after the run
+    # settled. It never stops a run, so it must not stand in for the stop cause.
+    errors = [item for item in result.get('errors') or [] if item.get('task_id') not in POST_RUN_TASKS]
+    error = (errors or [{}])[-1]
     category = error.get('category') or classify(str(error.get('message', result['status'])))
     if result['status'] == 'interrupted': category = 'interrupted'
     choices = {
         'environment': [('fix_configuration', 'Fix project setup', 'Update a project profile and start a new run. The current snapshot is preserved.')],
         'provider_permission': [('retry_interrupted', 'Retry after fixing access', 'Repair CLI sign-in or permissions, then resume at a checkpoint.')],
+        'provider_quota': [('retry_interrupted', 'Resume after restoring capacity', 'Wait for the provider to restore capacity or sign in another independent provider, then resume from saved evidence. Time already used stays recorded.')],
         'rejected_review': [('repair_candidate', 'Repair with review findings', 'Resume coordination using original criteria and recorded independent findings.')],
         'failed_checks': [('repair_candidate', 'Repair failed checks', 'Resume coordination with the actual command output. Required checks remain unchanged.')],
         'destination_conflict': [('inspect_conflict', 'Inspect destination conflict', 'Inspect the retained diff and changed destination. Resolve edits before resuming.')],
