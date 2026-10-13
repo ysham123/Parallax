@@ -23,6 +23,18 @@ def provider_quota_exhausted(error) -> bool:
     return code in {"quota_exceeded", "insufficient_quota", "quota_exhausted"} or bool(QUOTA.search(message))
 
 
+RESET_IN = re.compile(r"resets? in\s+(?:(\d+)h)?\s*(?:(\d+)m)?\s*(?:(\d+)s)?", re.I)
+
+
+def quota_reset_after(message: str) -> float | None:
+    """Seconds until a provider said its quota resets ("Resets in 150h29m56s"), when stated."""
+    match = RESET_IN.search(message or "")
+    if not match or not any(match.groups()):
+        return None
+    hours, minutes, seconds = (int(value or 0) for value in match.groups())
+    return hours * 3600 + minutes * 60 + seconds
+
+
 def classify(message: str) -> str:
     text = message.lower()
     if provider_quota_exhausted(message): return 'provider_quota'

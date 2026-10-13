@@ -108,6 +108,14 @@ class Store:
             sequence = cur.lastrowid
         return {"schema_version":"1.0", "sequence":sequence, "run_id":run_id,"timestamp":stamp,"kind":kind,"task_id":task_id,"data":data or {}}
 
+    def recent_events(self, kinds: set[str], since: str, limit: int = 500) -> list[dict]:
+        """Events of the given kinds across all runs since an ISO timestamp, newest first."""
+        marks = ",".join("?" for _ in kinds)
+        with self.connect() as db:
+            rows = db.execute(f"SELECT * FROM events WHERE kind IN ({marks}) AND timestamp>=? ORDER BY sequence DESC LIMIT ?",
+                              (*sorted(kinds), since, limit)).fetchall()
+        return [{"schema_version":"1.0", **dict(row), "data":json.loads(row["data"])} for row in rows]
+
     def events(self, run_id: str, cursor: int = 0) -> list[dict]:
         with self.connect() as db:
             rows = db.execute("SELECT * FROM events WHERE run_id=? AND sequence>? ORDER BY sequence LIMIT 250", (run_id,cursor)).fetchall()

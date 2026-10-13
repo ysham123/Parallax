@@ -381,7 +381,49 @@ class Engine:
                 result.status = "blocked"
             if member.transport == "api":
                 result.issues.append({"category": "configuration", "severity": "warning", "provider": member.provider, "message": "API execution is experimental; native CLI smoke tests do not validate this connection."})
+        result.issues.extend(self._quota_warnings({member.provider for member in participants or []}))
         return result.model_dump()
+
+    def _quota_warnings(self, providers: set[str]) -> list[dict]:
+        """Warn before starting when a selected provider recently reported exhausted plan quota.
+
+        A warning, not a blocker: limits can return early, and only the provider knows."""
+        from datetime import datetime, timedelta, timezone
+        from .recovery import quota_reset_after
+        current = datetime.now(timezone.utc)
+        since = (current - timedelta(days=8)).isoformat()
+        seen, warnings = set(), []
+        events = self.store.recent_events({"provider_failure", "provider_exhausted"}, since)
+        # Failures carry the provider's own message, including any reset time; read them first.
+        events.sort(key=lambda event: (event["kind"] != "provider_failure", -event["sequence"]))
+        for event in events:
+            data = event.get("data") or {}
+            provider = data.get("provider")
+            if provider not in providers or provider in seen:
+                continue
+            message = str(data.get("message") or "")
+            if event["kind"] == "provider_failure" and not provider_quota_exhausted({"code": data.get("provider_error_code"), "message": message}):
+                continue
+            try:
+                at = datetime.fromisoformat(event["timestamp"])
+            except (TypeError, ValueError):
+                continue
+            wait = quota_reset_after(message)
+            if wait is not None:
+                reset = at + timedelta(seconds=wait)
+                if reset <= current:
+                    seen.add(provider)
+                    continue
+                when = f"It said its limit resets around {reset:%b} {reset.day}, {reset:%H:%M} UTC."
+            elif current - at > timedelta(hours=24):
+                continue
+            else:
+                when = "It did not say when the limit resets."
+            seen.add(provider)
+            warnings.append({"category": "provider_quota", "severity": "warning", "provider": provider,
+                "message": f"{provider.capitalize()} reported exhausted usage quota on {at:%b} {at.day}. {when} "
+                           "Choose another provider for this role, or start after capacity returns."})
+        return warnings
 
     def recover_run(self, run_id: str, action: str) -> dict:
         result = self.store.get(run_id)
