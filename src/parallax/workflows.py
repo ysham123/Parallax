@@ -74,6 +74,8 @@ class WorkflowStart(BaseModel):
     coordinator: Participant | None = None
     team: list[Participant] | None = Field(default=None, min_length=1, max_length=8)
     minutes: int | None = Field(default=None, ge=1, le=240)
+    # Explicit only when changed from the recipe or parent, so older workers and request hashes are unaffected.
+    coordinator_turns: int | None = Field(default=None, ge=2, le=60)
     task_settings: WorkflowTaskSettings | None = None
 
     @model_validator(mode="after")
@@ -350,6 +352,7 @@ class Workflows:
             if request.schema_version == "1.0": ignored.add("schema_version")
             if request.github_binding is None: ignored.add("github_binding")
             if request.task_settings is None: ignored.add("task_settings")
+            if request.coordinator_turns is None: ignored.add("coordinator_turns")
             request_hash = digest(request.model_dump(mode="json", exclude=ignored))
             try:
                 existing = self.get(identifier)
@@ -396,6 +399,8 @@ class Workflows:
                 spec.prompt = request.prompt.strip()+"\n\nWorkflow requirements:\n"+settings["instructions"]
             if request.minutes:
                 spec.limits.minutes = request.minutes
+            if request.coordinator_turns:
+                spec.limits.coordinator_turns = request.coordinator_turns
             await self.engine.validate_settings(spec)
             value = {"id":identifier, "request_hash":request_hash, "title":request.prompt.strip()[:160], "prompt":request.prompt,
                 "parent_workflow_id":str(request.parent_workflow_id) if request.parent_workflow_id else None,

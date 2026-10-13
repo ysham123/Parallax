@@ -180,6 +180,7 @@ export function Workflows({
   const selectedId = useRef<string | null>(null);
   const [prompt, setPrompt] = useState("");
   const [minutes, setMinutes] = useState(30);
+  const [turns, setTurns] = useState(20);
   const [team, setTeam] = useState<Participant[]>([]);
   const [coordinator, setCoordinator] = useState<Participant | null>(null);
   const [recipeName, setRecipeName] = useState("");
@@ -344,6 +345,7 @@ export function Workflows({
     setCoordinator(structuredClone(value.coordinator));
     setTeam(structuredClone(value.team));
     setMinutes(value.limits.minutes);
+    setTurns(value.limits.coordinator_turns);
     setInstructions(value.instructions);
     setChecks(structuredClone(value.checks));
     setInvalidChecks(new Set());
@@ -875,6 +877,9 @@ export function Workflows({
       coordinator,
       team,
       minutes,
+      ...(turns !== recipe.limits.coordinator_turns
+        ? { coordinator_turns: turns }
+        : {}),
       ...(taskSettingsEdits
         ? { task_settings: { schema_version: "1.0", instructions, checks } }
         : {}),
@@ -1373,6 +1378,9 @@ export function Workflows({
     !Number.isInteger(minutes) ||
     minutes < 1 ||
     minutes > 240 ||
+    !Number.isInteger(turns) ||
+    turns < 2 ||
+    turns > 60 ||
     invalidChecks.size > 0 ||
     checks.some(
       (check) =>
@@ -1776,8 +1784,9 @@ export function Workflows({
                   <strong>{taskTitle(parentTask.title)}</strong>
                   <p>
                     A new candidate from the current project. This task keeps
-                    the original workflow version, checks, and limits. Unapplied
-                    code from the parent is not reused.
+                    the original workflow version and checks; its time and
+                    decision limits can be raised below. Unapplied code from the
+                    parent is not reused.
                   </p>
                   <details>
                     <summary>Original goal and prior result</summary>
@@ -2070,6 +2079,20 @@ export function Workflows({
                 <p className="workflow-muted">
                   The limit carries across restarts. Time waiting for your
                   approval does not consume it.
+                </p>
+                <label className="workflow-field">
+                  <span>Coordinator decisions</span>
+                  <input
+                    type="number"
+                    min={2}
+                    max={60}
+                    value={turns}
+                    onChange={(e) => setTurns(Number(e.target.value))}
+                  />
+                </label>
+                <p className="workflow-muted">
+                  The most planning and repair decisions the coordinator may
+                  make. Raise it when a task stopped at its decision limit.
                 </p>
                 <div hidden={!!parentTask}>
                   <label className="workflow-field">

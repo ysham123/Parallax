@@ -104,7 +104,8 @@ class TaskOverridesTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_legacy_start_request_hash_and_retry_remain_compatible(self):
         request = self.request()
-        old_hash = digest(request.model_dump(mode="json", exclude={"parent_workflow_id","schema_version","github_binding","task_settings"}))
+        # Legacy requests had none of these optional fields, so their hashes must not include them.
+        old_hash = digest(request.model_dump(mode="json", exclude={"parent_workflow_id","schema_version","github_binding","task_settings","coordinator_turns"}))
         with patch.object(self.service, "_launch", AsyncMock()) as launch:
             first = await self.service.start(request)
             self.assertEqual(self.service.get(first["id"])["request_hash"], old_hash)
