@@ -50,7 +50,7 @@ await search.fill("CAT");
 await page.waitForTimeout(700);
 const count = await page.locator(".layer-ui__search-count").innerText();
 check("case-insensitive search finds every occurrence including the locked one", /^1 \/ 4 results$/.test(count.trim()), count);
-const status = await page.locator(".replacement-status").innerText();
+const status = await page.locator('.layer-ui__search [role="status"]').innerText();
 check("protected results are announced before acting, in the singular", /^1 protected result will be skipped/.test(status.trim()), status);
 const field = page.getByLabel("Replace with");
 check("Replace with field is visible and accessibly named", await field.isVisible());
@@ -70,7 +70,7 @@ const expected = { "the cat sat": "the bird $& $1 sat", "black cat, white cat": 
 const allOk = before.every((t) => byId[t.id] && byId[t.id].text === expected[t.text] && byId[t.id].original === expected[t.text]);
 check("Replace all is literal, keeps element ids, skips the locked text", allOk, after.map((t) => t.text));
 check("text geometry was recomputed for grown labels", before.filter((t) => t.text.includes("cat") && !t.locked).every((t) => byId[t.id].width > t.width), after.map((t) => t.width));
-check("result is reported with correct plurals", /Replaced 3 occurrences\. Skipped 1 protected result\./.test(await page.locator(".replacement-status").innerText()), await page.locator(".replacement-status").innerText());
+check("result is reported with correct plurals", /Replaced 3 occurrences\. Skipped 1 protected result\./.test(await page.locator('.layer-ui__search [role="status"]').innerText()), await page.locator('.layer-ui__search [role="status"]').innerText());
 await shot("03-after-replace-all");
 
 await page.keyboard.press("Escape");
@@ -93,7 +93,7 @@ await field.fill("white tiger");
 await page.getByRole("button", { name: "Replace", exact: true }).click();
 await page.waitForTimeout(400);
 const single = await texts();
-check("single replacement is reported in the singular", /^Replaced 1 occurrence\./.test((await page.locator(".replacement-status").innerText()).trim()), await page.locator(".replacement-status").innerText());
+check("single replacement is reported in the singular", /^Replaced 1 occurrence\./.test((await page.locator('.layer-ui__search [role="status"]').innerText()).trim()), await page.locator('.layer-ui__search [role="status"]').innerText());
 check("Replace changes only the focused occurrence", single.filter((t) => t.text === "black cat, white tiger").length === 1 && single.filter((t) => t.text === "the cat sat").length === 1, single.map((t) => t.text));
 
 // Dark mode presentation and view mode refusal.
