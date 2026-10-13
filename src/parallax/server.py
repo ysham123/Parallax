@@ -94,6 +94,10 @@ class MemberRoleInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     role: str = Field(pattern=r"^(owner|developer|reviewer)$")
 
+class LicenseInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    key: str = Field(min_length=8, max_length=256)
+
 class AssessmentRequest(ProjectProfile):
     participants: list[Participant] = Field(default_factory=list)
 
@@ -930,6 +934,16 @@ def create_app(store:Store|None=None, registry=None, *, token:str|None=None, wor
         result = await engine.assess(body.workspace,body.package_roots or store.project_roots(body.workspace),body.checks,body.participants)
         pilot.setup(body.workspace,result)
         return result
+    @app.get("/api/license")
+    async def license_status(): return engine.license.status()
+    @app.post("/api/license/activate")
+    async def license_activate(body:LicenseInput):
+        authority.require_role("owner")
+        return await engine.license.activate(body.key)
+    @app.delete("/api/license")
+    async def license_deactivate():
+        authority.require_role("owner")
+        engine.license.deactivate();return engine.license.status()
     @app.get("/api/project-profiles")
     async def project_profiles(): return store.project_profiles()
     @app.put("/api/project-profiles/{name}")

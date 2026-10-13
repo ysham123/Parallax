@@ -202,6 +202,7 @@ def main():
     from .worker import add_arguments
     add_arguments(sub.add_parser("worker",help="Connect an approved local project to hosted Studio"))
     sub.add_parser("mcp");sub.add_parser("history")
+    plan=sub.add_parser("license",help="Show the plan and this month's usage, or activate a Pro license key");plan.add_argument("--activate",action="store_true",help="Read a license key from a hidden prompt or standard input");plan.add_argument("--deactivate",action="store_true")
     profile=sub.add_parser("profiles");profile.add_argument("--save");profile.add_argument("--spec",type=Path)
     assessment=sub.add_parser("assess");assessment.add_argument("--workspace",default=os.getcwd());assessment.add_argument("--package-root",action="append",dest="package_roots",default=[]);assessment.add_argument("--spec",type=Path)
     project_profile=sub.add_parser("project-profiles");project_profile.add_argument("--save");project_profile.add_argument("--delete");project_profile.add_argument("--spec",type=Path)
@@ -218,6 +219,18 @@ def main():
             from .worker import launch
             launch(args);return
         if args.command=="mcp": mcp();return
+        if args.command=="license":
+            import asyncio, getpass
+            from .license import License
+            from .store import Store
+            plan=License(Store())
+            if args.activate:
+                key=getpass.getpass("License key: ") if sys.stdin.isatty() else sys.stdin.readline()
+                output=asyncio.run(plan.activate(key))
+            elif args.deactivate:
+                plan.deactivate();output=plan.status()
+            else: output=plan.status()
+            print(json.dumps(output,indent=2));return
         if args.command=="run":
             if args.spec: spec=RunSpec.model_validate_json(args.spec.read_text())
             else:

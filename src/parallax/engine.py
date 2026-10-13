@@ -89,6 +89,8 @@ class Engine:
         self._environment_locks: dict[str, asyncio.Lock] = {}
         from .budget import ExecutionBudget
         self.budget = ExecutionBudget(store)
+        from .license import License
+        self.license = License(store)
         self._start_lock = asyncio.Lock()
 
     async def shutdown(self):
@@ -416,6 +418,7 @@ class Engine:
         if spec.mode == "review" and len(spec.prompt) > PROMPT_LIMIT - 9000:
             raise ValueError(f"Review requests are limited to {PROMPT_LIMIT - 9000:,} characters")
         await self.validate_settings(spec)
+        await self.license.ensure_can_start(spec.mode)
         assessment = None
         if spec.mode != "review":
             assessment = await self.assess(str(workspace), spec.package_roots, spec.checks, [spec.coordinator, *spec.team])

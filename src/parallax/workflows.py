@@ -361,6 +361,8 @@ class Workflows:
                 return self.public(existing)
             except KeyError:
                 pass
+            # A new task counts against the plan; the retry above never does.
+            await self.engine.license.ensure_can_start("build")
             if parent:
                 template = parent["template"]
                 spec = RunSpec.model_validate(parent["spec"]).model_copy(deep=True)
@@ -446,6 +448,7 @@ class Workflows:
                 if existing.get("requester") != authority.actor():
                     raise ValueError("This revision request belongs to another actor")
                 return self.public(existing)
+            await self.engine.license.ensure_can_start("build")
             if not request.correction.strip() or parent.get("candidate", {}).get("digest") != request.candidate_digest:
                 raise ValueError("Refresh the candidate and describe the correction")
             if parent["status"] not in {"awaiting_approval", "rejected", "superseded", "approved", "published"} or identifier in self.jobs:

@@ -29,6 +29,7 @@ import {
   VariantDetail,
 } from "./Exploration";
 import { Workflows } from "./Workflows";
+import { PlanSettings } from "./PlanSettings";
 import "./shell.css";
 import { Repositories } from "./Repositories";
 import type { GitHubProject } from "./github-connection-state";
@@ -2246,6 +2247,7 @@ export default function App({
                   </p>
                 </div>
               </header>
+              <PlanSettings />
               <section className="studio-setting-row">
                 <div>
                   <h2>Provider connections</h2>

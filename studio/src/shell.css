@@ -546,6 +546,24 @@
   max-width: 62ch;
   color: var(--ink-2);
 }
+.plan-activate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.plan-activate label {
+  width: 100%;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.plan-activate input {
+  min-width: 220px;
+  flex: 1;
+}
+.studio-setting-row .plan-error {
+  color: var(--fail);
+}
 
 @media (max-width: 860px) {
   .studio-sidebar {
