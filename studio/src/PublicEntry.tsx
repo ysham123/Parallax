@@ -16,6 +16,8 @@ import {
   PREVIEW_GUIDES,
 } from "./public-release";
 import "./site.css";
+import proofReplaceAll from "./assets/excalidraw-replace-all.png";
+import proofDarkFocus from "./assets/excalidraw-dark-focus.png";
 export { SOURCE_DOWNLOAD } from "./public-release";
 
 const LOCAL_STUDIO =
@@ -170,6 +172,92 @@ const EXAMPLE: Record<1 | 2, { facts: Fact[]; lines: Line[]; note: string }> = {
     ],
   },
 };
+
+const EVIDENCE_URL =
+  "https://github.com/ysham123/Parallax/blob/main/demos/excalidraw-find-replace/evidence.md";
+
+const RECORD: [string, string][] = [
+  ["Repository", "The Excalidraw monorepo, pinned to commit 2df993f"],
+  [
+    "Team",
+    "Codex coordinating and implementing; Claude Sonnet reviewing independently",
+  ],
+  [
+    "Required checks",
+    "A frozen 16-case acceptance suite the agents could not edit, the monorepo typecheck, and Excalidraw's full upstream test suite",
+  ],
+  [
+    "Result",
+    "The first final checks failed and Claude rejected the first repair. The second repair passed all three checks after 78 minutes.",
+  ],
+  [
+    "Caught by checks",
+    "In a separate run, review approved a change the upstream suite rejected: undo stopped recording image paste and drag-in. The task stopped instead of handing it back.",
+  ],
+  [
+    "In the browser",
+    "The real editor passed 12 of 12 behaviors and showed two layout defects code review missed. A 15-minute follow-up fixed them: 14 of 14.",
+  ],
+  [
+    "Not claimed",
+    "Not merged upstream. Provider cost was not reported, so it is unknown.",
+  ],
+];
+
+function RecordedRun() {
+  return (
+    <section
+      className="site-section"
+      id="proof"
+      aria-labelledby="proof-title"
+    >
+      <div className="site-section-head">
+        <h2 id="proof-title">A recorded run on a real repository.</h2>
+        <p>
+          Parallax was asked to add find and replace to Excalidraw&apos;s canvas
+          search, in the actual open-source monorepo. Nothing below is a
+          mockup.
+        </p>
+      </div>
+      <div className="site-proof">
+        <dl className="site-proof-record">
+          {RECORD.map(([term, detail]) => (
+            <div key={term}>
+              <dt>{term}</dt>
+              <dd>{detail}</dd>
+            </div>
+          ))}
+        </dl>
+        <div className="site-proof-shots">
+          <figure>
+            <img
+              src={proofReplaceAll}
+              width={1280}
+              height={800}
+              loading="lazy"
+              alt="Excalidraw with Replace all applied: three matches replaced literally, the locked text left unchanged, and the result reported in the search panel"
+            />
+            <figcaption>Replace all, with locked text protected</figcaption>
+          </figure>
+          <figure>
+            <img
+              src={proofDarkFocus}
+              width={1280}
+              height={800}
+              loading="lazy"
+              alt="The same search panel in dark mode with keyboard focus on the Replace with field"
+            />
+            <figcaption>Dark mode and keyboard focus</figcaption>
+          </figure>
+        </div>
+      </div>
+      <p className="site-proof-source">
+        Recorded October 12, 2026 in headless Chromium.{" "}
+        <a href={EVIDENCE_URL}>Read the evidence record</a>
+      </p>
+    </section>
+  );
+}
 
 function ProductExample() {
   const [candidate, setCandidate] = useState<1 | 2>(2);
@@ -657,6 +745,7 @@ export default function PublicEntry({
             ))}
           </ol>
         </section>
+        <RecordedRun />
         <section className="site-section" aria-labelledby="fit-title">
           <div className="site-section-head">
             <h2 id="fit-title">Best for changes you can define and check.</h2>
