@@ -15,7 +15,7 @@ try {
   ], { cwd: path.join(root, "studio"), stdio: "inherit" });
   const { parseDiff } = require(path.join(temp, "diff-model.js"));
   const { actorLabel, requestLabel, recordedTime, relationKind,
-    normalizeFinding, locateFinding, taskTitle } = require(path.join(temp, "task-review.js"));
+    normalizeFinding, locateFinding, taskTitle, workflowTitle } = require(path.join(temp, "task-review.js"));
   const directory = [{ account: "owner", name: "Owner", login: "owner-login" },
     { account: "reviewer", name: "", login: "Reviewer" }];
   check("Only an exact recorded requester/viewer match means your request", () => {
@@ -127,6 +127,11 @@ try {
     assert.equal(taskTitle(undefined), "Untitled task");
     const long = taskTitle("x".repeat(300));
     assert.equal(long.length, 120); assert.ok(long.endsWith("…"));
+  });
+  check("a revision keeps its task's goal as the title", () => {
+    assert.equal(workflowTitle({ title: "Fix the plural wording in the status", original_goal: "# Safe find and replace\n\nDetails", revision: { lineage: "a" } }), "Safe find and replace");
+    assert.equal(workflowTitle({ title: "# Plain task\nmore", original_goal: "ignored without a revision" }), "Plain task");
+    assert.equal(workflowTitle({ title: "Correction only", revision: { lineage: "a" } }), "Correction only");
   });
   console.log(`Task review: ${passed} meaningful identity, lineage and finding navigation checks passed.`);
 } finally { fs.rmSync(temp, { recursive: true, force: true }); }

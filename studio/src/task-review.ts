@@ -38,6 +38,17 @@ export function taskTitle(title?: string | null, limit = 120): string {
   return line.length > limit ? `${line.slice(0, limit - 1).trimEnd()}…` : line;
 }
 
+/** A revision keeps its task's goal as the title; its correction is shown as the request. */
+export function workflowTitle(workflow: {
+  title?: string | null;
+  original_goal?: string | null;
+  revision?: unknown;
+}): string {
+  return taskTitle(
+    workflow.revision ? workflow.original_goal || workflow.title : workflow.title,
+  );
+}
+
 export function requestLabel(requester?: string, viewer?: string): string {
   return requester && viewer && requester === viewer
     ? "Your request"

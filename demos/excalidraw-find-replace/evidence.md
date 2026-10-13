@@ -51,4 +51,17 @@ Screenshots show two presentation defects the code-only review did not catch: th
 
 Final browser acceptance on the baseline plus both verified patches: 14 of 14 checks passed (`browser/final/results.json`), adding single-line, in-panel button layout and singular and plural wording to the earlier checks. Screenshots in `browser/final/` cover the scene, search and replacement, Replace all, undo, dark mode with keyboard focus, and view mode. A paced 28-second recording of the same run is kept locally at `output/demo/browser/final/walkthrough.mp4` (not committed). The combined candidate is `output/demo/combined-candidate.patch`, 10 files, SHA-256 `46da2c52…71f76`.
 
+## Studio workflow path
+
+The same request was run through the redesigned Studio as workflow tasks, started from the composer with a saved recipe (Codex implementer, Claude `sonnet` reviewer, frozen acceptance, typecheck and upstream suite).
+
+6. Task `6c6b26b6` (October 12): needs_attention after its 16 coordinator decisions. Acceptance failed 2 of 16, and the upstream suite caught a regression Claude's review had approved: undo stopped recording image paste and drag-in. Studio showed a spent limit with the right next step after fixes on this branch.
+7. Task `88448db5` (recipe version 2, 24 decisions): interrupted at 43 minutes when the agent session ended, then resumed from Studio's Resume task. Final result: all three checks passed, combined review approved, **awaiting approval**.
+   - Browser acceptance with `browser/accept.mjs`: every behavior check passed. Three feedback checks failed: "1 protected results" and no confirmation of what was replaced.
+8. Revision `c6ed0acd`, requested from Studio's Request revision with those findings (31 minutes, 16 decisions): all three checks passed, Claude approved, **awaiting approval**. The parent is recorded as superseded.
+   - Browser acceptance: **14 of 14** (`browser/studio-revision/results.json`). "Replaced 3 occurrences. Skipped 1 protected result." and "Replaced 1 occurrence." are correct.
+   - The harness selects the status region by `role="status"` and checks wording semantically, so it measures behavior across independent implementations.
+
+No candidate was approved or applied: the human decision stays with the owner.
+
 The candidate is verified and browser-accepted but not applied: delivery into a real checkout needs explicit human approval. Provider cost is unknown.

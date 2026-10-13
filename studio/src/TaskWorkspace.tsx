@@ -20,6 +20,7 @@ import {
   relationKind,
   requestLabel,
   taskTitle,
+  workflowTitle,
   type ActorDirectory,
   type FindingDestination,
 } from "./task-review";
@@ -800,7 +801,7 @@ export function TaskWorkspace({
           </span>
         </div>
         <h1 id="selected-task-title" tabIndex={-1}>
-          {taskTitle(workflow.title)}
+          {workflowTitle(workflow)}
         </h1>
         <p className="task-byline">
           <span>
@@ -2021,7 +2022,7 @@ export function TaskWorkspace({
                       <summary>
                         Pilot measurements and human assessments
                         <span className="measurement-task-context">
-                          {taskTitle(workflow.title)}
+                          {workflowTitle(workflow)}
                         </span>
                       </summary>
                       {measurementsStarted && measurements}

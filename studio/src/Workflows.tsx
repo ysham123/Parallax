@@ -31,7 +31,7 @@ import { ArchivedHistory } from "./ArchivedHistory";
 import type { EvidenceTransport } from "./session";
 import "./workflows.css";
 import { reviewLink } from "./review-link";
-import { taskTitle } from "./task-review";
+import { taskTitle, workflowTitle } from "./task-review";
 
 type Recipe = Pick<RunSpec, "coordinator" | "team" | "limits" | "checks"> & {
   id: string;
@@ -1568,7 +1568,7 @@ export function Workflows({
                       className={`task-dot ${workflowGroup(w.status, w.decision?.action)}`}
                     />
                     <span className="task-list-content">
-                      <strong>{taskTitle(w.title)}</strong>
+                      <strong>{workflowTitle(w)}</strong>
                       <span>
                         {shortProject(w.workspace)}
                         <time
@@ -1782,7 +1782,7 @@ export function Workflows({
                   <span>
                     <WorkIcon name="branch" size={14} /> Linked follow-up
                   </span>
-                  <strong>{taskTitle(parentTask.title)}</strong>
+                  <strong>{workflowTitle(parentTask)}</strong>
                   <p>
                     A new candidate from the current project. This task keeps
                     the original workflow version and checks; its time and
@@ -2295,10 +2295,12 @@ export function Workflows({
             sending={sendingTasks.has(selected.id)}
             sent={sendNotices[selected.id] || ""}
             onSend={() => void sendDirection(selected)}
-            parentTitle={
-              history.find((row) => row.id === selected.parent_workflow_id)
-                ?.title
-            }
+            parentTitle={(() => {
+              const parent = history.find(
+                (row) => row.id === selected.parent_workflow_id,
+              );
+              return parent ? workflowTitle(parent) : undefined;
+            })()}
             followups={history.filter(
               (row) => row.parent_workflow_id === selected.id,
             )}
