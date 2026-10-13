@@ -176,6 +176,7 @@ const taskProps = {
   check('Actual start sends immutable task override payload and reuses its ID after timeout', () => {
     assert.equal(requests.length, 2); assert.equal(requests[0].request_id,requests[1].request_id);
     assert.equal(requests[0].template_id,recipe.id); assert.equal(requests[0].template_version,1);
+    assert.equal('coordinator_turns' in requests[0], false, 'an unchanged decision limit is not sent');
     assert.equal(requests[0].task_settings.schema_version,'1.0');
     assert.equal(requests[0].task_settings.instructions,'One-off instructions <script>literal</script>');
     assert.deepEqual(requests[0].task_settings.checks[0].argv,['python','-B','first check.py','a b']);

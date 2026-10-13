@@ -345,7 +345,8 @@ export function Workflows({
     setCoordinator(structuredClone(value.coordinator));
     setTeam(structuredClone(value.team));
     setMinutes(value.limits.minutes);
-    setTurns(value.limits.coordinator_turns);
+    // Older saved recipes may omit the limit; the runtime default applies.
+    setTurns(value.limits.coordinator_turns ?? 20);
     setInstructions(value.instructions);
     setChecks(structuredClone(value.checks));
     setInvalidChecks(new Set());
@@ -877,7 +878,7 @@ export function Workflows({
       coordinator,
       team,
       minutes,
-      ...(turns !== recipe.limits.coordinator_turns
+      ...(turns !== (recipe.limits.coordinator_turns ?? 20)
         ? { coordinator_turns: turns }
         : {}),
       ...(taskSettingsEdits
