@@ -4,7 +4,14 @@ import manifest from "./package.json";
 
 export default defineConfig(({ mode }) => ({
   plugins: [react()],
-  define: { __PARALLAX_VERSION__: JSON.stringify(manifest.version) },
+  define: {
+    __PARALLAX_VERSION__: JSON.stringify(manifest.version),
+    // Optional public pricing JSON; unset publishes no pricing (see src/pricing.ts).
+    __PARALLAX_PRICING__: JSON.stringify(
+      (globalThis as { process?: { env: Record<string, string | undefined> } })
+        .process?.env.PARALLAX_PRICING ?? "",
+    ),
+  },
   base: "/",
   build: {
     outDir: ["hosted", "cloud"].includes(mode)

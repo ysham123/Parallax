@@ -446,6 +446,57 @@
   font-size: 14px;
   color: var(--ink-2);
 }
+/* Pricing */
+.site-plans {
+  margin-top: 48px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  max-width: 860px;
+}
+.site-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.site-plan h3 {
+  font-size: 16px;
+  font-weight: 500;
+}
+.site-plan-price {
+  font-size: 32px;
+  letter-spacing: -0.02em;
+}
+.site-plan-price span {
+  font-size: 15px;
+  letter-spacing: 0;
+  color: var(--ink-2);
+}
+.site-plan ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 8px;
+  font-size: 15px;
+  color: var(--ink-2);
+}
+.site-plan .btn {
+  align-self: flex-start;
+  margin-top: auto;
+}
+.site-plan-note {
+  font-size: 13px;
+  color: var(--ink-3);
+}
+@media (max-width: 720px) {
+  .site-plans {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* Recorded run */
 .site-proof {
   margin-top: 48px;

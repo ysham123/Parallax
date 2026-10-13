@@ -18,6 +18,7 @@ import {
 import "./site.css";
 import proofReplaceAll from "./assets/excalidraw-replace-all.png";
 import proofDarkFocus from "./assets/excalidraw-dark-focus.png";
+import { parsePricing, type Pricing } from "./pricing";
 export { SOURCE_DOWNLOAD } from "./public-release";
 
 const LOCAL_STUDIO =
@@ -255,6 +256,68 @@ function RecordedRun() {
         Recorded October 12, 2026 in headless Chromium.{" "}
         <a href={EVIDENCE_URL}>Read the evidence record</a>
       </p>
+    </section>
+  );
+}
+
+const PRICING = parsePricing(
+  typeof __PARALLAX_PRICING__ === "string" ? __PARALLAX_PRICING__ : "",
+);
+
+function PricingSection({ pricing = PRICING }: { pricing?: Pricing | null }) {
+  if (!pricing) return null;
+  return (
+    <section
+      className="site-section"
+      id="pricing"
+      aria-labelledby="pricing-title"
+    >
+      <div className="site-section-head">
+        <h2 id="pricing-title">Pricing</h2>
+        <p>
+          Parallax runs on your machine with the agents you already pay for.
+          Their usage is billed by your own Claude, Codex or Antigravity plan,
+          not by Parallax.
+        </p>
+      </div>
+      <div className="site-plans">
+        <div className="site-plan">
+          <h3>Free</h3>
+          <p className="site-plan-price">$0</p>
+          <ul>
+            <li>{pricing.freeTasks} new tasks a month</li>
+            <li>Every check, review and evidence feature</li>
+            <li>Retries, recovery and delivery never count</li>
+          </ul>
+          <a className="btn btn-secondary" href="#install">
+            Install Parallax
+          </a>
+        </div>
+        <div className="site-plan">
+          <h3>Pro</h3>
+          <p className="site-plan-price">
+            {pricing.monthly}
+            <span> a month</span>
+            {pricing.yearly && (
+              <span className="site-plan-alt">
+                {" "}
+                or {pricing.yearly} a year
+              </span>
+            )}
+          </p>
+          <ul>
+            <li>Unlimited tasks</li>
+            <li>Everything in Free</li>
+            <li>One license key, checked about once a day</li>
+          </ul>
+          {pricing.founding && (
+            <p className="site-plan-note">{pricing.founding}</p>
+          )}
+          <a className="btn btn-primary" href={pricing.checkoutUrl}>
+            Get Pro
+          </a>
+        </div>
+      </div>
     </section>
   );
 }
@@ -817,6 +880,7 @@ export default function PublicEntry({
             </div>
           </div>
         </section>
+        <PricingSection />
         <Install />
         <section className="site-section" aria-labelledby="data-title">
           <div className="site-section-head">

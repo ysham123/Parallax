@@ -27,3 +27,5 @@ The key is stored only in the private Parallax state directory, readable by your
 ## Configuration
 
 `PARALLAX_LICENSE_ORG` sets the seller organization at runtime; `PARALLAX_UPGRADE_URL` sets the upgrade link shown when the allowance is used. Release builds set the organization in `src/parallax/license.py`.
+
+The public website shows a pricing section only when the build sets `PARALLAX_PRICING` to JSON such as `{"freeTasks":5,"monthly":"$…","yearly":"$…","checkoutUrl":"https://…","founding":"…"}` (`yearly` and `founding` are optional). An unset or invalid value publishes no pricing; checkout links must use HTTPS. On Vercel, set it as a build environment variable.
