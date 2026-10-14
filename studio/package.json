@@ -1,0 +1,27 @@
+{
+  "name": "parallax-studio",
+  "version": "1.4.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "build:hosted": "tsc --noEmit && vite build --mode hosted",
+    "test": "node ../tests/studio_run_inspection.cjs && node ../tests/studio_diff.cjs && node ../tests/studio_adversarial_frontend.cjs && node ../tests/studio_product_behaviors.cjs && node ../tests/studio_task_review.cjs && node ../tests/studio_plan.cjs && node ../tests/studio_pricing.cjs && node ../tests/studio_desktop_connections.cjs && node ../tests/studio_navigation.cjs && node ../tests/studio_legacy_authorization.cjs && node ../tests/studio_worker_setup.cjs && node ../tests/studio_task_preflight.cjs && node ../tests/studio_workflow_setup.cjs && node ../tests/studio_task_browser.cjs && node ../tests/studio_measurements.cjs && node ../tests/studio_evidence_loading.cjs && node ../tests/studio_github_connection.cjs && node ../tests/studio_task_recovery.cjs && node ../tests/studio_review_link.cjs",
+    "test:hosted": "node ../tests/studio_hosted.cjs",
+    "preview": "vite preview --host 127.0.0.1"
+  },
+  "dependencies": {
+    "@xyflow/react": "12.12.0",
+    "react": "19.1.1",
+    "react-dom": "19.1.1"
+  },
+  "devDependencies": {
+    "@types/react": "19.1.13",
+    "@types/react-dom": "19.1.9",
+    "@vitejs/plugin-react": "5.0.3",
+    "prettier": "3.6.2",
+    "typescript": "5.9.2",
+    "vite": "7.3.7"
+  }
+}

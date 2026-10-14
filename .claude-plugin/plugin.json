@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "parallax-team",
+  "displayName": "Parallax Team",
+  "version": "1.4.0",
+  "description": "Verified coding teams across Codex, Claude Code, Grok Build and Antigravity: isolated workers, independent review, real project checks, and a verification record before anything reaches your project.",
+  "author": {
+    "name": "Yosef Shammout",
+    "url": "https://github.com/ysham123"
+  },
+  "homepage": "https://github.com/ysham123/Parallax",
+  "repository": "https://github.com/ysham123/Parallax",
+  "license": "MIT",
+  "keywords": ["coding-agents", "code-review", "multi-model", "codex", "grok", "antigravity", "verification"],
+  "icon": "./assets/parallax-icon.svg",
+  "documentationUrl": "https://github.com/ysham123/Parallax#readme",
+  "supportUrl": "https://parallax.yosefshammout.com/support",
+  "privacyPolicyUrl": "https://parallax.yosefshammout.com/privacy",
+  "termsOfServiceUrl": "https://parallax.yosefshammout.com/terms",
+  "mcpServers": {
+    "parallax": {
+      "command": "python3",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/scripts/parallax.py",
+        "mcp"
+      ]
+    }
+  }
+}

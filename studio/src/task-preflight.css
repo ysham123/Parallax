@@ -1,0 +1,232 @@
+.task-preflight {
+  min-width: 0;
+  margin: 18px 0;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  font-size: 14px;
+}
+.preflight-heading,
+.preflight-check-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.preflight-heading h2 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.preflight-status {
+  color: var(--muted);
+  font-size: 14px;
+}
+.preflight-status.inspected {
+  color: var(--accent);
+}
+.preflight-status.blocked {
+  color: var(--danger);
+}
+.preflight-scope {
+  max-width: 68ch;
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+.preflight-issues,
+.preflight-packages,
+.preflight-instructions,
+.preflight-checks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.preflight-issues {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+.preflight-issues li {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px 12px;
+  border-left: 2px solid var(--amber);
+  color: var(--amber);
+}
+.preflight-issues li.blocker {
+  background: var(--danger-tint);
+  border-left-color: var(--danger);
+  color: var(--danger);
+}
+.preflight-issues svg {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+.preflight-issues strong,
+.preflight-issues code,
+.preflight-issue-provider {
+  margin-right: 9px;
+  font-size: 14px;
+}
+.preflight-issue-provider {
+  color: var(--muted);
+}
+.preflight-issues p {
+  margin: 5px 0 0;
+  color: var(--text);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.preflight-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 17px 0;
+}
+.preflight-facts dt,
+.preflight-note,
+.preflight-footnote,
+.preflight-packages small,
+.preflight-check-heading > span,
+.preflight-checks small {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.preflight-facts dd {
+  margin: 4px 0 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.preflight-check-plan {
+  border-top: 1px solid var(--line-soft);
+  padding: 15px 0;
+}
+.preflight-check-summary {
+  margin: 0 0 10px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.preflight-check-summary span {
+  color: var(--muted);
+}
+.preflight-discovery {
+  border-top: 1px solid var(--line-soft);
+  border-bottom: 1px solid var(--line-soft);
+  padding: 11px 0;
+}
+.preflight-discovery > summary,
+.preflight-command-details > summary {
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.6;
+}
+.preflight-discovery > summary > small {
+  display: inline-block;
+  margin-left: 10px;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 400;
+}
+.preflight-packages {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
+.preflight-packages li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 12px;
+}
+.preflight-packages li > span {
+  color: var(--muted);
+  font-size: 14px;
+}
+.preflight-packages li > small {
+  grid-column: 1 / -1;
+}
+.task-preflight h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.preflight-discovery h3 {
+  margin: 14px 0 8px;
+}
+.preflight-instructions {
+  display: grid;
+  gap: 5px;
+}
+.preflight-checks {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+.preflight-checks li {
+  min-width: 0;
+  padding: 12px;
+  border-left: 2px solid var(--line);
+  background: var(--input);
+}
+.preflight-check-heading strong {
+  font-size: 14px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.task-preflight code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.preflight-command {
+  display: block;
+  margin: 8px 0;
+  line-height: 1.6;
+}
+.preflight-check-action {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  margin-top: 13px;
+}
+.preflight-check-action > button {
+  flex-shrink: 0;
+}
+.preflight-check-action .preflight-note {
+  margin: 0;
+  max-width: 44ch;
+}
+.preflight-note {
+  margin: 9px 0 0;
+}
+.preflight-footnote {
+  margin: 12px 0 0;
+}
+.task-preflight :is(summary, button):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+@media (max-width: 620px) {
+  .task-preflight {
+    padding: 14px;
+  }
+  .preflight-packages li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .preflight-check-action {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+}

@@ -1,0 +1,283 @@
+/* Provider connections drawer: local CLIs and API connections. */
+.connection-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  justify-content: flex-end;
+  background: var(--scrim);
+}
+.connections-drawer {
+  width: min(620px, 100vw);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-lg);
+  font-size: 14px;
+}
+.connection-drawer-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 24px 28px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.connection-drawer-header h2 {
+  font-size: 20px;
+}
+.connection-drawer-header p {
+  margin-top: 4px;
+  color: var(--ink-2);
+}
+.connection-drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 28px 40px;
+  display: grid;
+  align-content: start;
+  gap: 32px;
+}
+.connection-drawer-body .section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.connection-drawer-body h3 {
+  font-size: 15px;
+}
+.connection-drawer-body .section-heading p {
+  margin-top: 2px;
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+.connection-section-tag {
+  flex: none;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+.native-connection-grid {
+  display: grid;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+}
+.native-connection-grid:empty {
+  display: none;
+}
+.native-connection-grid article {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.native-connection-grid article:last-child {
+  border-bottom: 0;
+}
+.native-connection-grid article > div {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.native-connection-grid strong {
+  font-weight: 500;
+}
+.native-connection-grid small {
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.native-connection-grid details {
+  grid-column: 1 / -1;
+}
+.native-connection-grid details > summary {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.native-connection-grid details code {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.native-connection-grid details p {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.connection-empty {
+  padding: 18px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-lg);
+  font-size: 13.5px;
+  color: var(--ink-3);
+}
+.saved-connections {
+  display: grid;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+}
+.saved-connections article {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.saved-connections article:last-child {
+  border-bottom: 0;
+}
+.saved-connections article.selected {
+  background: var(--bg-subtle);
+}
+.connection-select {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  text-align: left;
+}
+.connection-select > span:not(.provider-mark):not(.status) {
+  display: grid;
+  min-width: 0;
+}
+.connection-select strong {
+  font-weight: 500;
+}
+.connection-select small {
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.connection-test,
+.connection-remove {
+  font-size: 13px !important;
+}
+.connection-test-result,
+.connection-feedback {
+  flex-basis: 100%;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  font-size: 13px;
+}
+.connection-test-result.success,
+.connection-feedback.success {
+  background: var(--pass-soft);
+  color: var(--pass-ink);
+}
+.connection-test-result.error,
+.connection-feedback.error {
+  background: var(--fail-soft);
+  color: var(--fail-ink);
+}
+.connection-delete-confirm {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--warn-soft);
+}
+.connection-delete-confirm p {
+  flex-basis: 100%;
+  font-size: 13.5px;
+}
+.connection-form {
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+}
+.connection-form > p {
+  color: var(--ink-2);
+}
+.connection-form-title .eyebrow {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--ink-3);
+}
+.connection-form-title h3 {
+  margin-top: 2px;
+  font-size: 18px;
+}
+.connection-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.credential-choice {
+  display: inline-flex;
+  justify-self: start;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--bg-muted);
+}
+.credential-choice button {
+  min-height: 32px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+.credential-choice button.selected {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-sm), 0 0 0 1px var(--line);
+}
+.credential-help,
+.connection-note {
+  font-size: 13px;
+  color: var(--ink-3);
+}
+.connection-advanced {
+  border-top: 1px solid var(--line-soft);
+  padding-top: 12px;
+}
+.connection-advanced > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  font-size: 13.5px;
+  font-weight: 500;
+}
+.connection-advanced > summary span {
+  margin-left: auto;
+  font-weight: 400;
+  color: var(--ink-3);
+}
+.connection-advanced[open] > .connection-form-grid,
+.connection-advanced[open] > label {
+  margin-top: 12px;
+}
+.connection-form-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-soft);
+  font-size: 13px;
+  color: var(--ink-3);
+}
+@media (max-width: 640px) {
+  .connection-drawer-header,
+  .connection-drawer-body {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .connection-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

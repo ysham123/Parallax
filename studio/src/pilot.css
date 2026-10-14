@@ -1,0 +1,243 @@
+/* Workspace settings sheet, GitHub publication panel and pilot measurements. */
+.workspace-controls {
+  position: relative;
+}
+.workspace-controls > summary {
+  cursor: pointer;
+}
+
+/* Settings sheet: a right-hand panel over Studio. */
+.workspace-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 90;
+  width: min(520px, 100vw);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-content: start;
+  gap: 4px 12px;
+  padding: 24px 28px 40px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--surface);
+  color: var(--ink);
+  border-left: 1px solid var(--line);
+  box-shadow: var(--shadow-lg);
+  font-size: 14px;
+}
+.workspace-panel > h2 {
+  align-self: center;
+  font-size: 20px;
+  outline: none;
+}
+.workspace-panel > .ws-close {
+  grid-column: 2;
+  grid-row: 1;
+  margin-right: -8px;
+}
+.workspace-panel > [role="alert"],
+.workspace-panel > [role="status"],
+.workspace-panel > fieldset {
+  grid-column: 1 / -1;
+}
+.workspace-panel > [role="alert"] {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--fail-soft);
+  color: var(--fail-ink);
+  overflow-wrap: anywhere;
+}
+.workspace-panel > [role="status"] {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--pass-soft);
+  color: var(--pass-ink);
+}
+.workspace-panel fieldset {
+  margin: 8px 0 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+  display: grid;
+  gap: 14px;
+}
+.workspace-panel h3 {
+  margin-top: 20px;
+  padding-top: 22px;
+  border-top: 1px solid var(--line);
+  font-size: 15px;
+  outline: none;
+}
+.workspace-panel fieldset > p {
+  color: var(--ink-2);
+  font-size: 13.5px;
+}
+.workspace-panel form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+}
+.workspace-panel button:not(.icon-button):not(.onb-copy) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: start;
+  min-height: var(--control-h);
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.workspace-panel button:not(.icon-button):not(.onb-copy):hover:not(:disabled) {
+  background: var(--bg-subtle);
+  border-color: var(--ink-4);
+}
+.workspace-panel button:disabled {
+  opacity: 0.45;
+}
+.workspace-panel .member-choice {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+  font-weight: 450;
+}
+.member-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 140px auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+.member-row > span {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.member-row select {
+  min-height: 34px;
+  font-size: 13.5px;
+}
+.workspace-panel .member-row button:not(.icon-button) {
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+/* GitHub publication */
+.publication-panel {
+  display: grid;
+  gap: 14px;
+  font-size: 14px;
+}
+.publication-panel > p {
+  color: var(--ink-2);
+}
+.publication-panel label {
+  display: grid;
+  gap: 6px;
+}
+.publication-panel dl {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 8px 16px;
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-subtle);
+}
+.publication-panel dt {
+  color: var(--ink-3);
+}
+.publication-panel dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.publication-panel .primary-button,
+.publication-panel .secondary-button {
+  justify-self: start;
+}
+.feedback-freshness {
+  font-size: 13px;
+  color: var(--ink-3);
+}
+.feedback-partial {
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--warn-soft);
+  font-size: 13.5px;
+}
+.publication-panel ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+/* Pilot measurements */
+.pilot-metrics {
+  display: grid;
+  gap: 14px;
+  padding: 12px 0;
+  font-size: 14px;
+}
+.pilot-metrics p {
+  color: var(--ink-2);
+}
+.pilot-metrics form {
+  display: grid;
+  gap: 10px;
+  max-width: 560px;
+}
+.pilot-metrics form + form {
+  margin-top: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.pilot-metrics label {
+  display: grid;
+  gap: 6px;
+}
+.pilot-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.pilot-provider {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+.pilot-update-notice {
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--warn-soft);
+}
+@media (max-width: 700px) {
+  .workspace-panel {
+    padding: 20px 16px 32px;
+  }
+  .workspace-panel form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .member-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .member-row > span {
+    grid-column: 1 / -1;
+  }
+  .pilot-fields,
+  .pilot-provider {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
