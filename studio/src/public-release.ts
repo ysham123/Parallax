@@ -1,14 +1,14 @@
 import { REPOSITORY } from "./session";
 
-// Public manifests verified at this immutable revision on October 10, 2026.
-// The development preview has a separate package and installation guide.
+// Public main and marketplace manifests checked on October 14, 2026.
+// This is a development preview; public source availability is not pilot acceptance.
 export const PUBLIC_RELEASE = {
-  version: "1.3.0",
-  ref: "a5b0ccf84cee50ff0b9c0d69df522aaf1ed4e2ee",
-  claudePlugin: "parallax@parallax",
-  claudeStudio: "/parallax:studio",
-  claudeReview: "/parallax:review",
-  claudeBuild: "/parallax:build",
+  version: "1.4.0",
+  ref: "c2127aec7f4acc571247fafe8a7b4b5e47647e97",
+  claudePlugin: "parallax-team@parallax",
+  claudeStudio: "/parallax-team:studio",
+  claudeReview: "/parallax-team:review",
+  claudeBuild: "/parallax-team:build",
 } as const;
 
 export const CLAUDE_INSTALL = `/plugin marketplace add ysham123/Parallax\n/plugin install ${PUBLIC_RELEASE.claudePlugin}`;
@@ -16,10 +16,11 @@ export const CODEX_INSTALL = "codex plugin marketplace add ysham123/Parallax\nco
 export const SOURCE_INSTALL = `git clone ${REPOSITORY}.git\ncd Parallax\ngit checkout --detach ${PUBLIC_RELEASE.ref}\npython3 scripts/parallax.py doctor`;
 export const SOURCE_DOWNLOAD = `${REPOSITORY}/archive/${PUBLIC_RELEASE.ref}.zip`;
 
-// Guides for the reviewed preview baseline, independently of public downloads.
-const PREVIEW_GUIDE_REF = "19fe0806ffd18c08f328bbecee963135ad50198e";
+// Setup follows current docs; example contracts stay pinned to the preview source.
+const PREVIEW_GUIDE_REF = PUBLIC_RELEASE.ref;
 export const PREVIEW_GUIDES = {
-  setup: `${REPOSITORY}/blob/${PREVIEW_GUIDE_REF}/docs/FIRST-TASK.md`,
+  setup: `${REPOSITORY}/blob/main/docs/FIRST-TASK.md`,
+  windows: `${REPOSITORY}/blob/${PREVIEW_GUIDE_REF}/docs/WINDOWS.md`,
   modernization: `${REPOSITORY}/blob/${PREVIEW_GUIDE_REF}/examples/legacy-modernization/README.md`,
   contract: `${REPOSITORY}/blob/${PREVIEW_GUIDE_REF}/examples/legacy-modernization/CONTRACT.md`,
 } as const;

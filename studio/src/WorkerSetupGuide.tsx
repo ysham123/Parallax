@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { PREVIEW_GUIDES, PUBLIC_RELEASE } from "./public-release";
+import { PREVIEW_GUIDES } from "./public-release";
 import "./worker-setup.css";
 
 type Platform = "macos" | "linux" | "wsl2" | "windows";
@@ -11,7 +11,7 @@ const platforms: { id: Platform; label: string }[] = [
   { id: "wsl2", label: "WSL2" },
   { id: "windows", label: "Windows" },
 ];
-const windowsGuide = new URL("WINDOWS.md", PREVIEW_GUIDES.setup).href;
+const windowsGuide = PREVIEW_GUIDES.windows;
 
 export function WorkerSetupGuide({
   command,
@@ -82,9 +82,9 @@ export function WorkerSetupGuide({
             <strong>Use your supplied preview</strong>
             <p>
               Verify the operator's archive digest, extract it into a new
-              folder, and run the worker there. Public {PUBLIC_RELEASE.version}{" "}
-              local tools do not install this worker. If you have not received
-              the preview, ask your pilot operator for it.
+              folder, and run the worker there. Use the build approved by your
+              pilot operator for this workspace. Public source availability
+              does not establish that the worker is ready for your pilot.
             </p>
             <a href={PREVIEW_GUIDES.setup}>Read the preview setup guide</a>
           </div>
@@ -157,9 +157,9 @@ export function WorkerSetupGuide({
             </div>
           )}
           <p className="worker-public-tools">
-            Looking for the public local tools?{" "}
+            Starting with a local task?{" "}
             <a href="/#install">
-              View the separate {PUBLIC_RELEASE.version} install
+              View the preview install and first-task guide
             </a>
             .
           </p>

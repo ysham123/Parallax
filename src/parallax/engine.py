@@ -408,7 +408,7 @@ class Engine:
                 at = datetime.fromisoformat(event["timestamp"])
             except (TypeError, ValueError):
                 continue
-            wait = quota_reset_after(message)
+            wait = quota_reset_after(message, observed_at=at)
             if wait is not None:
                 reset = at + timedelta(seconds=wait)
                 if reset <= current:
@@ -417,6 +417,8 @@ class Engine:
                 when = f"It said its limit resets around {reset:%b} {reset.day}, {reset:%H:%M} UTC."
             elif current - at > timedelta(hours=24):
                 continue
+            elif "reset" in message.lower():
+                when = f"It reported: {message[:300]}"
             else:
                 when = "It did not say when the limit resets."
             seen.add(provider)
@@ -1103,6 +1105,7 @@ class Engine:
         errors = result.get("errors") or []
         if (spec.mode not in {"build", "compare"} or result["status"] not in {"completed", "failed", "needs_attention"}
                 or (errors and errors[-1].get("code") == "budget_exceeded") or self.cancel_flags.get(run_id, asyncio.Event()).is_set()
+                or (result["status"] == "needs_attention" and errors and errors[-1].get("category") == "provider_quota")
                 or not any(t.get("attempts") for t in result["tasks"])):
             return
         try:

@@ -9,7 +9,7 @@ from .models import Contract
 
 CATEGORIES = ('environment', 'provider_permission', 'provider_quota', 'rejected_review', 'failed_checks', 'destination_conflict', 'interrupted', 'configuration', 'runtime')
 
-QUOTA = re.compile(r"\b(?:individual|account|subscription|usage)\s+quota\s+(?:reached|exhausted|exceeded)\b|\busage\s+limit\s+(?:reached|exhausted|exceeded)\b|\bexhausted its provider quota\b|\binsufficient_quota\b|\bquota_exceeded\b|\bquota_exhausted\b", re.I)
+QUOTA = re.compile(r"\b(?:individual|account|subscription|usage)\s+quota\s+(?:reached|exhausted|exceeded)\b|\busage\s+limit\s+(?:reached|exhausted|exceeded)\b|\bexhausted its provider quota\b|\binsufficient_quota\b|\bquota_exceeded\b|\bquota_exhausted\b|\byou(?:'ve| have) hit your\s+(?:(?:session|weekly|monthly|daily|usage|plan|account)\s+)?limit\b", re.I)
 
 POST_RUN_TASKS = frozenset({'distill'})
 
@@ -26,13 +26,31 @@ def provider_quota_exhausted(error) -> bool:
 RESET_IN = re.compile(r"resets? in\s+(?:(\d+)h)?\s*(?:(\d+)m)?\s*(?:(\d+)s)?", re.I)
 
 
-def quota_reset_after(message: str) -> float | None:
+def quota_reset_after(message: str, *, observed_at=None) -> float | None:
     """Seconds until a provider said its quota resets ("Resets in 150h29m56s"), when stated."""
     match = RESET_IN.search(message or "")
-    if not match or not any(match.groups()):
+    if match and any(match.groups()):
+        hours, minutes, seconds = (int(value or 0) for value in match.groups())
+        return hours * 3600 + minutes * 60 + seconds
+    # Native Claude reports a clock time and named timezone rather than a duration.
+    # Bind that next clock occurrence to the recorded failure, not the later UI read.
+    clock = re.search(r"resets?\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(([^)]+)\)", message or "", re.I)
+    if not clock or observed_at is None:
         return None
-    hours, minutes, seconds = (int(value or 0) for value in match.groups())
-    return hours * 3600 + minutes * 60 + seconds
+    from datetime import timedelta
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+    hour, minute, period, zone = clock.groups()
+    hour, minute = int(hour), int(minute or 0)
+    if not 1 <= hour <= 12 or not 0 <= minute <= 59:
+        return None
+    try:
+        local = observed_at.astimezone(ZoneInfo(zone))
+    except (ValueError, ZoneInfoNotFoundError):
+        return None
+    reset = local.replace(hour=hour % 12 + (12 if period.lower() == "pm" else 0), minute=minute, second=0, microsecond=0)
+    if reset <= local:
+        reset += timedelta(days=1)
+    return (reset.timestamp() - observed_at.timestamp())
 
 
 def classify(message: str) -> str:

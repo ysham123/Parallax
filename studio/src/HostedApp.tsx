@@ -7,7 +7,7 @@ import Legal from "./Legal";
 import OAuthConsent, { ConnectedApps } from "./OAuthConsent";
 import PublicSite from "./PublicSite";
 import { publicWebsite } from "./entry-routing";
-import { PUBLIC_RELEASE } from "./public-release";
+import { PREVIEW_GUIDES, PUBLIC_RELEASE } from "./public-release";
 import "./hosted.css";
 
 const repository = "https://github.com/ysham123/Parallax";
@@ -73,8 +73,8 @@ function HostedEntry() {
             Work from your project.
           </h1>
           <p>
-            Choose your models, follow each agent’s work, and review the
-            evidence before changes reach your project.
+            Open the private link returned by Parallax. Your project, agents and
+            run history stay on your machine. No hosted account is needed.
           </p>
           <div className="hosted-providers" aria-label="Supported providers">
             {(
@@ -166,10 +166,16 @@ function HostedEntry() {
             Install the Parallax plugin ↗
           </a>
           <p className="hosted-help">
-            Testing the {__PARALLAX_VERSION__} development preview? Use the
-            reviewed build supplied by your operator and the source command
-            above. The public {PUBLIC_RELEASE.version} tools do not include the
-            saved-candidate workflow shown on this website.
+            Starting from scratch?{" "}
+            <a href={PREVIEW_GUIDES.setup}>
+              Install the preview and finish your first task
+            </a>
+            .
+          </p>
+          <p className="hosted-help">
+            The {PUBLIC_RELEASE.version} tools are a development preview. Use
+            New task in Studio for saved candidates and separate approval. Pilot
+            enrollment is closed while live acceptance finishes.
           </p>
         </section>
       </main>

@@ -14,9 +14,9 @@
   "keywords": ["coding-agents", "code-review", "multi-model", "codex", "grok", "antigravity", "verification"],
   "icon": "./assets/parallax-icon.svg",
   "documentationUrl": "https://github.com/ysham123/Parallax#readme",
-  "supportUrl": "https://parallax.yosefshammout.com/support",
-  "privacyPolicyUrl": "https://parallax.yosefshammout.com/privacy",
-  "termsOfServiceUrl": "https://parallax.yosefshammout.com/terms",
+  "supportUrl": "https://parallax-studio-six.vercel.app/support",
+  "privacyPolicyUrl": "https://parallax-studio-six.vercel.app/privacy",
+  "termsOfServiceUrl": "https://parallax-studio-six.vercel.app/terms",
   "mcpServers": {
     "parallax": {
       "command": "python3",
