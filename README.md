@@ -8,25 +8,38 @@
   <img src="https://img.shields.io/badge/python-3.10%2B-black" alt="Python 3.10+">
 </p>
 
-Parallax coordinates your coding agents to prepare a reviewed patch with recorded project checks. Build and Compare isolate implementation, require review from a provider outside the implementing team, and check the combined candidate before delivery. The development-preview workflow lets you inspect, revise and approve a saved candidate, then separately apply it locally or publish a configured draft PR. Legacy CLI/plugin runs keep their existing integration behavior. Each verified result includes a verification record.
+Parallax runs your coding agents in private working copies and prepares a patch with an independent review and recorded project checks. In the 1.4.0 development preview, you inspect the saved candidate, request a correction if needed, and approve it. Applying the patch locally or publishing a configured draft PR is a separate action. Public CLI/plugin runs retain their existing integration behavior.
 
 Provider roles depend on the selected transport and its enforceable capabilities. Native Grok is currently unavailable in this preview; Claude Code and Antigravity use restricted file tools with shell and content-search tools disabled. Supported API connections are also available. Run diagnostics and check quota before delegating; detecting a sign-in does not establish live readiness.
 
-It runs from Claude Code, from Codex, or from the command line. Studio organizes work by project and task, with team activity beside file diffs, checks, and independent reviews. Start a task, direct the team, revise a saved candidate, and approve the exact candidate when it is ready. New Studio tasks separate approval from local application or draft GitHub PR delivery. Saved recipes preserve your team, instructions, and checks; recorded progress and evidence survive disconnects and worker restarts.
+Use it from Claude Code, Codex or the command line. Studio shows each task's activity beside its diff, checks and reviews. You can direct the team during a run and return to the recorded result after a disconnect or worker restart.
 
-This checkout documents the **1.4.0 development preview**. The public local tools are currently 1.3.0 and do not include the saved-candidate workflow, team approval or GitHub delivery shown here. For the preview, use the operator-supplied versioned source package and follow the [first-task guide](docs/FIRST-TASK.md). A reviewed local package is preparation for a pilot; live acceptance is still required.
+This checkout documents the **1.4.0 development preview**. The public source and marketplace manifests also carry 1.4.0. Use the pinned source below or a reviewed package supplied by your operator, then follow the [first-task guide](docs/FIRST-TASK.md). Public source availability does not establish pilot readiness; live acceptance is still required.
 
 A **Mac desktop beta candidate** adds a native project picker and bundled runtime for Apple Silicon on macOS 15+. It opens the same local Studio without a separate Parallax Python installation. The download is not published: Developer ID signing, notarization, fresh-Mac installation and live task acceptance remain release gates. See [using the beta](docs/MAC-BETA.md), [building and signing](docs/MAC-DISTRIBUTION.md), and [the experimental Windows WSL2 path](docs/WINDOWS.md).
 
 For a bounded legacy upgrade, try [Modernize one component](examples/legacy-modernization/README.md): a runnable batch-CLI exercise with a versioned compatibility contract and 34 characterization tests. The [domain guide](docs/LEGACY-MODERNIZATION.md) explains the use case and customer comparison; [preview reliability boundaries](docs/RELIABILITY-MODERNIZATION.md) cover provisioning, recovery, evidence limits and unsupported native features.
 
-## Install public local tools
+## Try one task in the 1.4 preview
+
+Follow the [first-task guide](docs/FIRST-TASK.md) using the pinned source below or the versioned source ZIP and digest supplied by your operator. Use **New task** in Studio for saved candidates and separate approval; plugin and CLI build requests retain their existing integration behavior.
+
+1. **Install and open Studio.** Check the archive digest, run diagnostics and copy the bundled exercise into a disposable Git repository. Start local Studio for that folder.
+2. **Start a task.** Choose **Verified change**, describe the empty-input fix, confirm two independent providers and set the exercise's test command. Run **Check readiness**, then **Start task**.
+3. **Inspect the result.** Read the candidate's diff, recorded checks and independent review. The original tests should pass on the candidate, while your project still has its baseline files.
+4. **Approve, then apply.** **Approve candidate** records your decision. **Apply locally** changes the exercise project. Run its tests again and inspect the diff.
+
+This is a small setup exercise. Completing it does not establish provider quality or productivity gains. The [live pilot checks](docs/PILOT.md) remain required before enrollment.
+
+## Install
+
+These commands install the 1.4.0 development preview. The source checkout is pinned; marketplace installations track the repository's current manifests.
 
 **Claude Code**
 
 ```text
 /plugin marketplace add ysham123/Parallax
-/plugin install parallax@parallax
+/plugin install parallax-team@parallax
 ```
 
 **Codex**
@@ -43,20 +56,20 @@ Start a new chat after installing. The Codex install ID stays `codex-claude-team
 ```sh
 git clone https://github.com/ysham123/Parallax.git
 cd Parallax
-git checkout --detach a5b0ccf84cee50ff0b9c0d69df522aaf1ed4e2ee
+git checkout --detach 63c919e5893b260d61cd0589e8988ed4fd7ea6bb
 python3 scripts/parallax.py doctor
 ```
 
 Requirements: macOS, Python 3.10+, Git 2.38+, and a signed-in agent CLI (`codex`, `claude`, `grok`, `agy`) or an API key. Build and Compare also need an available provider that did not implement the candidate to review it independently. A detected sign-in does not establish remaining provider quota. Linux works where bubblewrap with user namespaces is available; CI covers it, including a live sandbox test. On first start, Parallax prepares a private Python environment from hash-locked dependencies. It changes no global packages or provider settings.
 
-## Use the public tools
+## Use the local tools
 
 In Claude Code:
 
 ```text
-/parallax:review
-/parallax:build Add rate limiting to the login endpoint
-/parallax:studio
+/parallax-team:review
+/parallax-team:build Add rate limiting to the login endpoint
+/parallax-team:studio
 ```
 
 You can also just ask: *"Have Parallax review this change with Codex and Grok."*

@@ -141,6 +141,19 @@ class SoleImplementerQuotaTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("exhausted its provider quota", result["errors"][-1]["message"])
         self.preserved(result)
 
+    async def test_native_session_limit_stops_after_one_attempt(self):
+        registry = QuotaRegistry(error={"code": "provider_error", "message": "You've hit your session limit · resets 8:30pm (America/Detroit)"})
+        engine = Engine(self.store, registry, memory=True)
+        started = await engine.start(self.spec())
+        result = await self.finish(engine, started["run_id"])
+        self.assertEqual(result["status"], "needs_attention")
+        self.assertEqual(registry.calls.count(("antigravity", "edit")), 1)
+        self.assertEqual(registry.calls.count(("codex", "coordinate")), 2)
+        self.assertEqual(len(registry.calls), 3, "Quota stops must not make a post-run distillation request")
+        self.assertEqual(result["errors"][-1]["category"], "provider_quota")
+        self.assertIn("retry_interrupted", [action["id"] for action in recovery_options(result)["actions"]])
+        self.preserved(result)
+
     async def test_authorized_alternate_writer_can_complete_verified_replacement(self):
         registry = QuotaRegistry(alternate=True)
         engine = Engine(self.store, registry, memory=False)

@@ -363,9 +363,9 @@ const taskProps = {
     assert.ok(launcherCommands.includes(PUBLIC_RELEASE.claudeStudio));
     const installer = nodes(install.tree).find(n => n.props.label === 'Claude Code install commands');
     assert.ok(installer.props.text.endsWith('/plugin install '+PUBLIC_RELEASE.claudePlugin));
-    assert.match(text(install.tree),new RegExp('Pinned public source '+PUBLIC_RELEASE.version.replaceAll('.','\\.')));
+    assert.match(text(install.tree),new RegExp('Pinned preview source '+PUBLIC_RELEASE.version.replaceAll('.','\\.')));
     assert.match(text(launcher.tree),/development preview/);
-    assert.match(text(launcher.tree),/do not include the saved-candidate workflow/);
+    assert.match(text(launcher.tree),/Use New task in Studio for saved candidates and separate approval/);
   });
   check('Actual source download and terminal checkout resolve to the same immutable public revision', () => {
     const download = nodes(install.tree).find(n => n.type === 'a' && text(n).includes('Download source ZIP'));

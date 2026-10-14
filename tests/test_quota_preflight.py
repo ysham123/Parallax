@@ -46,6 +46,27 @@ class QuotaPreflightTests(unittest.TestCase):
         self.failure("claude", "Claude usage limit reached.", timedelta(hours=30))
         self.assertEqual(self.engine._quota_warnings({"claude"}), [])
 
+    def test_native_clock_reset_expires_from_the_recorded_failure_time(self):
+        from unittest.mock import patch
+        from parallax.recovery import quota_reset_after
+        observed = datetime(2026, 10, 14, 21, 0, tzinfo=timezone.utc)
+        message = "You've hit your session limit · resets 8:30pm (America/Detroit)"
+        self.assertEqual(quota_reset_after(message, observed_at=observed), 3.5 * 3600)
+        self.failure("claude", message, self.now - observed)
+        with patch("datetime.datetime") as clock:
+            clock.now.return_value = observed + timedelta(hours=1)
+            clock.fromisoformat.side_effect = datetime.fromisoformat
+            [warning] = self.engine._quota_warnings({"claude"})
+            self.assertIn("Oct 15, 00:30 UTC", warning["message"])
+            clock.now.return_value = observed + timedelta(hours=4)
+            self.assertEqual(self.engine._quota_warnings({"claude"}), [])
+
+    def test_unknown_reset_format_keeps_the_provider_message(self):
+        self.failure("claude", "You've hit your weekly limit · resets Oct 19 at 8am (America/Detroit)", timedelta(minutes=5))
+        [warning] = self.engine._quota_warnings({"claude"})
+        self.assertIn("resets Oct 19 at 8am", warning["message"])
+        self.assertNotIn("did not say when", warning["message"])
+
 
 if __name__ == "__main__":
     unittest.main()

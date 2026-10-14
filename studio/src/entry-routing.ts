@@ -6,3 +6,8 @@ export function publicWebsite(pathname: string, search: string): boolean {
     (key) => query.has(key),
   );
 }
+
+/** The local launcher remains usable even when the deployment has a hosted relay. */
+export function localStudioLauncher(pathname: string): boolean {
+  return pathname === "/local" || pathname === "/local/";
+}

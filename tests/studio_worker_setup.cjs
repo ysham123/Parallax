@@ -131,7 +131,8 @@ function deferred(){let resolve,reject;const promise=new Promise((a,b)=>{resolve
     assert.equal(button(guide.tree,'Continue to connect').props.disabled,true);assert.equal(calls.length,0);
   });
   check('Matched preview requirement is visible before command and does not masquerade as public install',()=>{
-    assert.match(text(guide.tree),/supplied preview/);assert.match(text(guide.tree),/Public 1\.3\.0 local tools do not install this worker/);
+    assert.match(text(guide.tree),/supplied preview/);assert.match(text(guide.tree),/build approved by your pilot operator/);
+    assert.match(text(guide.tree),/Public source availability does not establish/);
     assert.match(text(guide.tree),/archive digest/);assert.equal(nodes(guide.tree).find(n=>n.type==='a'&&n.props.href==='/#install')!==undefined,true);
   });
   select(guide,'windows');

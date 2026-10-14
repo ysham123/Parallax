@@ -422,7 +422,7 @@ function ProductExample() {
 }
 
 function Install() {
-  const [selected, setSelected] = useState(0);
+  const [selected, setSelected] = useState(2);
   return (
     <section
       className="site-section site-install"
@@ -432,10 +432,21 @@ function Install() {
       <div className="site-section-head">
         <h2 id="install-title">Install</h2>
         <p>
-          Public tools {PUBLIC_RELEASE.version} run on your machine with the
-          agent sign-ins you already have. No Parallax account is needed to work
-          locally.
+          The {PUBLIC_RELEASE.version} development preview runs on your machine
+          with the agent sign-ins you already have. Start from the pinned source
+          below. No Parallax account is needed to work locally.
         </p>
+      </div>
+      <div className="site-preview-note">
+        <p>
+          <strong>Finish your first task in Studio.</strong> Follow the
+          first-task guide through installation, review, approval and local
+          application. New Studio tasks use saved candidates and separate
+          approval. Plugin and CLI build requests retain their existing local
+          integration behavior. Pilot enrollment is closed while live
+          acceptance finishes.
+        </p>
+        <a href={PREVIEW_GUIDES.setup}>Install the preview and run your first task</a>
       </div>
       <div className="site-install-box">
         <div
@@ -533,7 +544,7 @@ function Install() {
           </details>
         </div>
         <div className="site-install-foot">
-          <span>Pinned public source {PUBLIC_RELEASE.version}</span>
+          <span>Pinned preview source {PUBLIC_RELEASE.version}</span>
           <a href={SOURCE_DOWNLOAD}>Download source ZIP</a>
         </div>
       </div>
@@ -554,15 +565,6 @@ function Install() {
           <dd>No native worker yet. WSL2 is experimental and unverified.</dd>
         </div>
       </dl>
-      <div className="site-preview-note">
-        <p>
-          <strong>About the 1.4 preview.</strong> Saved candidates, revisions,
-          team approval and GitHub delivery shown on this page belong to the
-          development preview. They are not in the public{" "}
-          {PUBLIC_RELEASE.version} download.
-        </p>
-        <a href={PREVIEW_GUIDES.setup}>Preview setup guide</a>
-      </div>
       <details className="site-inline-details">
         <summary>Requirements and provider limits</summary>
         <p>
@@ -586,7 +588,7 @@ function Install() {
 const STEPS = [
   [
     "Describe the outcome",
-    "Acceptance criteria, the checks that prove it, and a budget.",
+    "Choose a bounded change, project checks and an execution time limit.",
   ],
   [
     "Agents work in isolation",
@@ -598,15 +600,15 @@ const STEPS = [
   ],
   [
     "Your checks run twice",
-    "Before and after the change, so new failures are never confused with old ones.",
+    "Compare the recorded baseline with the final results for this candidate.",
   ],
   [
-    "A person decides",
-    "On a team, someone other than the requester approves. Owners too.",
+    "Inspect and approve",
+    "Read the diff, checks and review. Team approval needs another authorized person.",
   ],
   [
     "You choose delivery",
-    "Apply locally or open a draft pull request. Never an automatic merge.",
+    "After approval, apply locally or publish a configured draft pull request.",
   ],
 ] as const;
 
@@ -768,34 +770,38 @@ export default function PublicEntry({
             Get back a reviewed patch.
           </h1>
           <p className="site-lede">
-            Parallax runs the coding agents you already use on an isolated copy
-            of your repository, has a second agent review the work, runs your
-            checks, and waits for a person to approve before anything lands.
+            Parallax runs your coding agents on a separate copy of your
+            repository. Inspect the patch, independent review and recorded
+            checks, then approve the candidate when you are ready.
           </p>
           <div className="site-actions">
             <a className="btn btn-primary site-cta" href="#install">
               Install Parallax
             </a>
-            <a className="btn btn-secondary site-cta" href="/studio">
-              Open Studio
+            <a className="btn btn-secondary site-cta" href="/local">
+              Open local Studio
             </a>
           </div>
           <p className="site-fineprint">
             Works with Codex, Claude Code, Antigravity and Grok Build where each
             is supported. macOS and Linux.
           </p>
+          <p className="site-fineprint">
+            The 1.4 development preview is awaiting live acceptance.{" "}
+            <a href={PREVIEW_GUIDES.setup}>Start with the first-task guide</a>.
+          </p>
         </section>
         <ProductExample />
         <section className="site-section" id="how" aria-labelledby="how-title">
           <div className="site-section-head">
             <h2 id="how-title">
-              Every claim about a change is a separate, recorded fact.
+              Review the result before it reaches your project.
             </h2>
             <p>
-              An agent saying it is done is not evidence. Parallax keeps the
-              work, the review, the checks and your decision apart, and ties
-              each one to the exact candidate it describes. Change the code and
-              the evidence goes stale.
+              In the 1.4 preview, each saved candidate has its own diff,
+              independent review and recorded checks. A revision needs fresh
+              evidence and approval. Applying the approved patch is a separate
+              action.
             </p>
           </div>
           <ol className="site-steps">
@@ -970,8 +976,8 @@ export default function PublicEntry({
             <a className="btn btn-primary site-cta" href="#install">
               Install Parallax
             </a>
-            <a className="btn btn-secondary site-cta" href="/studio">
-              Open Studio
+            <a className="btn btn-secondary site-cta" href="/local">
+              Open local Studio
             </a>
           </div>
         </section>

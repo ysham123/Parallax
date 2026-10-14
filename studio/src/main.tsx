@@ -4,7 +4,7 @@ import "./workspace.css";
 import React, { Component, lazy, Suspense, type ReactNode } from "react";
 import ReactDOM from "react-dom/client";
 import PublicSite from "./PublicSite";
-import { publicWebsite } from "./entry-routing";
+import { localStudioLauncher, publicWebsite } from "./entry-routing";
 import { applyStoredTheme, Mark } from "./PublicChrome";
 
 const HostedApp = lazy(() => import("./HostedApp"));
@@ -15,7 +15,13 @@ const connectedMode = ["hosted", "cloud"].includes(mode);
 const publicEntry =
   connectedMode && publicWebsite(location.pathname, location.search);
 const App =
-  mode === "hosted" ? HostedApp : mode === "cloud" ? CloudApp : LocalApp;
+  connectedMode && localStudioLauncher(location.pathname)
+    ? HostedApp
+    : mode === "hosted"
+      ? HostedApp
+      : mode === "cloud"
+        ? CloudApp
+        : LocalApp;
 
 function EntryStatus({ failed = false }: { failed?: boolean }) {
   return (
