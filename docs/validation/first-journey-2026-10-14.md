@@ -10,6 +10,8 @@ The homepage defaults to the pinned source route. Its preview note appears befor
 
 The setup guide link follows `main`. The source download, example and platform guides stay pinned to a checked preview revision. Bundled Studio assets were rebuilt to include the changes. The homepage's **Open local Studio** link now opens `/local` even on a deployment with a hosted runtime; the existing `/studio` and authorization routes retain their hosted behavior. The Claude manifest's support and legal links use the working Vercel site.
 
+The source download and installation commands are pinned to `c2127aec7f4acc571247fafe8a7b4b5e47647e97`, which includes this journey polish and the quota fixes. The subsequent website commit refreshes that pin and its generated assets, and ignores local Vercel metadata.
+
 ## Checks completed
 
 - A fresh private state directory installed the hash-locked Python dependencies and `python3 scripts/parallax.py --version` reported `Parallax 1.4.0`.

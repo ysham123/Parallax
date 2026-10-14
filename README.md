@@ -56,7 +56,7 @@ Start a new chat after installing. The Codex install ID stays `codex-claude-team
 ```sh
 git clone https://github.com/ysham123/Parallax.git
 cd Parallax
-git checkout --detach 63c919e5893b260d61cd0589e8988ed4fd7ea6bb
+git checkout --detach c2127aec7f4acc571247fafe8a7b4b5e47647e97
 python3 scripts/parallax.py doctor
 ```
 

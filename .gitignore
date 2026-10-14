@@ -26,3 +26,4 @@ runtime.json
 *.pfx
 *.keychain
 *.keychain-db
+.vercel
