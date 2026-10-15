@@ -8,17 +8,32 @@
   <img src="https://img.shields.io/badge/python-3.10%2B-black" alt="Python 3.10+">
 </p>
 
-Parallax runs your coding agents in private working copies and prepares a patch with an independent review and recorded project checks. In the 1.4.0 development preview, you inspect the saved candidate, request a correction if needed, and approve it. Applying the patch locally or publishing a configured draft PR is a separate action. Public CLI/plugin runs retain their existing integration behavior.
+<p align="center">
+  <a href="#try-one-task-in-the-14-preview">Try a task</a> ·
+  <a href="#install">Install</a> ·
+  <a href="#how-a-run-reaches-your-project">How it works</a> ·
+  <a href="#studio">Studio</a> ·
+  <a href="#limits">Limits</a>
+</p>
 
-Provider roles depend on the selected transport and its enforceable capabilities. Native Grok is currently unavailable in this preview; Claude Code and Antigravity use restricted file tools with shell and content-search tools disabled. Supported API connections are also available. Run diagnostics and check quota before delegating; detecting a sign-in does not establish live readiness.
+Parallax runs your coding agents in private working copies and prepares a patch with an independent review and recorded project checks. You inspect the saved candidate, request a correction if needed, and approve it. Applying the patch locally or publishing a draft PR is a separate action.
 
 Use it from Claude Code, Codex or the command line. Studio shows each task's activity beside its diff, checks and reviews. You can direct the team during a run and return to the recorded result after a disconnect or worker restart.
 
-This checkout documents the **1.4.0 development preview**. The public source and marketplace manifests also carry 1.4.0. Use the pinned source below or a reviewed package supplied by your operator, then follow the [first-task guide](docs/FIRST-TASK.md). Public source availability does not establish pilot readiness; live acceptance is still required.
+| | |
+| --- | --- |
+| **Isolated workers** | Agents work in private worktrees. Your staged, unstaged and untracked changes are snapshotted, not touched. |
+| **Independent review** | A provider that did not implement the change reviews it, without learning who wrote it. |
+| **Checks are the gate** | Integration requires your project's check commands to pass. An agent saying tests passed is not verification. |
+| **Approval, then delivery** | You approve the saved candidate. Applying it locally or opening a draft PR is a separate, explicit step. |
 
-A **Mac desktop beta candidate** adds a native project picker and bundled runtime for Apple Silicon on macOS 15+. It opens the same local Studio without a separate Parallax Python installation. The download is not published: Developer ID signing, notarization, fresh-Mac installation and live task acceptance remain release gates. See [using the beta](docs/MAC-BETA.md), [building and signing](docs/MAC-DISTRIBUTION.md), and [the experimental Windows WSL2 path](docs/WINDOWS.md).
+> [!NOTE]
+> **Status: 1.4.0 development preview.** The public source and marketplace manifests carry 1.4.0. Public source availability does not establish pilot readiness; live acceptance is still required. Provider roles depend on the selected transport and its enforceable capabilities: native Grok is currently unavailable in this preview, and Claude Code and Antigravity use restricted file tools with shell and content-search tools disabled. Supported API connections are also available. Run diagnostics and check quota before delegating; detecting a sign-in does not establish live readiness. Public CLI/plugin runs retain their existing integration behavior.
 
-For a bounded legacy upgrade, try [Modernize one component](examples/legacy-modernization/README.md): a runnable batch-CLI exercise with a versioned compatibility contract and 34 characterization tests. The [domain guide](docs/LEGACY-MODERNIZATION.md) explains the use case and customer comparison; [preview reliability boundaries](docs/RELIABILITY-MODERNIZATION.md) cover provisioning, recovery, evidence limits and unsupported native features.
+**Also in this repo**
+
+- **Mac desktop beta candidate.** A native project picker and bundled runtime for Apple Silicon on macOS 15+. It opens the same local Studio without a separate Parallax Python installation. The download is not published: Developer ID signing, notarization, fresh-Mac installation and live task acceptance remain release gates. See [using the beta](docs/MAC-BETA.md), [building and signing](docs/MAC-DISTRIBUTION.md), and [the experimental Windows WSL2 path](docs/WINDOWS.md).
+- **Legacy modernization exercise.** For a bounded legacy upgrade, try [Modernize one component](examples/legacy-modernization/README.md): a runnable batch-CLI exercise with a versioned compatibility contract and 34 characterization tests. The [domain guide](docs/LEGACY-MODERNIZATION.md) explains the use case; [preview reliability boundaries](docs/RELIABILITY-MODERNIZATION.md) cover provisioning, recovery, evidence limits and unsupported native features.
 
 ## Try one task in the 1.4 preview
 
