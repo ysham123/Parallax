@@ -650,6 +650,9 @@ export default function PublicEntry({
   }, [menu]);
   const accounts =
     config?.identity === "supabase" && signInMethods(config).length > 0;
+  const studioEntry = accounts || config?.github
+    ? { href: "/studio", label: "Open Studio" }
+    : { href: "/local", label: "Open local Studio" };
   async function signIn() {
     setBusy(true);
     setFailure("");
@@ -724,8 +727,8 @@ export default function PublicEntry({
           <div className="site-utilities">
             {accountEntry}
             <ThemeToggle />
-            <a className="btn btn-primary small site-studio" href="/studio">
-              Open Studio
+            <a className="btn btn-primary small site-studio" href={studioEntry.href}>
+              {studioEntry.label}
             </a>
             <button
               className="site-menu-button"
@@ -750,7 +753,7 @@ export default function PublicEntry({
               {name}
             </a>
           ))}
-          <a href="/studio">Open Studio</a>
+          <a href={studioEntry.href}>{studioEntry.label}</a>
           <div className="site-menu-theme">
             <span>Appearance</span>
             <ThemeToggle />

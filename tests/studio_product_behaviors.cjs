@@ -351,6 +351,18 @@ const taskProps = {
   const { default: HostedApp } = require(path.join(src,'HostedApp.tsx'));
   const { PUBLIC_RELEASE } = require(path.join(src,'public-release.ts'));
   const publicPage = renderer(PublicEntry,{config:null,error:null}); publicPage.render();
+  check('Anonymous public entry routes every Studio link to local setup', () => {
+    const links = nodes(publicPage.tree).filter(n => n.type === 'a' && /^Open(?: local)? Studio$/.test(text(n)));
+    assert.equal(links.length,4);
+    assert.ok(links.every(n => n.props.href === '/local'));
+  });
+  const connectedPage = renderer(PublicEntry,{config:{github:true,signup:'closed'},error:null}); connectedPage.render();
+  check('Configured account entry retains its hosted Studio route', () => {
+    const links = nodes(connectedPage.tree).filter(n => n.type === 'a' && text(n) === 'Open Studio');
+    assert.equal(links.length,2);
+    assert.ok(links.every(n => n.props.href === '/studio'));
+  });
+  connectedPage.unmount();
   const installNode = nodes(publicPage.tree).find(n => typeof n.type === 'function' && n.type.name === 'Install');
   const install = renderer(installNode.type,installNode.props); install.render();
   location.pathname = '/studio';

@@ -71,11 +71,13 @@ In the Supabase dashboard:
 3. **Email templates.** Point the links at the runtime, so they work on any device:
    - Confirm signup: `{{ .SiteURL }}/api/auth/confirm?token_hash={{ .TokenHash }}&type=email`
    - Reset password: `{{ .SiteURL }}/reset?token_hash={{ .TokenHash }}&type=recovery`
-4. **SMTP.** Supabase's built-in email sends only a few messages an hour. Under Authentication, Emails, SMTP Settings, use your own provider, for example Resend:
+4. **SMTP.** Supabase's built-in sender only delivers to addresses belonging to the project's organization team and currently allows two messages per hour. Public signup requires a custom SMTP provider. Keep email confirmation on; adding users to the organization is not an email-delivery solution. See [Supabase's SMTP requirements](https://supabase.com/docs/guides/auth/auth-smtp). Under Authentication, Emails, SMTP Settings, use your own provider, for example Resend:
    - host `smtp.resend.com`, port `465`, username `resend`, password your Resend API key;
    - a sender such as `no-reply@<your domain>` on a domain verified in Resend.
-5. **Rate limits.** Because every request comes from the runtime's address, raise the per-IP limits for sign-ups and sign-ins under Authentication, Rate Limits. Parallax applies its own per-address limits: 5 sign-ups and 3 reset emails per hour, and a 15-minute pause after 10 failed passwords.
+5. **Rate limits.** Every request comes from the runtime's address. Start with Supabase's default limits and raise a specific limit only after measuring legitimate traffic and checking the email provider's quota. Parallax also applies its own per-address limits: 5 sign-ups and 3 reset emails per hour, and a 15-minute pause after 10 failed passwords.
 6. **Keys.** Copy the publishable key and, optionally, the secret key from Project Settings, API Keys.
+
+Parallax stores workspace membership and task data in the runtime's private SQLite database. A dedicated Supabase project needs no application tables, Storage buckets or Data API. Disable the Data API in Project Settings. If application tables are added later, enable row-level security and review grants and policies before exposing them. Keep anonymous sign-ins off, restrict redirect URLs to the exact production routes, and keep signup closed until real confirmation, reset and two-account isolation checks pass.
 
 On the runtime, set `PARALLAX_SUPABASE_URL`, `PARALLAX_SUPABASE_PUBLISHABLE_KEY`, `PARALLAX_SUPABASE_SECRET_KEY` and `PARALLAX_OWNER_EMAILS`, then restart. `GET /api/auth/config` lists the providers the project has turned on. Both keys are read once at startup and removed from the runtime's environment.
 
